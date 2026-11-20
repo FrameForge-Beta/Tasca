@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use iroh::{
     Endpoint,
     endpoint::{Connection, SendStream, presets},
@@ -32,10 +32,15 @@ pub struct NodeOptions {
     pub local_only: bool,
     /// Relays próprios (por exemplo, o teu servidor). Vazio usa os relays públicos do iroh.
     pub relay_urls: Vec<String>,
+    /// Servidor onde ficam as caixas cifradas dos grupos. Sem ele, tudo é só P2P.
+    #[cfg(feature = "servidor")]
+    pub servidor: Option<crate::servidor::AccountServer>,
 }
 
 struct Inner {
     identity: Identity,
+    #[cfg(feature = "servidor")]
+    servidor: Option<crate::servidor::AccountServer>,
     store: Mutex<Store>,
     feeds: Mutex<HashMap<GroupId, broadcast::Sender<Update>>>,
 }
@@ -84,6 +89,8 @@ impl Node {
             .map_err(|e| anyhow!("não consegui abrir o endpoint: {e}"))?;
         let inner = Arc::new(Inner {
             identity,
+            #[cfg(feature = "servidor")]
+            servidor: opts.servidor.clone(),
             store: Mutex::new(store),
             feeds: Default::default(),
         });
@@ -122,7 +129,30 @@ impl Node {
                 nonce: rand_bytes(),
             },
         );
-        self.inner.store().create_hosted_group(&ev)
+        let mut store = self.inner.store();
+        let group = store.create_hosted_group(&ev)?;
+        store.set_group_key(group, 0, &crate::caixa::ChaveCaixa::generate()?, 0)?;
+        Ok(group)
+    }
+
+    /// Anfitrião: troca a chave da caixa do grupo (por exemplo, depois de expulsar alguém).
+    /// Os eventos seguintes vão para uma caixa nova; os membros recebem a chave nova quando
+    /// se voltarem a ligar.
+    pub fn rotate_group_key(&self, group: GroupId) -> Result<u32> {
+        let store = self.inner.store();
+        let info = store.group(group)?.ok_or_else(|| anyhow!("grupo desconhecido"))?;
+        ensure!(info.hosted, "só o anfitrião pode trocar a chave");
+        let (epoch, _, mirrored, _) = store.group_key(group)?.ok_or_else(|| anyhow!("grupo sem chave"))?;
+        let next = epoch + 1;
+        store.set_group_key(group, next, &crate::caixa::ChaveCaixa::generate()?, mirrored)?;
+        Ok(next)
+    }
+
+    /// Abre um grupo de que somos membro sem ligar ao anfitrião (por exemplo, com ele
+    /// desligado). As mensagens vão para a caixa do servidor e o anfitrião aceita-as quando voltar.
+    pub fn open_offline(&self, group: GroupId) -> Result<GroupHandle> {
+        ensure!(self.inner.store().group(group)?.is_some(), "grupo desconhecido");
+        Ok(GroupHandle { group, inner: self.inner.clone(), remote: None })
     }
 
     /// Gera um convite novo para um grupo que este PC hospeda.
@@ -218,6 +248,12 @@ impl Node {
                             Err(e) => warn!("evento {seq} rejeitado: {e:#}"),
                         }
                     }
+                    Ok(Some(HostMsg::GroupKey { epoch, key })) => {
+                        let key = crate::caixa::ChaveCaixa::from_bytes(key);
+                        if let Err(e) = inner.store().set_group_key(group, epoch, &key, 0) {
+                            warn!("não consegui guardar a chave do grupo: {e:#}");
+                        }
+                    }
                     Ok(Some(HostMsg::PublishFailed(why))) => {
                         warn!("o anfitrião rejeitou a mensagem: {why}")
                     }
@@ -272,16 +308,24 @@ impl GroupHandle {
 
     async fn publish(&self, kind: EventKind) -> Result<()> {
         let ev = SignedEvent::sign(&self.inner.identity, Some(self.group), kind);
-        match &self.remote {
-            Some(send) => write_frame(&mut *send.lock().await, &ClientMsg::Publish(ev)).await,
-            None => {
-                let seq = self.inner.store().append_as_host(&ev, false)?;
-                if let Some(seq) = seq {
-                    let _ = self.inner.feed(self.group).send((seq, ev));
-                }
-                Ok(())
+        if let Some(send) = &self.remote {
+            let sent = write_frame(&mut *send.lock().await, &ClientMsg::Publish(ev.clone())).await;
+            match sent {
+                Ok(()) => return Ok(()),
+                // Anfitrião caiu: tenta pela caixa do servidor.
+                Err(e) if !self.inner.has_server() => return Err(e),
+                Err(e) => warn!("anfitrião indisponível ({e:#}); a enviar pelo servidor"),
             }
         }
+        let hosted = self.inner.store().group(self.group)?.is_some_and(|g| g.hosted);
+        if hosted {
+            let seq = self.inner.store().append_as_host(&ev, false)?;
+            if let Some(seq) = seq {
+                let _ = self.inner.feed(self.group).send((seq, ev));
+            }
+            return Ok(());
+        }
+        self.inner.send_request(self.group, ev).await
     }
 }
 
@@ -356,6 +400,10 @@ impl HostProtocol {
             write_frame(&mut send, &HostMsg::Event { seq, event }).await?;
             last_sent = seq;
         }
+        let key = self.inner.store().group_key(group)?;
+        if let Some((epoch, key, _, _)) = key {
+            write_frame(&mut send, &HostMsg::GroupKey { epoch, key: *key.as_bytes() }).await?;
+        }
 
         loop {
             tokio::select! {
@@ -398,6 +446,116 @@ impl HostProtocol {
             }
         }
         Ok(())
+    }
+}
+
+impl Inner {
+    fn has_server(&self) -> bool {
+        #[cfg(feature = "servidor")]
+        return self.servidor.is_some();
+        #[cfg(not(feature = "servidor"))]
+        false
+    }
+
+    /// Membro com o anfitrião desligado: deixa o evento na caixa como pedido.
+    async fn send_request(&self, group: GroupId, ev: SignedEvent) -> Result<()> {
+        #[cfg(feature = "servidor")]
+        if let Some(srv) = &self.servidor {
+            let (_, key, _, _) = self
+                .store()
+                .group_key(group)?
+                .ok_or_else(|| anyhow!("ainda não tenho a chave deste grupo; liga-te uma vez ao anfitrião"))?;
+            let bloco = key.seal_item(&crate::caixa::ItemGrupo::Pedido { event: ev })?;
+            srv.caixa_enviar_bloco(&key, bloco).await?;
+            return Ok(());
+        }
+        let _ = (group, ev);
+        bail!("o anfitrião do grupo está desligado")
+    }
+}
+
+#[cfg(feature = "servidor")]
+impl Node {
+    /// Sincroniza um grupo com a caixa no servidor. Devolve quantos eventos novos entraram
+    /// na base de dados local.
+    ///
+    /// - Anfitrião: aceita os pedidos que os membros deixaram e copia para a caixa os
+    ///   eventos que ainda lá não estão (assinados por ele, com o número de ordem).
+    /// - Membro: lê da caixa os eventos que o anfitrião já aceitou.
+    ///
+    /// `espera` (segundos) deixa o pedido de leitura à espera de novidades.
+    pub async fn sync_group(&self, group: GroupId, espera: u32) -> Result<usize> {
+        use crate::caixa::ItemGrupo;
+        let srv = self.inner.servidor.clone().ok_or_else(|| anyhow!("sem servidor configurado"))?;
+        let Some((epoch, key, mut mirrored, mut read)) = self.inner.store().group_key(group)? else {
+            return Ok(0);
+        };
+        let info = self.inner.store().group(group)?;
+        let hosted = info.as_ref().is_some_and(|g| g.hosted);
+        let mut novos = 0;
+
+        for (pos, bloco) in srv.caixa_ler_blocos(&key, read, if hosted { 0 } else { espera }).await? {
+            read = pos;
+            let item = match key.open_item(&bloco) {
+                Ok(i) => i,
+                Err(e) => {
+                    warn!("entrada {pos} da caixa ignorada: {e:#}");
+                    continue;
+                }
+            };
+            match (hosted, item) {
+                (true, ItemGrupo::Pedido { event }) => {
+                    if event.body.group != Some(group) {
+                        continue;
+                    }
+                    let r = self.inner.store().append_as_host(&event, false);
+                    match r {
+                        Ok(Some(seq)) => {
+                            novos += 1;
+                            let _ = self.inner.feed(group).send((seq, event));
+                        }
+                        Ok(None) => {}
+                        Err(e) => warn!("pedido recusado: {e:#}"),
+                    }
+                }
+                (false, item @ ItemGrupo::Registo { .. }) => {
+                    let ItemGrupo::Registo { seq, event, .. } = &item else { unreachable!() };
+                    // O dono vem do histórico; no primeiro evento, do próprio GroupCreated.
+                    let dono = match self.inner.store().group(group)? {
+                        Some(g) => g.owner,
+                        None if *seq == 1 && event.group_id() == group => event.author()?,
+                        None => continue,
+                    };
+                    if let Err(e) = item.verify_registo(&group, &dono) {
+                        warn!("{e:#}");
+                        continue;
+                    }
+                    let r = self.inner.store().insert_replica(group, *seq, event);
+                    match r {
+                        Ok(true) => {
+                            novos += 1;
+                            let _ = self.inner.feed(group).send((*seq, event.clone()));
+                        }
+                        Ok(false) => {}
+                        Err(e) => warn!("registo {seq} não aplicado: {e:#}"),
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if hosted {
+            let pendentes = self.inner.store().events_since(group, mirrored)?;
+            for (seq, event) in pendentes {
+                let item = ItemGrupo::registo(&self.inner.identity, &group, seq, event);
+                srv.caixa_enviar_bloco(&key, key.seal_item(&item)?).await?;
+                mirrored = seq;
+                // Guarda o progresso a cada evento, para não repetir se a ligação cair.
+                self.inner.store().set_key_cursors(group, epoch, mirrored, read)?;
+            }
+        }
+        self.inner.store().set_key_cursors(group, epoch, mirrored, read)?;
+        Ok(novos)
     }
 }
 

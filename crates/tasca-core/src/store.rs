@@ -7,6 +7,7 @@ use anyhow::{Context, Result, anyhow, bail, ensure};
 use iroh::PublicKey;
 use rusqlite::{Connection, OptionalExtension, params};
 
+use crate::caixa::ChaveCaixa;
 use crate::event::{EventKind, GroupId, SignedEvent};
 
 /// Tamanho máximo de uma mensagem de texto (em caracteres).
@@ -67,6 +68,17 @@ impl Store {
                  group_id BLOB NOT NULL REFERENCES groups(id),
                  token    BLOB NOT NULL,
                  PRIMARY KEY (group_id, token)
+             );
+             -- Chaves das caixas do grupo no servidor (uma por época; a mais alta é a atual).
+             -- Sem chave estrangeira: um membro recebe a chave antes do histórico.
+             CREATE TABLE IF NOT EXISTS group_keys (
+                 group_id  BLOB NOT NULL,
+                 epoch     INTEGER NOT NULL,
+                 key       BLOB NOT NULL,
+                 -- até onde já foi copiado para a caixa (anfitrião) / lido da caixa
+                 mirrored  INTEGER NOT NULL DEFAULT 0,
+                 read      INTEGER NOT NULL DEFAULT 0,
+                 PRIMARY KEY (group_id, epoch)
              );",
         )?;
         Ok(Self { conn })
@@ -184,6 +196,47 @@ impl Store {
             Ok((seq, postcard::from_bytes(&data)?))
         })
         .collect()
+    }
+
+    /// Guarda a chave de uma época. `mirrored` é o último evento que já não vai para esta
+    /// caixa (ao rodar a chave, a caixa nova começa a partir dali).
+    pub fn set_group_key(&self, group: GroupId, epoch: u32, key: &ChaveCaixa, mirrored: u64) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO group_keys (group_id, epoch, key, mirrored) VALUES (?1, ?2, ?3, ?4)",
+            params![group.0, epoch, key.as_bytes().as_slice(), mirrored as i64],
+        )?;
+        Ok(())
+    }
+
+    /// A chave atual do grupo: `(época, chave, copiado, lido)`.
+    pub fn group_key(&self, group: GroupId) -> Result<Option<(u32, ChaveCaixa, u64, u64)>> {
+        self.conn
+            .query_row(
+                "SELECT epoch, key, mirrored, read FROM group_keys WHERE group_id = ?1 ORDER BY epoch DESC LIMIT 1",
+                params![group.0],
+                |r| {
+                    Ok((
+                        r.get::<_, u32>(0)?,
+                        r.get::<_, Vec<u8>>(1)?,
+                        r.get::<_, i64>(2)? as u64,
+                        r.get::<_, i64>(3)? as u64,
+                    ))
+                },
+            )
+            .optional()?
+            .map(|(e, k, m, rd)| {
+                let k: [u8; 32] = k.try_into().map_err(|_| anyhow!("chave do grupo inválida"))?;
+                Ok((e, ChaveCaixa::from_bytes(k), m, rd))
+            })
+            .transpose()
+    }
+
+    pub fn set_key_cursors(&self, group: GroupId, epoch: u32, mirrored: u64, read: u64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE group_keys SET mirrored = ?3, read = ?4 WHERE group_id = ?1 AND epoch = ?2",
+            params![group.0, epoch, mirrored as i64, read as i64],
+        )?;
+        Ok(())
     }
 
     pub fn last_seq(&self, group: GroupId) -> Result<u64> {
