@@ -60,10 +60,9 @@
           ${st.exists ? `<button class="btn primary big" data-go="unlock">Entrar como ${esc(st.displayName)}</button>` : `<button class="btn primary big" data-go="create">Criar conta</button>`}
           <button class="btn google big" data-go="google">${G}Entrar com Google</button>
         </div>
-        <div class="auth-links">
-          ${st.exists ? `<button data-go="create">Criar outra conta</button>` : ""}
-          <button data-go="recover">Recuperar com as 12 palavras</button>
-        </div>`);
+        <div class="auth-sep"><span>Já tens conta noutro PC?</span></div>
+        <button class="btn outline big" data-go="recover">Usar as 12 palavras de recuperação</button>
+        ${st.exists ? `<div class="auth-links auth-links-center"><button data-go="create">Criar outra conta</button></div>` : ""}`);
     },
 
     create() {

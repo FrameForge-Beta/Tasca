@@ -127,14 +127,18 @@ pub struct LoginGoogle {
 }
 
 /// Abre o browser no login da Google e espera (até 5 minutos) que o utilizador termine.
-#[tauri::command]
-pub async fn google_sign_in(app: AppHandle, c: State<'_, Contas>) -> Res<LoginGoogle> {
+async fn entrar_google(app: &AppHandle) -> Res<GoogleSession> {
     let config = GoogleConfig::from_env().ok_or("O login com Google ainda não está configurado nesta versão.")?;
     let pendente = config.begin_sign_in().await.map_err(txt)?;
     app.opener()
         .open_url(pendente.url.clone(), None::<&str>)
         .map_err(|e| format!("Não consegui abrir o browser: {e}"))?;
-    let mut sessao = pendente.finish(Duration::from_secs(300)).await.map_err(txt)?;
+    pendente.finish(Duration::from_secs(300)).await.map_err(txt)
+}
+
+#[tauri::command]
+pub async fn google_sign_in(app: AppHandle, c: State<'_, Contas>) -> Res<LoginGoogle> {
+    let mut sessao = entrar_google(&app).await?;
     let has_backup = sessao.has_vault().await.map_err(txt)?;
     let email = sessao.email.clone();
     *c.google.lock().await = Some(sessao);
@@ -169,7 +173,11 @@ pub async fn google_backup(app: AppHandle, c: State<'_, Contas>) -> Res<Copia> {
         .await?
         .ok_or("Ainda não há conta neste PC.")?;
     let mut g = c.google.lock().await;
-    let sessao = g.as_mut().ok_or("Entra primeiro com o Google.")?;
+    // Conta criada na Tasca (sem Google): liga a conta Google agora.
+    if g.is_none() {
+        *g = Some(entrar_google(&app).await?);
+    }
+    let sessao = g.as_mut().expect("sessão Google acabada de criar");
     sessao.upload_vault(&vault).await.map_err(txt)?;
     Ok(Copia { email: sessao.email.clone() })
 }
