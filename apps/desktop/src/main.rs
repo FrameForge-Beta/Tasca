@@ -82,6 +82,8 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
+        // Antes das janelas: no Windows a interface chama comandos de conta logo ao abrir.
+        .manage(contas::Contas::default())
         .invoke_handler(tauri::generate_handler![
             app_info,
             contas::account_status,
@@ -94,8 +96,6 @@ fn main() {
             contas::google_backup,
         ])
         .setup(|app| {
-            let dados = app.path().app_data_dir()?;
-            app.manage(contas::Contas::new(tasca_core::AccountStore::new(dados)));
             let app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 // deixa o ecrã de arranque desenhar-se antes de começar

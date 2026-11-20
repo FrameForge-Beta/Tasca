@@ -11,22 +11,21 @@ use std::time::Duration;
 use serde::Serialize;
 use tasca_core::google::{GoogleConfig, GoogleSession};
 use tasca_core::{Account, AccountStore};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::Mutex;
 
 /// Estado das contas guardado na app.
+///
+/// É registado com `Builder::manage` antes de qualquer janela abrir, porque no Windows a
+/// interface pode chamar comandos antes de o `setup` correr.
+#[derive(Default)]
 pub struct Contas {
-    store: AccountStore,
     conta: Mutex<Option<Account>>,
     google: Mutex<Option<GoogleSession>>,
 }
 
 impl Contas {
-    pub fn new(store: AccountStore) -> Self {
-        Self { store, conta: Mutex::new(None), google: Mutex::new(None) }
-    }
-
     /// A conta desbloqueada, se houver. Para usar a identidade (por exemplo no `Node`).
     #[allow(dead_code)]
     pub async fn identidade(&self) -> Option<tasca_core::Identity> {
@@ -35,6 +34,12 @@ impl Contas {
 }
 
 type Res<T> = Result<T, String>;
+
+/// O cofre vive na pasta de dados da app (no Windows, `%APPDATA%\pt.tasca.desktop`).
+fn store(app: &AppHandle) -> Res<AccountStore> {
+    let dir = app.path().app_data_dir().map_err(|e| format!("Pasta de dados indisponível: {e}"))?;
+    Ok(AccountStore::new(dir))
+}
 
 /// Converte o erro para texto a mostrar, com a primeira letra maiúscula.
 fn txt(e: anyhow::Error) -> String {
@@ -64,8 +69,8 @@ pub struct Estado {
 }
 
 #[tauri::command]
-pub async fn account_status(c: State<'_, Contas>) -> Res<Estado> {
-    let store = c.store.clone();
+pub async fn account_status(app: AppHandle, c: State<'_, Contas>) -> Res<Estado> {
+    let store = store(&app)?;
     let vault = bloqueante(move || store.load()).await?;
     let unlocked = c.conta.lock().await.is_some();
     let google = c.google.lock().await.as_ref().map(|s| s.email.clone());
@@ -85,16 +90,16 @@ pub struct ContaNova {
 }
 
 #[tauri::command]
-pub async fn create_account(c: State<'_, Contas>, display_name: String, password: String) -> Res<ContaNova> {
-    let store = c.store.clone();
+pub async fn create_account(app: AppHandle, c: State<'_, Contas>, display_name: String, password: String) -> Res<ContaNova> {
+    let store = store(&app)?;
     let (conta, frase) = bloqueante(move || store.create(display_name.trim(), &password)).await?;
     *c.conta.lock().await = Some(conta);
     Ok(ContaNova { recovery_phrase: frase.as_str().to_string() })
 }
 
 #[tauri::command]
-pub async fn unlock(c: State<'_, Contas>, password: String) -> Res<bool> {
-    let store = c.store.clone();
+pub async fn unlock(app: AppHandle, c: State<'_, Contas>, password: String) -> Res<bool> {
+    let store = store(&app)?;
     let conta = bloqueante(move || store.unlock(&password)).await?;
     *c.conta.lock().await = Some(conta);
     Ok(true)
@@ -107,8 +112,8 @@ pub async fn lock(c: State<'_, Contas>) -> Res<bool> {
 }
 
 #[tauri::command]
-pub async fn recover(c: State<'_, Contas>, phrase: String, display_name: String, new_password: String) -> Res<bool> {
-    let store = c.store.clone();
+pub async fn recover(app: AppHandle, c: State<'_, Contas>, phrase: String, display_name: String, new_password: String) -> Res<bool> {
+    let store = store(&app)?;
     let conta = bloqueante(move || store.recover(&phrase, display_name.trim(), &new_password)).await?;
     *c.conta.lock().await = Some(conta);
     Ok(true)
@@ -138,14 +143,14 @@ pub async fn google_sign_in(app: AppHandle, c: State<'_, Contas>) -> Res<LoginGo
 
 /// Traz a conta guardada no Google Drive para este PC.
 #[tauri::command]
-pub async fn google_restore(c: State<'_, Contas>, password: String) -> Res<bool> {
+pub async fn google_restore(app: AppHandle, c: State<'_, Contas>, password: String) -> Res<bool> {
     let vault = {
         let mut g = c.google.lock().await;
         let sessao = g.as_mut().ok_or("Entra primeiro com o Google.")?;
         sessao.download_vault().await.map_err(txt)?
     }
     .ok_or("Não há nenhuma conta da Tasca guardada neste Google Drive.")?;
-    let store = c.store.clone();
+    let store = store(&app)?;
     let conta = bloqueante(move || store.import(&vault, &password)).await?;
     *c.conta.lock().await = Some(conta);
     Ok(true)
@@ -158,8 +163,8 @@ pub struct Copia {
 
 /// Guarda o cofre (já encriptado) no Google Drive.
 #[tauri::command]
-pub async fn google_backup(c: State<'_, Contas>) -> Res<Copia> {
-    let store = c.store.clone();
+pub async fn google_backup(app: AppHandle, c: State<'_, Contas>) -> Res<Copia> {
+    let store = store(&app)?;
     let vault = bloqueante(move || store.load())
         .await?
         .ok_or("Ainda não há conta neste PC.")?;
