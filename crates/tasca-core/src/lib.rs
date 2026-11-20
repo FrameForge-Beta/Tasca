@@ -11,6 +11,7 @@ pub mod identity;
 pub mod invite;
 pub mod node;
 pub mod protocol;
+pub mod servidor;
 pub mod store;
 
 pub use account::{Account, AccountStore, RecoveryPhrase, Vault};
@@ -22,3 +23,8 @@ pub use store::Store;
 
 /// Identificador do protocolo da Tasca na negociação QUIC (ALPN).
 pub const ALPN: &[u8] = b"tasca/0";
+
+/// Converte 32 bytes numa chave pública do iroh, em texto.
+pub fn iroh_public_key(bytes: &[u8; 32]) -> anyhow::Result<String> {
+    Ok(iroh::PublicKey::from_bytes(bytes).map_err(|e| anyhow::anyhow!("{e}"))?.to_string())
+}
