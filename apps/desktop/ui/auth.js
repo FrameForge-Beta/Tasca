@@ -27,7 +27,7 @@
         <aside class="auth-brand" aria-hidden="true">
           <div class="auth-brand-in">
             <span class="auth-logo">${LOGO}</span>
-            <p class="auth-tag">Conversa, voz e plugins.<br>Sem servidores: cada grupo vive no PC de quem o criou.</p>
+            <p class="auth-tag">Conversa, voz e plugins.<br>Tudo cifrado de ponta a ponta: só tu e o teu grupo conseguem ler.</p>
           </div>
         </aside>
         <main class="auth-main">
@@ -57,15 +57,13 @@
     welcome() {
       shell(`
         <h1>Bem-vindo à Tasca</h1>
-        <p class="auth-lede">A tua conta é um par de chaves guardado neste PC, protegido pela tua palavra-passe. Ninguém, nem nós, a consegue ver.</p>
+        <p class="auth-lede">A tua conta é cifrada com a tua palavra-passe antes de sair deste PC. Ninguém, nem nós, a consegue abrir.</p>
         <div class="auth-actions">
-          ${st.exists ? `<button class="btn primary big" data-go="unlock">Entrar como ${esc(st.displayName)}</button>` : `<button class="btn primary big" data-go="create">Criar conta</button>`}
-          <button class="btn google big" data-go="google">${G}Entrar com Google</button>
+          ${st.exists ? `<button class="btn primary big" data-go="unlock">Entrar como ${esc(st.displayName)}</button>` : ""}
+          <button class="btn ${st.exists ? "outline" : "primary"} big" data-go="login">${st.exists ? "Entrar com outra conta" : "Entrar"}</button>
         </div>
-        <div class="auth-sep"><span>Já tens conta noutro PC?</span></div>
-        ${st.server ? `<button class="btn outline big" data-go="login">Entrar com utilizador e palavra-passe</button>` : ""}
-        <button class="btn outline big" data-go="recover">Usar as 12 palavras de recuperação</button>
-        ${st.exists ? `<div class="auth-links auth-links-center"><button data-go="create">Criar outra conta</button></div>` : ""}`);
+        <div class="auth-sep"><span>Ainda não tens conta?</span></div>
+        <button class="btn outline big" data-go="create">Criar conta</button>`);
     },
 
     create() {
@@ -123,6 +121,7 @@
     login() {
       shell(`
         <h1>Entrar</h1>
+        ${st.server ? `
         <p class="auth-lede">A tua conta vem cifrada do servidor e só abre aqui, com a tua palavra-passe.</p>
         <form id="f-login" class="auth-form" novalidate>
           <div class="field"><label for="l-user">Nome de utilizador</label><input class="input" id="l-user" maxlength="25" autocomplete="username" autocapitalize="off" spellcheck="false" value="${esc(st.username || "")}"></div>
@@ -130,7 +129,14 @@
           <p class="auth-err" hidden></p>
           <button class="btn primary big" type="submit">Entrar</button>
         </form>
-        <div class="auth-links"><button data-go="recover">Esqueci-me da palavra-passe</button></div>`, { back: "welcome" });
+        <div class="auth-links"><button data-go="recover">Esqueci-me da palavra-passe</button></div>
+        <div class="auth-sep"><span>ou</span></div>` : `
+        <p class="auth-note">Entrar com nome de utilizador ainda não está ligado nesta versão. Por agora, entra com o Google ou com as tuas 12 palavras.</p>`}
+        <div class="auth-actions">
+          <button class="btn google big" data-go="google">${G}Entrar com Google</button>
+          <button class="btn outline big" data-go="recover">Usar as 12 palavras de recuperação</button>
+        </div>
+        <div class="auth-links auth-links-center"><button data-go="create">Ainda não tens conta? Criar conta</button></div>`, { back: "welcome" });
     },
 
     recover() {
@@ -144,7 +150,7 @@
           ${pwField("r-pw2", "Repete a palavra-passe", "new-password")}
           <p class="auth-err" hidden></p>
           <button class="btn primary big" type="submit">Recuperar</button>
-        </form>`, { back: "welcome" });
+        </form>`, { back: "login" });
     },
 
     google() {
@@ -152,7 +158,7 @@
         <h1>Entrar com Google</h1>
         <p class="auth-lede">Vamos abrir o browser para escolheres a conta Google. A Tasca só pede acesso a uma pasta privada dela no teu Google Drive, onde guarda a tua conta cifrada. Não vê os teus emails nem os teus ficheiros.</p>
         <p class="auth-err" hidden></p>
-        <button class="btn google big" id="g-go">${G}Abrir o browser</button>`, { back: "welcome" });
+        <button class="btn google big" id="g-go">${G}Abrir o browser</button>`, { back: "login" });
     },
 
     googleWait() {
