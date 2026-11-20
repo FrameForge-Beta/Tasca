@@ -1,0 +1,275 @@
+// Tasca — ecrãs de conta: boas-vindas, criar conta, desbloquear, recuperar e Google.
+// Não há servidor: a identidade (par de chaves) fica cifrada com a palavra-passe neste PC.
+// Opcionalmente, uma cópia cifrada vai para a pasta privada da app no teu Google Drive.
+(function () {
+  "use strict";
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const LOGO = '<svg viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="116" fill="#9B2C3F"/><path fill="#F6EEE1" d="M168,96 H344 A72,72 0 0 1 416,168 V300 A72,72 0 0 1 344,372 H226 L138,430 L152,364 A72,72 0 0 1 96,300 V168 A72,72 0 0 1 168,96Z"/><g transform="translate(256,234)"><path fill="#2A5CAA" d="M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z"/><path transform="rotate(90)" fill="#2A5CAA" d="M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z"/><path transform="rotate(180)" fill="#2A5CAA" d="M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z"/><path transform="rotate(270)" fill="#2A5CAA" d="M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z"/><circle r="16" fill="#E3A72F"/><circle r="7" fill="#F6EEE1"/></g></svg>';
+  const G = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.6 12.3c0-.8-.1-1.5-.2-2.3H12v4.3h5.9a5 5 0 0 1-2.2 3.3v2.8h3.6c2.1-1.9 3.3-4.8 3.3-8.1z"/><path fill="#34A853" d="M12 23c3 0 5.5-1 7.3-2.7l-3.6-2.8c-1 .7-2.2 1.1-3.7 1.1-2.9 0-5.3-1.9-6.2-4.5H2.1v2.9A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.8 14.1a6.6 6.6 0 0 1 0-4.2V7H2.1a11 11 0 0 0 0 10l3.7-2.9z"/><path fill="#EA4335" d="M12 5.4c1.6 0 3.1.6 4.2 1.7l3.2-3.2A11 11 0 0 0 2.1 7l3.7 2.9C6.7 7.3 9.1 5.4 12 5.4z"/></svg>';
+
+  let root, done, st = {};
+
+  function strength(pw) {
+    let s = 0;
+    if (pw.length >= 8) s++;
+    if (pw.length >= 12) s++;
+    if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) s++;
+    if (/\d/.test(pw) || /[^\w]/.test(pw)) s++;
+    return s; // 0..4
+  }
+  const LV = ["Muito fraca", "Fraca", "Razoável", "Boa", "Forte"];
+
+  function shell(inner, { back } = {}) {
+    root.innerHTML = `
+      <div class="auth">
+        <aside class="auth-brand" aria-hidden="true">
+          <div class="auth-brand-in">
+            <span class="auth-logo">${LOGO}</span>
+            <p class="auth-tag">Conversa, voz e plugins.<br>Sem servidores: cada grupo vive no PC de quem o criou.</p>
+          </div>
+        </aside>
+        <main class="auth-main">
+          <div class="auth-card">
+            ${back ? `<button class="auth-back" data-go="${back}">← Voltar</button>` : ""}
+            ${inner}
+          </div>
+        </main>
+      </div>`;
+    const f = root.querySelector("input, textarea");
+    if (f) f.focus();
+  }
+
+  function err(msg) {
+    const e = root.querySelector(".auth-err");
+    if (e) { e.textContent = msg; e.hidden = !msg; }
+  }
+  function busy(btn, on, label) {
+    btn.disabled = on;
+    if (on) { btn.dataset.l = btn.textContent; btn.textContent = label; } else if (btn.dataset.l) btn.textContent = btn.dataset.l;
+  }
+  const pwField = (id, label, auto) => `<div class="field"><label for="${id}">${label}</label>
+      <div class="pw"><input class="input" type="password" id="${id}" autocomplete="${auto}"><button type="button" class="pw-eye" data-eye="${id}" aria-label="Mostrar palavra-passe">ver</button></div></div>`;
+
+  // ---------------- ecrãs ----------------
+  const screens = {
+    welcome() {
+      shell(`
+        <h1>Bem-vindo à Tasca</h1>
+        <p class="auth-lede">A tua conta é um par de chaves guardado neste PC, protegido pela tua palavra-passe. Ninguém, nem nós, a consegue ver.</p>
+        <div class="auth-actions">
+          ${st.exists ? `<button class="btn primary big" data-go="unlock">Entrar como ${esc(st.displayName)}</button>` : `<button class="btn primary big" data-go="create">Criar conta</button>`}
+          <button class="btn google big" data-go="google">${G}Entrar com Google</button>
+        </div>
+        <div class="auth-links">
+          ${st.exists ? `<button data-go="create">Criar outra conta</button>` : ""}
+          <button data-go="recover">Recuperar com as 12 palavras</button>
+        </div>`);
+    },
+
+    create() {
+      shell(`
+        <h1>Criar conta</h1>
+        <p class="auth-lede">Só fica neste PC. Não precisas de email.</p>
+        <form id="f-create" class="auth-form" novalidate>
+          <div class="field"><label for="c-name">Nome</label><input class="input" id="c-name" maxlength="32" autocomplete="nickname" placeholder="Como te vão ver nos grupos"></div>
+          ${pwField("c-pw", "Palavra-passe", "new-password")}
+          <div class="meter-row"><div class="meter"><i id="c-meter"></i></div><small id="c-lv">Pelo menos 8 caracteres</small></div>
+          ${pwField("c-pw2", "Repete a palavra-passe", "new-password")}
+          <p class="auth-note">Se te esqueceres da palavra-passe, só as 12 palavras que vais ver a seguir te devolvem a conta.</p>
+          <p class="auth-err" hidden></p>
+          <button class="btn primary big" type="submit">Continuar</button>
+        </form>`, { back: "welcome" });
+    },
+
+    words() {
+      shell(`
+        <h1>As tuas 12 palavras</h1>
+        <p class="auth-lede">Escreve-as num papel e guarda-o num sítio seguro. Servem para recuperar a conta noutro PC ou se te esqueceres da palavra-passe. Quem as tiver, tem a tua conta.</p>
+        <ol class="words">${st.phrase.split(" ").map((w) => `<li><span>${esc(w)}</span></li>`).join("")}</ol>
+        <div class="auth-row"><button class="btn ghost" id="w-copy">Copiar</button></div>
+        <label class="check"><input type="checkbox" id="w-ok"><span>Já as guardei num sítio seguro</span></label>
+        <button class="btn primary big" id="w-next" disabled>Continuar</button>`);
+    },
+
+    confirm() {
+      const words = st.phrase.split(" ");
+      st.ask = st.ask || [...new Set(Array.from(crypto.getRandomValues(new Uint8Array(8))).map((b) => b % 12))].slice(0, 3).sort((a, b) => a - b);
+      shell(`
+        <h1>Confirma as palavras</h1>
+        <p class="auth-lede">Para teres a certeza de que as guardaste bem.</p>
+        <form id="f-confirm" class="auth-form" novalidate>
+          ${st.ask.map((i) => `<div class="field"><label for="k-${i}">Palavra n.º ${i + 1}</label><input class="input mono" id="k-${i}" autocomplete="off" autocapitalize="off" spellcheck="false"></div>`).join("")}
+          <p class="auth-err" hidden></p>
+          <button class="btn primary big" type="submit">Concluir</button>
+        </form>`, { back: "words" });
+      root._expected = st.ask.map((i) => [i, words[i]]);
+    },
+
+    unlock() {
+      shell(`
+        <div class="auth-who"><span class="av big" style="background:#9B2C3F">${esc((st.displayName || "?")[0].toUpperCase())}</span><div><b>${esc(st.displayName || "")}</b><small>Conta guardada neste PC${st.google ? " · cópia no Google Drive" : ""}</small></div></div>
+        <form id="f-unlock" class="auth-form" novalidate>
+          ${pwField("u-pw", "Palavra-passe", "current-password")}
+          <p class="auth-err" hidden></p>
+          <button class="btn primary big" type="submit">Entrar</button>
+        </form>
+        <div class="auth-links"><button data-go="recover">Esqueci-me da palavra-passe</button></div>`, { back: "welcome" });
+    },
+
+    recover() {
+      shell(`
+        <h1>Recuperar conta</h1>
+        <p class="auth-lede">Escreve as 12 palavras pela ordem, separadas por espaços. Depois escolhe uma palavra-passe nova.</p>
+        <form id="f-recover" class="auth-form" novalidate>
+          <div class="field"><label for="r-phrase">12 palavras</label><textarea class="input mono" id="r-phrase" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="palavra1 palavra2 …"></textarea><small id="r-count" class="hint">0 de 12</small></div>
+          ${pwField("r-pw", "Palavra-passe nova", "new-password")}
+          ${pwField("r-pw2", "Repete a palavra-passe", "new-password")}
+          <p class="auth-err" hidden></p>
+          <button class="btn primary big" type="submit">Recuperar</button>
+        </form>`, { back: "welcome" });
+    },
+
+    google() {
+      shell(`
+        <h1>Entrar com Google</h1>
+        <p class="auth-lede">Vamos abrir o browser para escolheres a conta Google. A Tasca só pede acesso a uma pasta privada dela no teu Google Drive, onde guarda a tua conta cifrada. Não vê os teus emails nem os teus ficheiros.</p>
+        <p class="auth-err" hidden></p>
+        <button class="btn google big" id="g-go">${G}Abrir o browser</button>`, { back: "welcome" });
+    },
+
+    googleWait() {
+      shell(`
+        <div class="auth-wait"><span class="spin" aria-hidden="true"></span><div><b>À espera do browser…</b><small>Escolhe a conta Google e volta para aqui.</small></div></div>
+        <button class="btn ghost" data-go="google">Cancelar</button>`);
+    },
+
+    googleRestore() {
+      shell(`
+        <div class="auth-who">${G.replace("<svg", '<svg class="g-big"')}<div><b>${esc(st.gmail || "Conta Google")}</b><small>Encontrámos a tua conta da Tasca no Google Drive</small></div></div>
+        <form id="f-grestore" class="auth-form" novalidate>
+          ${pwField("g-pw", "Palavra-passe da Tasca", "current-password")}
+          <p class="auth-note">É a palavra-passe da Tasca, não a do Google. A cópia está cifrada com ela.</p>
+          <p class="auth-err" hidden></p>
+          <button class="btn primary big" type="submit">Entrar</button>
+        </form>`, { back: "welcome" });
+    },
+
+    googleNone() {
+      shell(`
+        <h1>Ainda não tens conta guardada</h1>
+        <p class="auth-lede">A conta Google ${esc(st.gmail || "")} ficou ligada, mas não há nenhuma conta da Tasca guardada nela. Cria uma agora e guardamos uma cópia cifrada no teu Google Drive.</p>
+        <button class="btn primary big" data-go="create">Criar conta</button>`, { back: "welcome" });
+    },
+  };
+
+  function go(name) { st.screen = name; screens[name](); }
+  async function finish() {
+    if (st.wantGoogleBackup) { try { await api.google_backup(); } catch {} }
+    root.classList.add("out");
+    setTimeout(() => { root.remove(); done(); }, 260);
+  }
+
+  // ---------------- eventos ----------------
+  function wire() {
+    root.addEventListener("click", async (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      if (b.dataset.go) { if (b.dataset.go === "create" && st.gmail) st.wantGoogleBackup = true; return go(b.dataset.go); }
+      if (b.dataset.eye) {
+        const i = root.querySelector("#" + b.dataset.eye);
+        i.type = i.type === "password" ? "text" : "password";
+        b.textContent = i.type === "password" ? "ver" : "esconder";
+        return;
+      }
+      if (b.id === "w-copy") {
+        try { await navigator.clipboard.writeText(st.phrase); b.textContent = "Copiado"; }
+        catch { b.textContent = "Seleciona e copia"; }
+        return;
+      }
+      if (b.id === "w-next") return go("confirm");
+      if (b.id === "g-go") {
+        go("googleWait");
+        try {
+          const r = await api.google_sign_in();
+          st.gmail = r.email;
+          go(r.hasBackup ? "googleRestore" : "googleNone");
+        } catch (x) { go("google"); err(String(x.message || x)); }
+      }
+    });
+    root.addEventListener("change", (e) => {
+      if (e.target.id === "w-ok") root.querySelector("#w-next").disabled = !e.target.checked;
+    });
+    root.addEventListener("input", (e) => {
+      const t = e.target;
+      if (t.id === "c-pw") {
+        const s = strength(t.value);
+        const m = root.querySelector("#c-meter");
+        m.style.width = (t.value ? 10 + s * 22.5 : 0) + "%";
+        m.dataset.s = s;
+        root.querySelector("#c-lv").textContent = t.value ? LV[s] : "Pelo menos 8 caracteres";
+      }
+      if (t.id === "r-phrase") {
+        const n = t.value.trim() ? t.value.trim().split(/\s+/).length : 0;
+        const c = root.querySelector("#r-count"); c.textContent = `${n} de 12`; c.classList.toggle("ok", n === 12);
+      }
+    });
+    root.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const f = e.target, btn = f.querySelector("button[type=submit]");
+      const v = (id) => root.querySelector("#" + id).value;
+      err("");
+      try {
+        if (f.id === "f-create") {
+          const name = v("c-name").trim();
+          if (!name) return err("Escreve o teu nome.");
+          if (v("c-pw").length < 8) return err("A palavra-passe tem de ter pelo menos 8 caracteres.");
+          if (v("c-pw") !== v("c-pw2")) return err("As palavras-passe não são iguais.");
+          busy(btn, true, "A criar a tua chave…");
+          const r = await api.create_account({ displayName: name, password: v("c-pw") });
+          st.phrase = r.recoveryPhrase; st.displayName = name; st.ask = null;
+          return go("words");
+        }
+        if (f.id === "f-confirm") {
+          const wrong = root._expected.find(([i, w]) => v("k-" + i).trim().toLowerCase() !== w);
+          if (wrong) return err(`A palavra n.º ${wrong[0] + 1} não está certa. Confirma no papel.`);
+          return finish();
+        }
+        if (f.id === "f-unlock") {
+          busy(btn, true, "A abrir…");
+          await api.unlock({ password: v("u-pw") });
+          return finish();
+        }
+        if (f.id === "f-recover") {
+          if (v("r-pw").length < 8) return err("A palavra-passe tem de ter pelo menos 8 caracteres.");
+          if (v("r-pw") !== v("r-pw2")) return err("As palavras-passe não são iguais.");
+          busy(btn, true, "A recuperar…");
+          await api.recover({ phrase: v("r-phrase").trim().toLowerCase(), newPassword: v("r-pw") });
+          return finish();
+        }
+        if (f.id === "f-grestore") {
+          busy(btn, true, "A abrir…");
+          await api.google_restore({ password: v("g-pw") });
+          return finish();
+        }
+      } catch (x) {
+        busy(btn, false);
+        err(String(x.message || x));
+      }
+    });
+  }
+
+  // Mostra os ecrãs de conta e resolve quando a conta estiver desbloqueada.
+  window.tascaAuth = {
+    async gate() {
+      st = await api.account_status();
+      if (st.unlocked) return st;
+      root = document.createElement("div");
+      root.id = "auth-root";
+      document.body.appendChild(root);
+      wire();
+      go(st.exists ? "unlock" : "welcome");
+      await new Promise((r) => (done = r));
+      return api.account_status();
+    },
+  };
+})();
