@@ -30,6 +30,8 @@ use tasca_core::{
 };
 use tracing::info;
 
+mod caixas;
+
 /// Tentativas de login falhadas permitidas por utilizador antes de bloquear.
 const MAX_FAILS: usize = 10;
 const FAIL_WINDOW: Duration = Duration::from_secs(15 * 60);
@@ -40,8 +42,9 @@ const MAX_VAULT_BYTES: usize = 16 * 1024;
 
 #[derive(Clone)]
 pub struct AppState {
-    db: Arc<Mutex<Connection>>,
+    pub(crate) db: Arc<Mutex<Connection>>,
     limits: Arc<Mutex<Limits>>,
+    pub(crate) caixas: Arc<caixas::Estado>,
     /// Atrás de um proxy (Caddy, Cloudflare): o IP real vem no `X-Forwarded-For`.
     trust_proxy: bool,
 }
@@ -84,7 +87,13 @@ impl AppState {
                  atualizada  INTEGER NOT NULL
              );",
         )?;
-        Ok(Self { db: Arc::new(Mutex::new(conn)), limits: Default::default(), trust_proxy: false })
+        caixas::init(&conn)?;
+        Ok(Self {
+            db: Arc::new(Mutex::new(conn)),
+            limits: Default::default(),
+            caixas: Default::default(),
+            trust_proxy: false,
+        })
     }
 }
 
@@ -96,7 +105,7 @@ impl AppState {
         self
     }
 
-    fn client_ip(&self, addr: SocketAddr, headers: &HeaderMap) -> IpAddr {
+    pub(crate) fn client_ip(&self, addr: SocketAddr, headers: &HeaderMap) -> IpAddr {
         if self.trust_proxy {
             let fwd = headers
                 .get_all("x-forwarded-for")
@@ -120,12 +129,13 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/entrar", post(login))
         .route("/v1/cofre", post(update))
         .route("/v1/utilizador/{nome}", get(lookup))
-        .layer(DefaultBodyLimit::max(64 * 1024))
+        .route("/v1/caixas/{id}", get(caixas::ler).post(caixas::escrever))
+        .layer(DefaultBodyLimit::max(tasca_core::caixa::MAX_BLOCO))
         .with_state(state)
 }
 
 /// Erro com o código HTTP e a mensagem a mostrar ao utilizador.
-pub struct ApiError(StatusCode, String);
+pub struct ApiError(pub(crate) StatusCode, pub(crate) String);
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
@@ -137,7 +147,7 @@ fn bad(msg: impl std::fmt::Display) -> ApiError {
     ApiError(StatusCode::BAD_REQUEST, capitalize(&msg.to_string()))
 }
 
-fn internal(e: impl std::fmt::Display) -> ApiError {
+pub(crate) fn internal(e: impl std::fmt::Display) -> ApiError {
     tracing::error!("erro interno: {e}");
     ApiError(StatusCode::INTERNAL_SERVER_ERROR, "Erro no servidor. Tenta mais tarde.".into())
 }
@@ -154,7 +164,7 @@ fn capitalize(s: &str) -> String {
     }
 }
 
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)

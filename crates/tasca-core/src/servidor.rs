@@ -153,7 +153,16 @@ mod client {
             Self::new(&url).ok()
         }
 
-        fn url(&self, path: &str) -> url::Url {
+        pub(crate) fn http(&self) -> &reqwest::Client {
+            &self.http
+        }
+
+        /// Envia o pedido e converte erros do servidor em texto.
+        pub(crate) async fn send(&self, rb: reqwest::RequestBuilder) -> Result<reqwest::Response> {
+            Self::check(rb.send().await.map_err(net)?).await
+        }
+
+        pub(crate) fn url(&self, path: &str) -> url::Url {
             self.base.join(path).expect("caminho fixo")
         }
 

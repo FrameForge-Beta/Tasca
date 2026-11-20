@@ -4,6 +4,7 @@
 //! ao anfitrião através do iroh e guardam uma cópia local do histórico.
 
 pub mod account;
+pub mod caixa;
 pub mod event;
 #[cfg(feature = "google")]
 pub mod google;
@@ -14,6 +15,7 @@ pub mod protocol;
 pub mod servidor;
 pub mod store;
 
+pub use caixa::ChaveCaixa;
 pub use account::{Account, AccountStore, RecoveryPhrase, Vault};
 pub use event::{EventKind, GroupId, SignedEvent};
 pub use identity::Identity;
