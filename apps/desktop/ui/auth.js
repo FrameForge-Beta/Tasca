@@ -121,6 +121,7 @@
         <h1>Recuperar conta</h1>
         <p class="auth-lede">Escreve as 12 palavras pela ordem, separadas por espaços. Depois escolhe uma palavra-passe nova.</p>
         <form id="f-recover" class="auth-form" novalidate>
+          <div class="field"><label for="r-name">Nome</label><input class="input" id="r-name" maxlength="32" autocomplete="nickname" placeholder="Como te vão ver nos grupos" value="${esc(st.displayName || "")}"></div>
           <div class="field"><label for="r-phrase">12 palavras</label><textarea class="input mono" id="r-phrase" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="palavra1 palavra2 …"></textarea><small id="r-count" class="hint">0 de 12</small></div>
           ${pwField("r-pw", "Palavra-passe nova", "new-password")}
           ${pwField("r-pw2", "Repete a palavra-passe", "new-password")}
@@ -240,10 +241,13 @@
           return finish();
         }
         if (f.id === "f-recover") {
+          const name = v("r-name").trim();
+          if (!name) return err("Escreve o teu nome.");
           if (v("r-pw").length < 8) return err("A palavra-passe tem de ter pelo menos 8 caracteres.");
           if (v("r-pw") !== v("r-pw2")) return err("As palavras-passe não são iguais.");
           busy(btn, true, "A recuperar…");
-          await api.recover({ phrase: v("r-phrase").trim().toLowerCase(), newPassword: v("r-pw") });
+          await api.recover({ phrase: v("r-phrase").trim().toLowerCase(), displayName: name, newPassword: v("r-pw") });
+          st.displayName = name;
           return finish();
         }
         if (f.id === "f-grestore") {

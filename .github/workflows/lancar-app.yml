@@ -5,6 +5,8 @@
 # Segredos necessários (Settings > Secrets and variables > Actions):
 #   TAURI_SIGNING_PRIVATE_KEY           chave privada que assina as atualizações
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  palavra-passe dessa chave
+# Opcionais (login com Google; sem eles o botão diz que ainda não está configurado):
+#   TASCA_GOOGLE_CLIENT_ID, TASCA_GOOGLE_CLIENT_SECRET  (ver docs/login-google.md)
 name: Lançar app
 
 on:

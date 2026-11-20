@@ -229,10 +229,10 @@
       if (!a || password.length !== a.pw) throw new Error("Palavra-passe errada.");
       unlocked = true; people.me.name = a.displayName; return true;
     },
-    async recover({ phrase: p, newPassword }) {
+    async recover({ phrase: p, displayName, newPassword }) {
       await wait(700);
       if (p.trim().split(/\s+/).length !== 12) throw new Error("A frase de recuperação tem de ter 12 palavras.");
-      const a = acct.get() || { displayName: "Tiago" };
+      const a = { ...(acct.get() || {}), displayName: displayName || "Eu" };
       acct.set({ ...a, pw: newPassword.length }); unlocked = true; people.me.name = a.displayName; return true;
     },
     async google_sign_in() { await wait(1500); return { email: "o.teu.email@gmail.com", hasBackup: true }; },

@@ -4,12 +4,14 @@
 //! no GitHub. Se houver, transfere-a, instala-a e reinicia a app; se não houver (ou não
 //! houver internet), fecha o ecrã de arranque e mostra a janela principal.
 //!
-//! A interface (pasta `ui/`) chama comandos Rust com `invoke`. Por agora só existe
-//! `app_info`; os restantes comandos listados em `ui/api.js` ainda usam dados de teste
-//! no próprio JavaScript até serem ligados ao `tasca-core`.
+//! A interface (pasta `ui/`) chama comandos Rust com `invoke`. Já existem `app_info` e
+//! os comandos de conta (`contas.rs`); os restantes comandos listados em `ui/api.js`
+//! ainda usam dados de teste no próprio JavaScript até serem ligados ao `tasca-core`.
 
 // Sem janela de consola no Windows em modo release.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+mod contas;
 
 use std::time::Duration;
 
@@ -79,8 +81,21 @@ fn mostrar_app(app: &AppHandle) {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![app_info])
+        .plugin(tauri_plugin_opener::init())
+        .invoke_handler(tauri::generate_handler![
+            app_info,
+            contas::account_status,
+            contas::create_account,
+            contas::unlock,
+            contas::lock,
+            contas::recover,
+            contas::google_sign_in,
+            contas::google_restore,
+            contas::google_backup,
+        ])
         .setup(|app| {
+            let dados = app.path().app_data_dir()?;
+            app.manage(contas::Contas::new(tasca_core::AccountStore::new(dados)));
             let app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 // deixa o ecrã de arranque desenhar-se antes de começar
