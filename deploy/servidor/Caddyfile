@@ -1,0 +1,4 @@
+# Troca pelo teu domínio (por exemplo tasca-contas.duckdns.org).
+contas.exemplo.pt {
+	reverse_proxy contas:8080
+}

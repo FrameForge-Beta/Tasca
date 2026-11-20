@@ -3,6 +3,7 @@
 //! Variáveis de ambiente:
 //! - `TASCA_ENDERECO`: onde ouvir (por omissão `0.0.0.0:8080`).
 //! - `TASCA_DADOS`: ficheiro SQLite (por omissão `./dados/contas.db`).
+//! - `TASCA_PROXY=1`: está atrás de um proxy; conta o IP do `X-Forwarded-For` nos limites.
 //!
 //! Deve ficar atrás de HTTPS (por exemplo Caddy ou um túnel da Cloudflare).
 
@@ -22,6 +23,7 @@ async fn main() -> anyhow::Result<()> {
         .parse()
         .context("TASCA_ENDERECO inválido")?;
     let path = std::env::var("TASCA_DADOS").unwrap_or_else(|_| "dados/contas.db".into());
-    let state = tasca_servidor::AppState::open(std::path::Path::new(&path))?;
+    let state = tasca_servidor::AppState::open(std::path::Path::new(&path))?
+        .trust_proxy(std::env::var("TASCA_PROXY").is_ok_and(|v| v == "1"));
     tasca_servidor::serve(state, addr).await
 }

@@ -16,7 +16,7 @@ use anyhow::Result;
 use axum::{
     Json, Router,
     extract::{ConnectInfo, DefaultBodyLimit, Path as UrlPath, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -42,6 +42,8 @@ const MAX_VAULT_BYTES: usize = 16 * 1024;
 pub struct AppState {
     db: Arc<Mutex<Connection>>,
     limits: Arc<Mutex<Limits>>,
+    /// Atrás de um proxy (Caddy, Cloudflare): o IP real vem no `X-Forwarded-For`.
+    trust_proxy: bool,
 }
 
 #[derive(Default)]
@@ -82,7 +84,32 @@ impl AppState {
                  atualizada  INTEGER NOT NULL
              );",
         )?;
-        Ok(Self { db: Arc::new(Mutex::new(conn)), limits: Default::default() })
+        Ok(Self { db: Arc::new(Mutex::new(conn)), limits: Default::default(), trust_proxy: false })
+    }
+}
+
+impl AppState {
+    /// Usa o último IP do `X-Forwarded-For` (o que o proxy acrescentou) nos limites.
+    /// Só ligar quando o servidor não está exposto diretamente à Internet.
+    pub fn trust_proxy(mut self, on: bool) -> Self {
+        self.trust_proxy = on;
+        self
+    }
+
+    fn client_ip(&self, addr: SocketAddr, headers: &HeaderMap) -> IpAddr {
+        if self.trust_proxy {
+            let fwd = headers
+                .get_all("x-forwarded-for")
+                .iter()
+                .filter_map(|v| v.to_str().ok())
+                .flat_map(|v| v.split(','))
+                .last()
+                .and_then(|ip| ip.trim().parse().ok());
+            if let Some(ip) = fwd {
+                return ip;
+            }
+        }
+        addr.ip()
     }
 }
 
@@ -161,6 +188,7 @@ fn parse_vault(b64_vault: &str) -> Result<(Vec<u8>, Vault), ApiError> {
 async fn register(
     State(st): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(req): Json<RegisterRequest>,
 ) -> Result<StatusCode, ApiError> {
     let username = normalize_username(&req.username).map_err(bad)?;
@@ -168,7 +196,7 @@ async fn register(
     let (bytes, vault) = parse_vault(&req.vault)?;
     {
         let mut l = st.limits.lock().unwrap();
-        let list = l.registers.entry(addr.ip()).or_default();
+        let list = l.registers.entry(st.client_ip(addr, &headers)).or_default();
         if Limits::recent(list, REGISTER_WINDOW) >= MAX_REGISTER_PER_IP {
             return Err(ApiError(
                 StatusCode::TOO_MANY_REQUESTS,

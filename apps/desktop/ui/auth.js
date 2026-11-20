@@ -1,6 +1,8 @@
 // Tasca — ecrãs de conta: boas-vindas, criar conta, desbloquear, recuperar e Google.
-// Não há servidor: a identidade (par de chaves) fica cifrada com a palavra-passe neste PC.
-// Opcionalmente, uma cópia cifrada vai para a pasta privada da app no teu Google Drive.
+// A identidade (par de chaves) fica cifrada com a palavra-passe neste PC. Se a versão tiver
+// servidor de contas (st.server), a mesma cópia cifrada fica lá com um nome de utilizador,
+// para entrar noutro PC com utilizador e palavra-passe. O servidor nunca a consegue abrir.
+// Opcionalmente, outra cópia cifrada vai para a pasta privada da app no teu Google Drive.
 (function () {
   "use strict";
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -61,6 +63,7 @@
           <button class="btn google big" data-go="google">${G}Entrar com Google</button>
         </div>
         <div class="auth-sep"><span>Já tens conta noutro PC?</span></div>
+        ${st.server ? `<button class="btn outline big" data-go="login">Entrar com utilizador e palavra-passe</button>` : ""}
         <button class="btn outline big" data-go="recover">Usar as 12 palavras de recuperação</button>
         ${st.exists ? `<div class="auth-links auth-links-center"><button data-go="create">Criar outra conta</button></div>` : ""}`);
     },
@@ -68,9 +71,10 @@
     create() {
       shell(`
         <h1>Criar conta</h1>
-        <p class="auth-lede">Só fica neste PC. Não precisas de email.</p>
+        <p class="auth-lede">${st.server ? "Não precisas de email. Com o nome de utilizador entras noutro PC." : "Só fica neste PC. Não precisas de email."}</p>
         <form id="f-create" class="auth-form" novalidate>
           <div class="field"><label for="c-name">Nome</label><input class="input" id="c-name" maxlength="32" autocomplete="nickname" placeholder="Como te vão ver nos grupos"></div>
+          ${st.server ? `<div class="field"><label for="c-user">Nome de utilizador</label><input class="input" id="c-user" maxlength="24" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="letras, números, _ e ."><small class="hint">Para entrares noutro PC e para te encontrarem.</small></div>` : ""}
           ${pwField("c-pw", "Palavra-passe", "new-password")}
           <div class="meter-row"><div class="meter"><i id="c-meter"></i></div><small id="c-lv">Pelo menos 8 caracteres</small></div>
           ${pwField("c-pw2", "Repete a palavra-passe", "new-password")}
@@ -84,6 +88,7 @@
       shell(`
         <h1>As tuas 12 palavras</h1>
         <p class="auth-lede">Escreve-as num papel e guarda-o num sítio seguro. Servem para recuperar a conta noutro PC ou se te esqueceres da palavra-passe. Quem as tiver, tem a tua conta.</p>
+        ${st.serverErr ? `<p class="auth-note">A conta foi criada neste PC, mas não ficou no servidor: ${esc(st.serverErr)}</p>` : ""}
         <ol class="words">${st.phrase.split(" ").map((w) => `<li><span>${esc(w)}</span></li>`).join("")}</ol>
         <div class="auth-row"><button class="btn ghost" id="w-copy">Copiar</button></div>
         <label class="check"><input type="checkbox" id="w-ok"><span>Já as guardei num sítio seguro</span></label>
@@ -106,9 +111,22 @@
 
     unlock() {
       shell(`
-        <div class="auth-who"><span class="av big" style="background:#9B2C3F">${esc((st.displayName || "?")[0].toUpperCase())}</span><div><b>${esc(st.displayName || "")}</b><small>Conta guardada neste PC${st.google ? " · cópia no Google Drive" : ""}</small></div></div>
+        <div class="auth-who"><span class="av big" style="background:#9B2C3F">${esc((st.displayName || "?")[0].toUpperCase())}</span><div><b>${esc(st.displayName || "")}</b><small>${st.username ? "@" + esc(st.username) + " · " : ""}Conta guardada neste PC${st.google ? " · cópia no Google Drive" : ""}</small></div></div>
         <form id="f-unlock" class="auth-form" novalidate>
           ${pwField("u-pw", "Palavra-passe", "current-password")}
+          <p class="auth-err" hidden></p>
+          <button class="btn primary big" type="submit">Entrar</button>
+        </form>
+        <div class="auth-links"><button data-go="recover">Esqueci-me da palavra-passe</button></div>`, { back: "welcome" });
+    },
+
+    login() {
+      shell(`
+        <h1>Entrar</h1>
+        <p class="auth-lede">A tua conta vem cifrada do servidor e só abre aqui, com a tua palavra-passe.</p>
+        <form id="f-login" class="auth-form" novalidate>
+          <div class="field"><label for="l-user">Nome de utilizador</label><input class="input" id="l-user" maxlength="25" autocomplete="username" autocapitalize="off" spellcheck="false" value="${esc(st.username || "")}"></div>
+          ${pwField("l-pw", "Palavra-passe", "current-password")}
           <p class="auth-err" hidden></p>
           <button class="btn primary big" type="submit">Entrar</button>
         </form>
@@ -224,9 +242,20 @@
           if (!name) return err("Escreve o teu nome.");
           if (v("c-pw").length < 8) return err("A palavra-passe tem de ter pelo menos 8 caracteres.");
           if (v("c-pw") !== v("c-pw2")) return err("As palavras-passe não são iguais.");
+          const user = st.server ? v("c-user").trim() : "";
+          if (st.server && !user) return err("Escolhe um nome de utilizador.");
+          if (user) {
+            busy(btn, true, "A verificar o nome…");
+            if (!(await api.username_available({ username: user }))) { busy(btn, false); return err("Esse nome de utilizador já está ocupado."); }
+            busy(btn, false);
+          }
           busy(btn, true, "A criar a tua chave…");
           const r = await api.create_account({ displayName: name, password: v("c-pw") });
-          st.phrase = r.recoveryPhrase; st.displayName = name; st.ask = null;
+          st.phrase = r.recoveryPhrase; st.displayName = name; st.ask = null; st.serverErr = null;
+          if (user) {
+            try { st.username = await api.server_register({ username: user, password: v("c-pw") }); }
+            catch (x) { st.serverErr = String(x.message || x); }
+          }
           return go("words");
         }
         if (f.id === "f-confirm") {
@@ -237,6 +266,12 @@
         if (f.id === "f-unlock") {
           busy(btn, true, "A abrir…");
           await api.unlock({ password: v("u-pw") });
+          return finish();
+        }
+        if (f.id === "f-login") {
+          if (!v("l-user").trim()) return err("Escreve o teu nome de utilizador.");
+          busy(btn, true, "A entrar…");
+          await api.server_login({ username: v("l-user").trim(), password: v("l-pw") });
           return finish();
         }
         if (f.id === "f-recover") {
