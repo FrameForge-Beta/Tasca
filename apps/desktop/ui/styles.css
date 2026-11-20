@@ -771,7 +771,7 @@ button.vtile { cursor: pointer; }
 .dock-call {
   border-radius: 12px; padding: 8px; display: grid; gap: 8px;
   background:
-    var(--azulejo-tile) right -18px top -18px / 64px 64px no-repeat,
+    var(--flor-fantasma) right -34px top -40px / 120px 120px no-repeat,
     linear-gradient(135deg, color-mix(in srgb, var(--g) 34%, var(--caixa)), var(--caixa) 70%);
   border: 1px solid color-mix(in srgb, var(--g) 40%, var(--linha));
 }
