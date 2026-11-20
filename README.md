@@ -38,6 +38,11 @@ cargo run -p tasca-cli -- --dados ./outro entrar tasca1... --nome Ze
 
 Para voltar a abrir um grupo teu: `cargo run -p tasca-cli -- hospedar`.
 
+## Instalar no Windows
+
+Cada push para o `main` cria uma versão nova em [Releases](../../releases) (feita pelo GitHub Actions).
+Descarrega o `Tasca_..._x64-setup.exe` e instala. Ao abrir, a Tasca procura atualizações e instala-as sozinha.
+
 ## Experimentar (aplicação desktop)
 
 ```

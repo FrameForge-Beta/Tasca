@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<title>Tasca</title>
+<style>
+  :root { --vinho: #9B2C3F; --azulejo: #2A5CAA; --ocre: #E3A72F; --cal: #F6EEE1; --madeira: #1C1714; --madeira-2: #27201B; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--madeira); color: var(--cal);
+    font-family: "Inter", system-ui, "Segoe UI", sans-serif;
+    display: grid; place-items: center; user-select: none; cursor: default;
+    -webkit-app-region: drag; overflow: hidden;
+  }
+  .wrap { display: grid; justify-items: center; gap: 18px; text-align: center; padding: 24px; }
+  .logo { width: 104px; height: 104px; animation: balanco 2.4s ease-in-out infinite; transform-origin: 50% 85%; }
+  .flor { transform-origin: 256px 234px; animation: roda 6s linear infinite; }
+  @keyframes balanco { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg) translateY(-3px); } }
+  @keyframes roda { to { transform: rotate(360deg); } }
+  h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+  #msg { margin: 0; font-size: 13.5px; color: #C9BBA8; min-height: 1.4em; }
+  .barra { width: 180px; height: 6px; border-radius: 3px; background: var(--madeira-2); overflow: hidden; }
+  .barra i { display: block; height: 100%; width: 30%; border-radius: 3px; background: var(--ocre); animation: vai 1.2s ease-in-out infinite; }
+  .barra.det i { animation: none; transition: width .2s ease; }
+  @keyframes vai { 0% { transform: translateX(-100%); } 100% { transform: translateX(330%); } }
+  small { font-size: 11px; color: #8F8070; font-variant-numeric: tabular-nums; }
+  @media (prefers-reduced-motion: reduce) { .logo, .flor, .barra i { animation: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <svg class="logo" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="116" fill="#9B2C3F"/><path fill="#F6EEE1" d="M168,96 H344 A72,72 0 0 1 416,168 V300 A72,72 0 0 1 344,372 H226 L138,430 L152,364 A72,72 0 0 1 96,300 V168 A72,72 0 0 1 168,96Z"/><g class="flor"><g transform="translate(256,234)"><path fill="#2A5CAA" d="M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z"/><path transform="rotate(90)" fill="#2A5CAA" d="M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z"/><path transform="rotate(180)" fill="#2A5CAA" d="M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z"/><path transform="rotate(270)" fill="#2A5CAA" d="M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z"/><circle r="16" fill="#E3A72F"/><circle r="7" fill="#F6EEE1"/></g></g></svg>
+  <h1>Tasca</h1>
+  <p id="msg">A abrir a porta…</p>
+  <div class="barra" id="barra"><i id="fill"></i></div>
+  <small id="ver"></small>
+</div>
+<script>
+  const msg = document.getElementById("msg"), barra = document.getElementById("barra"), fill = document.getElementById("fill");
+  const mb = (n) => (n / 1048576).toFixed(1).replace(".", ",") + " MB";
+  const T = window.__TAURI__;
+  if (T) {
+    T.core.invoke("app_info").then((i) => { document.getElementById("ver").textContent = "versão " + i.version; }).catch(() => {});
+    T.event.listen("arranque", ({ payload: e }) => {
+      if (e.fase === "a_procurar") { msg.textContent = "A procurar atualizações…"; }
+      if (e.fase === "a_transferir") {
+        barra.classList.add("det");
+        const pct = e.total ? Math.min(100, Math.round((e.feito / e.total) * 100)) : null;
+        fill.style.width = (pct ?? 50) + "%";
+        msg.textContent = `A transferir a versão ${e.versao}` + (pct != null ? ` · ${pct}%` : ` · ${mb(e.feito)}`);
+      }
+      if (e.fase === "a_instalar") { barra.classList.add("det"); fill.style.width = "100%"; msg.textContent = `A instalar a versão ${e.versao}…`; }
+      if (e.fase === "pronto") { msg.textContent = "A arrancar…"; }
+    });
+  }
+</script>
+</body>
+</html>
