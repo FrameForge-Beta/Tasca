@@ -1,0 +1,408 @@
+//! O nó da Tasca: um endpoint iroh que hospeda grupos e se liga a grupos de outros.
+
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+
+use anyhow::{Context, Result, anyhow, bail};
+use iroh::{
+    Endpoint,
+    endpoint::{Connection, SendStream, presets},
+    protocol::{AcceptError, ProtocolHandler, Router},
+};
+use tokio::sync::broadcast;
+use tracing::{debug, warn};
+
+use crate::{
+    ALPN,
+    event::{EventKind, GroupId, SignedEvent},
+    identity::Identity,
+    invite::Invite,
+    protocol::{ClientMsg, HostMsg, read_frame, write_frame},
+    store::Store,
+};
+
+/// Evento novo num grupo, com o seu número de sequência.
+pub type Update = (u64, SignedEvent);
+
+#[derive(Debug, Clone, Default)]
+pub struct NodeOptions {
+    /// Só ligações diretas por IP (sem relays nem descoberta). Útil para testes e rede local.
+    pub local_only: bool,
+    /// Relays próprios (por exemplo, o teu servidor). Vazio usa os relays públicos do iroh.
+    pub relay_urls: Vec<String>,
+}
+
+struct Inner {
+    identity: Identity,
+    store: Mutex<Store>,
+    feeds: Mutex<HashMap<GroupId, broadcast::Sender<Update>>>,
+}
+
+impl Inner {
+    fn feed(&self, group: GroupId) -> broadcast::Sender<Update> {
+        self.feeds
+            .lock()
+            .unwrap()
+            .entry(group)
+            .or_insert_with(|| broadcast::channel(1024).0)
+            .clone()
+    }
+
+    fn store(&self) -> std::sync::MutexGuard<'_, Store> {
+        self.store.lock().unwrap()
+    }
+}
+
+#[derive(Clone)]
+pub struct Node {
+    inner: Arc<Inner>,
+    router: Router,
+    local_only: bool,
+}
+
+impl Node {
+    pub async fn spawn(identity: Identity, store: Store, opts: NodeOptions) -> Result<Self> {
+        let builder = if opts.local_only {
+            Endpoint::builder(presets::Minimal)
+        } else if !opts.relay_urls.is_empty() {
+            let urls = opts
+                .relay_urls
+                .iter()
+                .map(|u| u.parse())
+                .collect::<Result<Vec<iroh::RelayUrl>, _>>()
+                .context("URL de relay inválido")?;
+            Endpoint::builder(presets::N0).relay_mode(iroh::RelayMode::custom(urls))
+        } else {
+            Endpoint::builder(presets::N0)
+        };
+        let endpoint = builder
+            .secret_key(identity.secret().clone())
+            .bind()
+            .await
+            .map_err(|e| anyhow!("não consegui abrir o endpoint: {e}"))?;
+        let inner = Arc::new(Inner {
+            identity,
+            store: Mutex::new(store),
+            feeds: Default::default(),
+        });
+        let router = Router::builder(endpoint)
+            .accept(
+                ALPN,
+                HostProtocol {
+                    inner: inner.clone(),
+                },
+            )
+            .spawn();
+        Ok(Self {
+            inner,
+            router,
+            local_only: opts.local_only,
+        })
+    }
+
+    pub fn identity(&self) -> &Identity {
+        &self.inner.identity
+    }
+
+    /// Acesso à base de dados local (para ler histórico, nomes, etc.).
+    pub fn with_store<T>(&self, f: impl FnOnce(&Store) -> T) -> T {
+        f(&self.inner.store())
+    }
+
+    /// Cria um grupo novo hospedado neste PC.
+    pub fn create_group(&self, name: &str, owner_name: &str) -> Result<GroupId> {
+        let ev = SignedEvent::sign(
+            &self.inner.identity,
+            None,
+            EventKind::GroupCreated {
+                name: name.trim().to_string(),
+                owner_name: owner_name.trim().to_string(),
+                nonce: rand_bytes(),
+            },
+        );
+        self.inner.store().create_hosted_group(&ev)
+    }
+
+    /// Gera um convite novo para um grupo que este PC hospeda.
+    pub async fn create_invite(&self, group: GroupId) -> Result<Invite> {
+        let info = self
+            .inner
+            .store()
+            .group(group)?
+            .ok_or_else(|| anyhow!("grupo desconhecido"))?;
+        if !info.hosted {
+            bail!("só o anfitrião pode criar convites");
+        }
+        if !self.local_only {
+            // Espera até termos um relay e endereços públicos para pôr no convite.
+            tokio::time::timeout(
+                std::time::Duration::from_secs(15),
+                self.router.endpoint().online(),
+            )
+            .await
+            .ok();
+        }
+        let token = rand_bytes();
+        self.inner.store().add_invite(group, token)?;
+        Ok(Invite {
+            host: self.router.endpoint().addr(),
+            group,
+            token,
+        })
+    }
+
+    /// Recebe os eventos novos de um grupo (quer sejamos anfitrião, quer membro).
+    pub fn subscribe(&self, group: GroupId) -> broadcast::Receiver<Update> {
+        self.inner.feed(group).subscribe()
+    }
+
+    /// Abre um grupo que este PC hospeda, para enviar mensagens como dono.
+    pub fn open_hosted(&self, group: GroupId) -> Result<GroupHandle> {
+        let info = self
+            .inner
+            .store()
+            .group(group)?
+            .ok_or_else(|| anyhow!("grupo desconhecido"))?;
+        if !info.hosted {
+            bail!("este grupo não é hospedado aqui");
+        }
+        Ok(GroupHandle {
+            group,
+            inner: self.inner.clone(),
+            remote: None,
+        })
+    }
+
+    /// Liga-se ao anfitrião de um grupo usando um convite, e entra se ainda não for membro.
+    pub async fn join(&self, invite: &Invite, display_name: &str) -> Result<GroupHandle> {
+        let group = invite.group;
+        let conn = self
+            .router
+            .endpoint()
+            .connect(invite.host.clone(), ALPN)
+            .await
+            .map_err(|e| anyhow!("não consegui ligar ao anfitrião: {e}"))?;
+        let (mut send, mut recv) = conn.open_bi().await?;
+        let since = self.inner.store().last_seq(group)?;
+        write_frame(
+            &mut send,
+            &ClientMsg::Hello {
+                group,
+                invite_token: Some(invite.token),
+                since,
+            },
+        )
+        .await?;
+        match read_frame::<HostMsg>(&mut recv).await? {
+            Some(HostMsg::Welcome) => {}
+            Some(HostMsg::Rejected(why)) => bail!("o anfitrião recusou: {why}"),
+            other => bail!("resposta inesperada do anfitrião: {other:?}"),
+        }
+
+        // Tarefa que recebe eventos do anfitrião e os guarda na réplica local.
+        let inner = self.inner.clone();
+        let feed = inner.feed(group);
+        tokio::spawn(async move {
+            let _conn = conn; // mantém a ligação viva enquanto lemos
+            loop {
+                match read_frame::<HostMsg>(&mut recv).await {
+                    Ok(Some(HostMsg::Event { seq, event })) => {
+                        let stored = inner.store().insert_replica(group, seq, &event);
+                        match stored {
+                            Ok(true) => {
+                                let _ = feed.send((seq, event));
+                            }
+                            Ok(false) => {}
+                            Err(e) => warn!("evento {seq} rejeitado: {e:#}"),
+                        }
+                    }
+                    Ok(Some(HostMsg::PublishFailed(why))) => {
+                        warn!("o anfitrião rejeitou a mensagem: {why}")
+                    }
+                    Ok(Some(other)) => debug!("mensagem ignorada: {other:?}"),
+                    Ok(None) => break,
+                    Err(e) => {
+                        warn!("ligação ao anfitrião caiu: {e:#}");
+                        break;
+                    }
+                }
+            }
+        });
+
+        let handle = GroupHandle {
+            group,
+            inner: self.inner.clone(),
+            remote: Some(Arc::new(tokio::sync::Mutex::new(send))),
+        };
+        let me = self.inner.identity.public();
+        if !self.inner.store().is_member(group, &me)? {
+            handle
+                .publish(EventKind::MemberJoined {
+                    display_name: display_name.trim().to_string(),
+                })
+                .await?;
+        }
+        Ok(handle)
+    }
+
+    pub async fn shutdown(self) -> Result<()> {
+        self.router.shutdown().await.map_err(|e| anyhow!("{e}"))
+    }
+}
+
+/// Um grupo aberto, onde se pode publicar.
+#[derive(Clone)]
+pub struct GroupHandle {
+    pub group: GroupId,
+    inner: Arc<Inner>,
+    /// `None` quando somos o anfitrião.
+    remote: Option<Arc<tokio::sync::Mutex<SendStream>>>,
+}
+
+impl GroupHandle {
+    pub async fn send_message(&self, channel: &str, text: &str) -> Result<()> {
+        self.publish(EventKind::Message {
+            channel: channel.into(),
+            text: text.into(),
+        })
+        .await
+    }
+
+    async fn publish(&self, kind: EventKind) -> Result<()> {
+        let ev = SignedEvent::sign(&self.inner.identity, Some(self.group), kind);
+        match &self.remote {
+            Some(send) => write_frame(&mut *send.lock().await, &ClientMsg::Publish(ev)).await,
+            None => {
+                let seq = self.inner.store().append_as_host(&ev, false)?;
+                if let Some(seq) = seq {
+                    let _ = self.inner.feed(self.group).send((seq, ev));
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+/// Lado do anfitrião: atende membros que se ligam.
+#[derive(Clone)]
+struct HostProtocol {
+    inner: Arc<Inner>,
+}
+
+impl std::fmt::Debug for HostProtocol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("HostProtocol")
+    }
+}
+
+impl ProtocolHandler for HostProtocol {
+    async fn accept(&self, conn: Connection) -> Result<(), AcceptError> {
+        self.serve(conn)
+            .await
+            .map_err(|e| AcceptError::from_boxed(e.into()))
+    }
+}
+
+impl HostProtocol {
+    async fn serve(&self, conn: Connection) -> Result<()> {
+        // A chave da ligação QUIC é a identidade do membro: não dá para fingir ser outro.
+        let remote = conn.remote_id();
+        let (mut send, mut recv) = conn.accept_bi().await?;
+        let Some(ClientMsg::Hello {
+            group,
+            invite_token,
+            since,
+        }) = read_frame(&mut recv).await?
+        else {
+            bail!("esperava Hello");
+        };
+
+        let admitted = {
+            let store = self.inner.store();
+            match store.group(group)? {
+                Some(info) if info.hosted => {
+                    let by_invite = match &invite_token {
+                        Some(t) => store.invite_valid(group, t)?,
+                        None => false,
+                    };
+                    if by_invite || store.is_member(group, &remote)? {
+                        Some(by_invite)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }
+        };
+        let Some(by_invite) = admitted else {
+            write_frame(
+                &mut send,
+                &HostMsg::Rejected("convite inválido ou grupo inexistente".into()),
+            )
+            .await?;
+            send.finish()?;
+            conn.closed().await;
+            return Ok(());
+        };
+        write_frame(&mut send, &HostMsg::Welcome).await?;
+
+        // Subscreve antes de ler o histórico, para não perder nada entretanto.
+        let mut feed = self.inner.feed(group).subscribe();
+        let mut last_sent = since;
+        let backlog = self.inner.store().events_since(group, since)?;
+        for (seq, event) in backlog {
+            write_frame(&mut send, &HostMsg::Event { seq, event }).await?;
+            last_sent = seq;
+        }
+
+        loop {
+            tokio::select! {
+                update = feed.recv() => match update {
+                    Ok((seq, event)) => {
+                        if seq > last_sent {
+                            write_frame(&mut send, &HostMsg::Event { seq, event }).await?;
+                            last_sent = seq;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        let missed = self.inner.store().events_since(group, last_sent)?;
+                        for (seq, event) in missed {
+                            write_frame(&mut send, &HostMsg::Event { seq, event }).await?;
+                            last_sent = seq;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
+                },
+                msg = read_frame::<ClientMsg>(&mut recv) => match msg? {
+                    Some(ClientMsg::Publish(ev)) => {
+                        if ev.body.author != *remote.as_bytes() {
+                            write_frame(&mut send, &HostMsg::PublishFailed("autor não corresponde à ligação".into())).await?;
+                            continue;
+                        }
+                        if ev.body.group != Some(group) {
+                            write_frame(&mut send, &HostMsg::PublishFailed("grupo errado".into())).await?;
+                            continue;
+                        }
+                        let result = self.inner.store().append_as_host(&ev, by_invite);
+                        match result {
+                            Ok(Some(seq)) => { let _ = self.inner.feed(group).send((seq, ev)); }
+                            Ok(None) => {}
+                            Err(e) => write_frame(&mut send, &HostMsg::PublishFailed(format!("{e:#}"))).await?,
+                        }
+                    }
+                    Some(ClientMsg::Hello { .. }) => bail!("Hello repetido"),
+                    None => break,
+                },
+            }
+        }
+        Ok(())
+    }
+}
+
+fn rand_bytes<const N: usize>() -> [u8; N] {
+    let mut out = [0u8; N];
+    getrandom::fill(&mut out).expect("gerador aleatório do sistema");
+    out
+}

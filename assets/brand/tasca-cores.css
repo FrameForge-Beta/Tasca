@@ -1,0 +1,21 @@
+/* Tasca — paleta de cores */
+:root {
+  --vinho: #9B2C3F;        /* cor principal, botões, marca */
+  --vinho-escuro: #6E1E2D; /* hover / pressionado */
+  --azulejo: #2A5CAA;      /* links, seleção, foco */
+  --ocre: #E3A72F;         /* menções, destaques */
+  --oliva: #5E8C4A;        /* online / sucesso */
+  --cal: #F6EEE1;          /* texto no escuro, fundo claro */
+  --tinta: #2A1E1A;        /* texto no modo claro */
+  /* modo escuro (padrão) */
+  --fundo: #1C1714;        /* madeira */
+  --painel: #27201B;       /* madeira 2 */
+  --caixa: #332A24;        /* madeira 3 */
+  --texto: var(--cal);
+}
+:root[data-theme="light"] {
+  --fundo: #FBF6EE;
+  --painel: #F1E8DA;
+  --caixa: #E6DAC8;
+  --texto: var(--tinta);
+}
