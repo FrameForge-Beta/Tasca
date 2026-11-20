@@ -192,7 +192,7 @@
       <div class="group-head"><span class="name">Mensagens privadas</span>
         <button class="icon-btn" data-act="new-dm" aria-label="Nova conversa" title="Nova conversa">${I.plus}</button></div>
       <div class="dm-search search"><label class="sr" for="dm-q">Procurar conversa</label>${I.search}<input id="dm-q" placeholder="Procurar pessoa" value="${esc(S.dmQuery)}"></div>
-      <div class="channels dms">${rows || `<p class="empty">Ninguém com esse nome.</p>`}</div>
+      <div class="channels dms">${rows || `<p class="empty">${q ? "Ninguém com esse nome." : "Ainda não tens conversas."}</p>`}</div>
       ${renderMe()}`;
   }
 
@@ -266,11 +266,22 @@
 
   const menuBtn = () => `<button class="icon-btn menu-btn" data-act="nav" aria-label="Grupos e canais">${I.menu}</button>`;
 
+  // Sem grupos nem conversas (conta nova).
+  function renderEmpty() {
+    return `<div class="main-head">${menuBtn()}<span class="title">Olá, ${esc(S.me.name)}</span></div>
+      <div class="empty-home">
+        <span class="empty-logo">${LOGO}</span>
+        <h2>Ainda não estás em nenhum grupo</h2>
+        <p>Cria um grupo para a tua malta, ou entra num com o convite que alguém te mandou.</p>
+        <button class="btn primary" data-act="new-group">Criar ou entrar num grupo</button>
+      </div>`;
+  }
+
   function renderChat() {
     const dm = S.home ? S.dms.find((d) => d.id === S.channelId) : null;
     const c = dm ? { id: dm.id, name: S.people[dm.with].name } : channel();
     const g = dm ? { owner: null, host: { online: true }, name: "" } : group();
-    if (!c) return "";
+    if (!c) return renderEmpty();
     let lastDay = null, lastFrom = null, lastAt = null;
     const rows = S.messages.map((m) => {
       const p = S.people[m.from];
@@ -840,7 +851,10 @@
     if (d.dest) { await patch({ backup: { dest: d.dest } }); return render(); }
     if (d.every) { await patch({ backup: { every: d.every } }); return render(); }
     switch (d.act) {
-      case "home": { const saved = store.get("dm", null); return openDm(S.dms.some((d) => d.id === saved) ? saved : S.dms[0].id); }
+      case "home": {
+        if (!S.dms.length) { S.home = true; S.view = "chat"; S.channelId = null; S.messages = []; S.navOpen = false; return render(); }
+        const saved = store.get("dm", null); return openDm(S.dms.some((d) => d.id === saved) ? saved : S.dms[0].id);
+      }
       case "dm-call": case "dm-video": return toast("Chamadas privadas: em breve. Vão diretamente entre os dois PCs.");
       case "new-dm": return toast("Escolhe alguém da lista de membros de um grupo para começar a conversar.");
       case "new-group": return openNewGroup();
@@ -1031,6 +1045,7 @@
     }
     applyTheme();
     const saved = store.get("group", null);
+    if (!S.groups.length) { S.home = true; S.view = "chat"; S.channelId = null; S.messages = []; return render(); }
     await openGroup(S.groups.some((g) => g.id === saved) ? saved : S.groups[0].id);
   })().catch(startFailed);
 })();

@@ -88,7 +88,8 @@
         <p class="auth-lede">Escreve-as num papel e guarda-o num sítio seguro. Servem para recuperar a conta noutro PC ou se te esqueceres da palavra-passe. Quem as tiver, tem a tua conta.</p>
         ${st.serverErr ? `<p class="auth-note">A conta foi criada neste PC, mas não ficou no servidor: ${esc(st.serverErr)}</p>` : ""}
         <ol class="words">${st.phrase.split(" ").map((w) => `<li><span>${esc(w)}</span></li>`).join("")}</ol>
-        <div class="auth-row"><button class="btn ghost" id="w-copy">Copiar</button></div>
+        <div class="auth-row"><button class="btn ghost" id="w-txt">Guardar .txt no ambiente de trabalho</button><button class="btn ghost" id="w-copy">Copiar</button></div>
+        <p class="auth-note" id="w-txt-ok" hidden></p>
         <label class="check"><input type="checkbox" id="w-ok"><span>Já as guardei num sítio seguro</span></label>
         <button class="btn primary big" id="w-next" disabled>Continuar</button>`);
     },
@@ -208,6 +209,16 @@
       if (b.id === "w-copy") {
         try { await navigator.clipboard.writeText(st.phrase); b.textContent = "Copiado"; }
         catch { b.textContent = "Seleciona e copia"; }
+        return;
+      }
+      if (b.id === "w-txt") {
+        const ok = root.querySelector("#w-txt-ok");
+        try {
+          const path = await api.save_phrase_desktop({ phrase: st.phrase, displayName: st.displayName || "" });
+          b.textContent = "Guardado";
+          ok.textContent = `Ficou em ${path}. Passa as palavras para papel e depois apaga o ficheiro: quem o abrir fica com a tua conta.`;
+        } catch (x) { ok.textContent = String(x.message || x); }
+        ok.hidden = false;
         return;
       }
       if (b.id === "w-next") return go("confirm");

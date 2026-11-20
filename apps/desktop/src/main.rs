@@ -97,6 +97,7 @@ fn main() {
             contas::username_available,
             contas::server_register,
             contas::server_login,
+            contas::save_phrase_desktop,
         ])
         .setup(|app| {
             let app = app.handle().clone();
