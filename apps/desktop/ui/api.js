@@ -7,6 +7,8 @@
 //
 // Comandos Rust esperados (tasca-app):
 //   get_me, list_groups, list_channels, list_messages, send_message, list_members,
+//   account_status, create_account, unlock, recover, google_sign_in, google_restore,
+//   google_backup, lock,
 //   list_dms, create_group, join_group, create_invite, join_voice, leave_voice, set_voice_state,
 //   set_camera, list_capture_sources, start_screen_share, stop_screen_share,
 //   list_plugins, set_plugin_enabled, install_plugin, get_settings, set_settings,
@@ -204,7 +206,43 @@
   const nowHHMM = () => new Date().toTimeString().slice(0, 5);
   const clone = (x) => JSON.parse(JSON.stringify(x));
 
+  // conta (teste): guardada no browser para a pré-visualização lembrar-se de ti
+  const acct = {
+    get() { try { return JSON.parse(localStorage.getItem("tasca:mock-account")); } catch { return null; } },
+    set(v) { try { localStorage.setItem("tasca:mock-account", JSON.stringify(v)); } catch {} },
+  };
+  let unlocked = false;
+  const WORDS = "abandon ability able about above absent absorb abstract absurd abuse access accident acoustic acquire across action actor actress actual adapt address adjust admit adult advance advice aerobic afford afraid again agent agree ahead aim air airport aisle alarm album alcohol alert alien".split(" ");
+  const phrase = () => Array.from(crypto.getRandomValues(new Uint8Array(12))).map((b) => WORDS[b % WORDS.length]).join(" ");
+
   const mock = {
+    async account_status() { const a = acct.get(); return { exists: !!a, unlocked, displayName: a ? a.displayName : null, google: a ? a.google || null : null }; },
+    async create_account({ displayName, password }) {
+      await wait(700); // Argon2id demora de propósito
+      acct.set({ displayName, pw: password.length, google: null });
+      unlocked = true; people.me.name = displayName;
+      return { recoveryPhrase: phrase() };
+    },
+    async unlock({ password }) {
+      await wait(500);
+      const a = acct.get();
+      if (!a || password.length !== a.pw) throw new Error("Palavra-passe errada.");
+      unlocked = true; people.me.name = a.displayName; return true;
+    },
+    async recover({ phrase: p, newPassword }) {
+      await wait(700);
+      if (p.trim().split(/\s+/).length !== 12) throw new Error("A frase de recuperação tem de ter 12 palavras.");
+      const a = acct.get() || { displayName: "Tiago" };
+      acct.set({ ...a, pw: newPassword.length }); unlocked = true; people.me.name = a.displayName; return true;
+    },
+    async google_sign_in() { await wait(1500); return { email: "o.teu.email@gmail.com", hasBackup: true }; },
+    async google_restore({ password }) {
+      await wait(700);
+      if (password.length < 8) throw new Error("Palavra-passe errada para a cópia guardada no Google Drive.");
+      acct.set({ displayName: "Tiago", pw: password.length, google: "conta Google ligada" }); unlocked = true; people.me.name = "Tiago"; return true;
+    },
+    async google_backup() { await wait(1200); const a = acct.get(); if (a) acct.set({ ...a, google: "conta Google ligada" }); return { email: "conta Google ligada" }; },
+    async lock() { unlocked = false; return true; },
     async get_me() { return clone(people.me); },
     async list_people() { return clone(people); },
     async list_groups() { return clone(groups); },

@@ -559,6 +559,8 @@
       <div class="row"><span class="av" style="width:64px;height:64px;font-size:24px;background:${me.color}" aria-hidden="true">${esc(initials(me.name))}</span>
         <div class="txt"><b style="font-size:18px">${esc(me.name)}</b><small>O teu nome pode ser diferente em cada grupo.</small></div><button class="btn">Editar perfil</button></div>
       <div class="row"><div class="txt"><b>A tua identidade</b><small>Não há contas nem palavras-passe num servidor. És identificado por esta chave, guardada só neste PC.</small><div class="mono" style="margin-top:6px;color:var(--texto-2)">${esc(me.key)}</div></div><button class="btn" data-act="copy-key">Copiar</button></div>
+      <div class="row"><div class="txt"><b>Cópia no Google Drive</b><small>A tua conta cifrada fica numa pasta privada da Tasca no teu Drive, para a recuperares noutro PC só com a palavra-passe.</small></div><button class="btn" data-act="google-backup">Ligar Google</button></div>
+      <div class="row"><div class="txt"><b>Bloquear a Tasca</b><small>Fecha a sessão neste PC. Para voltar a entrar precisas da palavra-passe.</small></div><button class="btn danger" data-act="lock">Bloquear</button></div>
       <div class="row"><div class="txt"><b>Exportar identidade</b><small>Guarda a chave num ficheiro cifrado para usar a mesma conta noutro PC. Sem ela, perdes o acesso aos grupos.</small></div><button class="btn">Exportar…</button></div>
     </div></div>`;
   }
@@ -777,6 +779,11 @@
     render(); toast("Saíste da chamada.");
   }
 
+  function applyThemeOnly() {
+    const t = S.settings.theme;
+    if (t === "system") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", t);
+  }
   function applyTheme() {
     const t = S.settings.theme;
     if (t === "system") document.documentElement.removeAttribute("data-theme");
@@ -878,6 +885,8 @@
         return toast("Cópia feita, cifrada e enviada.");
       }
       case "test-sound": sfx.join(); return;
+      case "lock": await api.lock(); location.reload(); return;
+      case "google-backup": t.disabled = true; t.textContent = "A ligar…"; await api.google_backup(); t.textContent = "Ligado"; return toast("Cópia cifrada guardada no Google Drive.");
       case "test-relay": return toast("Relay respondeu em 12 ms.");
       case "new-channel": return toast("Criar canal: em breve.");
     }
@@ -990,6 +999,8 @@
 
   // ---------------- arranque ----------------
   (async function start() {
+    try { S.settings = await api.get_settings(); applyThemeOnly(); } catch {}
+    await window.tascaAuth.gate();
     S.me = await api.get_me();
     S.people = await api.list_people();
     S.groups = await api.list_groups();
