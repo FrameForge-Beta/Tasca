@@ -39,6 +39,10 @@ impl Identity {
         Ok(id)
     }
 
+    pub fn from_secret(secret: SecretKey) -> Self {
+        Self { secret }
+    }
+
     pub fn public(&self) -> PublicKey {
         self.secret.public()
     }

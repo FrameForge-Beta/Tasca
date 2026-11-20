@@ -6,3 +6,9 @@ members = ["crates/tasca-core", "crates/tasca-cli", "apps/desktop"]
 edition = "2024"
 license = "MIT OR Apache-2.0"
 version = "0.1.0"
+
+# O Argon2 é muito lento sem otimizações; compila-o otimizado também em modo debug.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
