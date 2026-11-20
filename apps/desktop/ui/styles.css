@@ -733,7 +733,10 @@ button.vtile { cursor: pointer; }
 .av.s .st { width: 9px; height: 9px; border-width: 2px; right: -3px; bottom: -3px; }
 
 /* barras de deslocamento: finas, sem setas, polegar arredondado que aparece ao passar o rato */
-* { scrollbar-width: thin; scrollbar-color: var(--caixa-2) transparent; }
+/* Firefox; o Chromium (WebView2) usa as regras ::-webkit-scrollbar abaixo */
+@supports not selector(::-webkit-scrollbar) {
+  * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--texto) 22%, transparent) transparent; }
+}
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
