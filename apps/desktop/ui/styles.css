@@ -748,3 +748,82 @@ button.vtile { cursor: pointer; }
 :hover::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, var(--texto) 24%, transparent); }
 ::-webkit-scrollbar-thumb:hover { background-color: var(--ocre); border-width: 2px; }
 ::-webkit-scrollbar-thumb:active { background-color: var(--vinho); }
+
+/* ---------- balcão (painel de baixo da barra lateral) ---------- */
+.dock { position: relative; flex: none; padding: 8px; display: grid; gap: 6px; }
+.dock .me {
+  height: auto; padding: 6px 6px 6px 6px; border-radius: 12px; background: var(--caixa);
+  display: flex; align-items: center; gap: 4px;
+}
+.me-who { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 4px 6px; border-radius: 9px; text-align: left; }
+.me-who:hover { background: var(--hover); }
+.me-who .who b { font-size: 14px; }
+.me-who .who small { display: block; font-family: var(--f-ui); font-size: 12px; color: var(--texto-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.me-av { border-radius: 50%; transition: box-shadow .12s; }
+.me-av.speaking { box-shadow: 0 0 0 2px var(--caixa), 0 0 0 4px var(--oliva); }
+.me .av .st { border-color: var(--caixa); }
+.av .st.dnd { background: var(--perigo); }
+.me-btns { display: flex; }
+.me-btns .icon-btn { position: relative; }
+.me-btns .lvl { position: absolute; left: 50%; bottom: 3px; width: 0; height: 2px; border-radius: 1px; background: var(--oliva); transform: translateX(-50%); transition: width .1s; }
+.me-btns .lvl.on { width: 14px; }
+
+.dock-call {
+  border-radius: 12px; padding: 8px; display: grid; gap: 8px;
+  background:
+    var(--azulejo-tile) right -18px top -18px / 64px 64px no-repeat,
+    linear-gradient(135deg, color-mix(in srgb, var(--g) 34%, var(--caixa)), var(--caixa) 70%);
+  border: 1px solid color-mix(in srgb, var(--g) 40%, var(--linha));
+}
+.dock-where { display: flex; align-items: center; gap: 10px; text-align: left; padding: 2px 4px; border-radius: 8px; min-width: 0; }
+.dock-where:hover { background: var(--hover); }
+.dock-where-txt { min-width: 0; line-height: 1.2; }
+.dock-where-txt b { display: block; font-size: 13.5px; color: var(--texto); }
+.dock-where-txt small { display: block; font-size: 11.5px; color: var(--texto-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sig { display: flex; align-items: flex-end; gap: 2px; height: 14px; flex: none; }
+.sig i { width: 4px; border-radius: 1px; background: var(--texto-3); opacity: .5; }
+.sig i.on { background: var(--oliva); opacity: 1; }
+.dock-share { display: flex; align-items: center; gap: 8px; padding: 6px; border-radius: 9px; background: rgba(16, 12, 10, 0.25); }
+.dock-thumb { position: relative; width: 56px; aspect-ratio: 16 / 10; border-radius: 5px; overflow: hidden; flex: none; box-shadow: 0 0 0 2px var(--vinho); }
+.dock-thumb .fake-desk .win { width: 84%; height: 78%; }
+.dock-thumb .fake-desk .bar { height: 5px; padding: 0 2px; gap: 1px; } .dock-thumb .fake-desk .bar i { width: 2px; height: 2px; } .dock-thumb .fake-desk .bar span { display: none; }
+.dock-thumb .fake-desk .code { padding: 3px; gap: 2px; } .dock-thumb .fake-desk .code b { height: 2px; }
+.dock-share-txt { flex: 1; min-width: 0; line-height: 1.2; }
+.dock-share-txt b { display: block; font-size: 12.5px; color: var(--texto); }
+.dock-share-txt small { display: block; font-size: 11.5px; color: var(--texto-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-tgls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.dock-tgl { height: 34px; border-radius: 9px; display: grid; place-items: center; color: var(--texto-2); background: rgba(16, 12, 10, 0.22); }
+.dock-tgl svg { width: 18px; height: 18px; }
+.dock-tgl:hover { color: var(--texto); background: rgba(16, 12, 10, 0.35); }
+.dock-tgl.on { background: var(--texto); color: var(--fundo); }
+.dock-tgl.leave { color: var(--perigo); }
+.dock-tgl.leave:hover { background: var(--perigo); color: #fff; }
+:root[data-theme="light"] .dock-share, :root[data-theme="light"] .dock-tgl { background: rgba(255, 255, 255, 0.45); }
+
+.status-pop {
+  position: absolute; left: 8px; right: 8px; bottom: calc(100% - 2px); z-index: 20;
+  background: var(--fundo); border: 1px solid var(--linha); border-radius: 14px; box-shadow: var(--sombra);
+  padding: 8px; display: grid; gap: 2px;
+}
+.status-pop-head { display: flex; gap: 10px; align-items: center; padding: 6px 6px 10px; border-bottom: 1px dotted var(--linha); margin-bottom: 4px; min-width: 0; }
+.status-pop-head > div { min-width: 0; }
+.status-pop-head b { display: block; }
+.status-pop-head small { display: block; color: var(--texto-3); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-custom { display: grid; gap: 4px; padding: 4px 6px 8px; }
+.status-custom span { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--texto-3); }
+.status-custom input { height: 32px; border-radius: 8px; border: 1px solid var(--linha); background: var(--caixa); padding: 0 10px; outline: 0; min-width: 0; }
+.status-custom input:focus { border-color: var(--azulejo); }
+.status-pop button { display: flex; align-items: flex-start; gap: 10px; text-align: left; padding: 7px 8px; border-radius: 9px; }
+.status-pop button:hover { background: var(--hover); }
+.status-pop button.on { background: var(--selecao); }
+.status-pop button b { display: block; font-size: 13.5px; font-weight: 600; }
+.status-pop button small { display: block; font-size: 12px; color: var(--texto-3); }
+.status-pop .st-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; flex: none; background: var(--texto-3); }
+.st-dot.online { background: var(--oliva); } .st-dot.away { background: var(--ocre); } .st-dot.dnd { background: var(--perigo); }
+.st-dot.offline { background: none; box-shadow: inset 0 0 0 2px var(--texto-3); }
+.status-copy { border-top: 1px dotted var(--linha); margin-top: 4px; border-radius: 0 0 9px 9px !important; }
+.status-copy svg { width: 14px; height: 14px; margin-top: 3px; flex: none; color: var(--texto-3); }
+.dock { grid-template-columns: minmax(0, 1fr); }
+.dock > *, .dock-call > *, .dock .me > * { min-width: 0; }
+.me-btns { flex: none; }
+.dock .me .who { min-width: 0; }

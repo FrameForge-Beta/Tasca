@@ -33,6 +33,7 @@
     close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
     upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>',
     lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
+    wave: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12h2M6 8v8M10 5v14M14 9v6M18 7v10M22 12h-2"/></svg>',
     phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2A19.8 19.8 0 0 1 3.1 4.2 2 2 0 0 1 5.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.4 2.1L9.1 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg>',
     cam: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5.2 3.5a.5.5 0 0 0 .8-.4V7.9a.5.5 0 0 0-.8-.4L16 11"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>',
     camOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.7 6H14a2 2 0 0 1 2 2v3.3l1 1 4.2-3.5a.5.5 0 0 1 .8.4v8.2M16 16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2M2 2l20 20"/></svg>',
@@ -84,6 +85,7 @@
     sharing: null,             // { source, quality, audio } quando estou a partilhar o ecrã
     focus: null,               // id do quadrado em destaque ("rui:screen", "me:cam", …); null = grelha
     callSidebar: false,
+    myStatus: "online", customStatus: "", statusOpen: false,
     home: false,               // true = mensagens privadas (botão da Tasca)
     dms: [], dmQuery: "",        // mostrar grupos e canais durante a chamada
     showMembers: store.get("members", true),
@@ -168,7 +170,6 @@
         <button class="icon-btn" data-act="group-menu" aria-label="Opções do grupo" title="Opções do grupo">${I.chevron}</button></div>
       ${hostCard(g)}
       <div class="channels">${body}</div>
-      ${renderVoiceBar()}
       ${renderMe()}`;
   }
 
@@ -188,29 +189,68 @@
         <button class="icon-btn" data-act="new-dm" aria-label="Nova conversa" title="Nova conversa">${I.plus}</button></div>
       <div class="dm-search search"><label class="sr" for="dm-q">Procurar conversa</label>${I.search}<input id="dm-q" placeholder="Procurar pessoa" value="${esc(S.dmQuery)}"></div>
       <div class="channels dms">${rows || `<p class="empty">Ninguém com esse nome.</p>`}</div>
-      ${renderVoiceBar()}
       ${renderMe()}`;
   }
 
+  // Balcão: o painel de baixo da barra lateral. Mostra a chamada (se estiveres numa),
+  // o que estás a partilhar e o teu perfil com estado.
+  const STATUS = [
+    ["online", "Online", "Toda a gente vê que estás cá."],
+    ["away", "Ausente", "Fica assim sozinho depois de 10 min parado."],
+    ["dnd", "Não incomodar", "Sem notificações nem sons de mensagens."],
+    ["offline", "Invisível", "Pareces offline, mas continuas a ver tudo."],
+  ];
   function renderVoiceBar() {
     if (!S.voice) return "";
     const c = findChannel(S.voice.channelId);
     const g = S.groups.find((x) => x.id === S.voice.groupId);
-    return `<div class="voice-bar">
-      <span class="state">${I.signal.replace("<svg", '<svg width="14" height="14"')}${S.sharing ? "A partilhar ecrã" : S.camera ? "Voz e câmara" : "Ligado à voz"}</span>
-      <button class="icon-btn danger" data-act="leave-voice" aria-label="Sair da chamada" title="Sair da chamada">${I.phoneOff}</button>
-      <button class="where" data-voice="${c.id}" style="text-align:left">${esc(c.name)} / ${esc(g.name)} · ${esc(S.voice.route)}</button>
+    const q = S.voice.ping < 60 ? 3 : S.voice.ping < 120 ? 2 : 1;
+    const bars = [1, 2, 3].map((i) => `<i class="${i <= q ? "on" : ""}" style="height:${4 + i * 3}px"></i>`).join("");
+    const share = S.sharing ? `
+      <div class="dock-share">
+        <button class="dock-thumb" data-voice="${c.id}" aria-label="Ver a tua partilha">${fakeScreen("screen", "me")}</button>
+        <div class="dock-share-txt"><b>A partilhar</b><small>${esc(S.sharing.source)} · ${esc(S.sharing.quality.replace(" · ", " "))}</small></div>
+        <button class="icon-btn danger" data-act="share" aria-label="Parar partilha" title="Parar partilha">${I.screenOff}</button>
+      </div>` : "";
+    const tgl = (act, on, icon, offIcon, label, cls = "") =>
+      `<button class="dock-tgl ${on ? "on" : ""} ${cls}" data-act="${act}" aria-pressed="${on}" aria-label="${label}" title="${label}">${on ? icon : offIcon}</button>`;
+    return `<div class="dock-call" style="--g:${g.color || "var(--vinho)"}">
+      <button class="dock-where" data-voice="${c.id}" title="Abrir a chamada">
+        <span class="sig" aria-label="Qualidade da ligação">${bars}</span>
+        <span class="dock-where-txt"><b>${esc(c.name)}</b><small>${esc(g.name)} · ${esc(S.voice.route)} · ${S.voice.ping} ms</small></span>
+      </button>
+      ${share}
+      <div class="dock-tgls">
+        ${tgl("camera", S.camera, I.cam, I.camOff, S.camera ? "Desligar câmara" : "Ligar câmara")}
+        ${tgl("share", !!S.sharing, I.screen, I.screen, S.sharing ? "Parar partilha" : "Partilhar ecrã")}
+        ${tgl("noise", S.settings.noiseSuppression, I.wave, I.wave, S.settings.noiseSuppression ? "Desligar supressão de ruído" : "Ligar supressão de ruído")}
+        <button class="dock-tgl leave" data-act="leave-voice" aria-label="Sair da chamada" title="Sair da chamada">${I.phoneOff}</button>
+      </div>
     </div>`;
   }
 
   function renderMe() {
     const me = S.me;
-    return `<div class="me">${avatar(me, "s", true)}
-      <div class="who"><b>${esc(me.name)}</b><small title="A tua chave pública">${esc(me.key.replace("ed25519:", ""))}</small></div>
-      <button class="icon-btn ${S.muted ? "danger" : ""}" data-act="mute" aria-pressed="${S.muted}" aria-label="${S.muted ? "Ligar microfone" : "Desligar microfone"}" title="${S.muted ? "Ligar microfone" : "Desligar microfone"}">${S.muted ? I.micOff : I.mic}</button>
-      <button class="icon-btn ${S.deaf ? "danger" : ""}" data-act="deaf" aria-pressed="${S.deaf}" aria-label="${S.deaf ? "Ligar som" : "Desligar som"}" title="${S.deaf ? "Ligar som" : "Desligar som"}">${S.deaf ? I.headOff : I.head}</button>
-      <button class="icon-btn" data-act="settings" aria-label="Definições" title="Definições">${I.gear}</button>
-    </div>`;
+    const st = S.myStatus || "online";
+    const label = STATUS.find((x) => x[0] === st)[1];
+    const speaking = S.voice && S.speaking.includes("me") && !S.muted;
+    const pop = S.statusOpen ? `<div class="status-pop" role="menu">
+        <div class="status-pop-head">${avatar(me)}<div><b>${esc(me.name)}</b><small class="mono">${esc(me.key)}</small></div></div>
+        <label class="status-custom" for="custom-status"><span>Mensagem de estado</span><input id="custom-status" maxlength="60" placeholder="Ex.: a jogar Mario Kart" value="${esc(S.customStatus || "")}"></label>
+        ${STATUS.map(([k, l, d]) => `<button role="menuitemradio" aria-checked="${st === k}" class="${st === k ? "on" : ""}" data-status="${k}"><i class="st-dot ${k}"></i><span><b>${l}</b><small>${d}</small></span></button>`).join("")}
+        <button data-act="copy-key" class="status-copy">${I.lock}<span><b>Copiar a minha chave</b><small>Para alguém te adicionar ou verificar quem és.</small></span></button>
+      </div>` : "";
+    return `<div class="dock">${renderVoiceBar()}<div class="me">
+      <button class="me-who" data-act="status" aria-expanded="${!!S.statusOpen}" aria-label="O teu estado: ${label}">
+        <span class="me-av ${speaking ? "speaking" : ""}">${avatar({ ...me, status: st }, "s", true)}</span>
+        <span class="who"><b>${esc(me.name)}</b><small>${esc(S.customStatus || label)}</small></span>
+      </button>
+      <span class="me-btns">
+        <button class="icon-btn ${S.muted ? "danger" : ""}" data-act="mute" aria-pressed="${S.muted}" aria-label="${S.muted ? "Ligar microfone" : "Desligar microfone"}" title="${S.muted ? "Ligar microfone" : "Desligar microfone"}">${S.muted ? I.micOff : I.mic}<i class="lvl ${speaking ? "on" : ""}"></i></button>
+        <button class="icon-btn ${S.deaf ? "danger" : ""}" data-act="deaf" aria-pressed="${S.deaf}" aria-label="${S.deaf ? "Ligar som" : "Desligar som"}" title="${S.deaf ? "Ligar som" : "Desligar som"}">${S.deaf ? I.headOff : I.head}</button>
+        <button class="icon-btn" data-act="settings" aria-label="Definições" title="Definições">${I.gear}</button>
+      </span>
+    </div>${pop}</div>`;
   }
 
   function renderMain() {
@@ -783,6 +823,7 @@
     }
     if (d.setTab) { S.settingsTab = d.setTab; return render(); }
     if (d.themeSet) { await patch({ theme: d.themeSet }); applyTheme(); return render(); }
+    if (d.status) { S.myStatus = d.status; S.statusOpen = false; render(); return toast("Estado: " + STATUS.find((x) => x[0] === d.status)[1] + "."); }
     if (d.msgStyle) { await patch({ msgStyle: d.msgStyle }); return render(); }
     if (d.relay) { await patch({ relay: d.relay }); return render(); }
     if (d.dest) { await patch({ backup: { dest: d.dest } }); return render(); }
@@ -799,6 +840,8 @@
       case "mute": S.muted = !S.muted; (S.muted ? sfx.mute : sfx.unmute)(); if (!S.muted && S.deaf) S.deaf = false; api.set_voice_state({ muted: S.muted, deaf: S.deaf }); return render();
       case "deaf": S.deaf = !S.deaf; (S.deaf ? sfx.deafen : sfx.undeafen)(); S.muted = S.deaf ? true : S.muted; api.set_voice_state({ muted: S.muted, deaf: S.deaf }); return render();
       case "leave-voice": return leaveVoice();
+      case "status": S.statusOpen = !S.statusOpen; return render();
+      case "noise": await patch({ noiseSuppression: !S.settings.noiseSuppression }); render(); return toast(S.settings.noiseSuppression ? "Supressão de ruído ligada." : "Supressão de ruído desligada.");
       case "camera":
         S.camera = !S.camera; await api.set_camera({ on: S.camera }); render();
         return toast(S.camera ? "Câmara ligada." : "Câmara desligada.");
@@ -838,6 +881,7 @@
 
   // fechar painel de membros ao clicar fora (ecrãs estreitos)
   document.addEventListener("pointerdown", (e) => {
+    if (S.statusOpen && !e.target.closest(".status-pop") && !e.target.closest('[data-act="status"]')) { S.statusOpen = false; render(); }
     if (S.membersOpen && !e.target.closest(".members") && !e.target.closest('[data-act="toggle-members"]')) { S.membersOpen = false; render(); }
   });
 
@@ -865,6 +909,7 @@
   document.addEventListener("input", async (e) => {
     const t = e.target;
     if (t.id === "msg-input") { t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 160) + "px"; return; }
+    if (t.id === "custom-status") { S.customStatus = t.value; const w = $(".me .who small"); if (w) w.textContent = t.value || STATUS.find((x) => x[0] === S.myStatus)[1]; return; }
     if (t.id === "dm-q") {
       S.dmQuery = t.value; const pos = t.selectionStart;
       const ch = $(".channels"); $("#sidebar").innerHTML = renderSidebar();
@@ -921,7 +966,7 @@
     S.speaking = speaking;
     if (S.voice || S.view === "chat") {
       if (S.view === "voice" && !document.fullscreenElement) { $("#main").innerHTML = renderVoice(); fitCallGrid(); }
-      if (S.view !== "settings" && S.view !== "plugins" && !(S.home && !S.voice) && document.activeElement?.id !== "dm-q") {
+      if (S.view !== "settings" && S.view !== "plugins" && !(S.home && !S.voice) && document.activeElement?.id !== "dm-q" && !S.statusOpen) {
         const ch = $(".channels"); const st = ch ? ch.scrollTop : 0;
         $("#sidebar").innerHTML = renderSidebar();
         const ch2 = $(".channels"); if (ch2) ch2.scrollTop = st;
