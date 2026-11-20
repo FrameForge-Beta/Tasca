@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 use tasca_core::google::{GoogleConfig, GoogleSession};
+use tasca_core::servidor::{AccountServer, normalize_username};
 use tasca_core::{Account, AccountStore};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
@@ -66,6 +67,10 @@ pub struct Estado {
     public_key: Option<String>,
     /// Email da conta Google ligada nesta sessão.
     google: Option<String>,
+    /// Esta versão tem servidor de contas (utilizador + palavra-passe).
+    server: bool,
+    /// Nome de utilizador no servidor de contas, se a conta lá estiver.
+    username: Option<String>,
 }
 
 #[tauri::command]
@@ -80,6 +85,8 @@ pub async fn account_status(app: AppHandle, c: State<'_, Contas>) -> Res<Estado>
         display_name: vault.as_ref().map(|v| v.display_name.clone()),
         public_key: vault.as_ref().and_then(|v| v.public_key().ok()).map(|k| k.to_string()),
         google,
+        server: AccountServer::from_env().is_some(),
+        username: ler_utilizador(&app),
     })
 }
 
@@ -180,4 +187,81 @@ pub async fn google_backup(app: AppHandle, c: State<'_, Contas>) -> Res<Copia> {
     let sessao = g.as_mut().expect("sessão Google acabada de criar");
     sessao.upload_vault(&vault).await.map_err(txt)?;
     Ok(Copia { email: sessao.email.clone() })
+}
+
+// ---------------- servidor de contas ----------------
+//
+// O servidor só guarda o cofre já cifrado e um verificador da palavra-passe. Abrir o
+// cofre acontece sempre aqui no PC.
+
+fn servidor() -> Res<AccountServer> {
+    AccountServer::from_env().ok_or_else(|| "O servidor de contas ainda não está configurado nesta versão.".into())
+}
+
+fn ficheiro_utilizador(app: &AppHandle) -> Option<std::path::PathBuf> {
+    app.path().app_data_dir().ok().map(|d| d.join("utilizador.txt"))
+}
+
+fn ler_utilizador(app: &AppHandle) -> Option<String> {
+    let s = std::fs::read_to_string(ficheiro_utilizador(app)?).ok()?;
+    let s = s.trim();
+    (!s.is_empty()).then(|| s.to_string())
+}
+
+fn guardar_utilizador(app: &AppHandle, nome: &str) {
+    if let Some(p) = ficheiro_utilizador(app) {
+        if let Err(e) = std::fs::write(&p, nome) {
+            eprintln!("não consegui guardar o nome de utilizador: {e}");
+        }
+    }
+}
+
+/// `true` se o nome de utilizador estiver livre. Erro se o nome for inválido.
+#[tauri::command]
+pub async fn username_available(username: String) -> Res<bool> {
+    let nome = normalize_username(&username).map_err(txt)?;
+    Ok(servidor()?.lookup(&nome).await.map_err(txt)?.is_none())
+}
+
+/// Põe a conta deste PC no servidor com um nome de utilizador. A palavra-passe tem de ser a
+/// da conta (o cofre enviado é o que já está neste PC).
+#[tauri::command]
+pub async fn server_register(app: AppHandle, username: String, password: String) -> Res<String> {
+    let srv = servidor()?;
+    let nome = normalize_username(&username).map_err(txt)?;
+    let store = store(&app)?;
+    let pw = password.clone();
+    let vault = bloqueante(move || {
+        let v = store.load()?.ok_or_else(|| anyhow::anyhow!("ainda não há conta neste PC"))?;
+        v.open(&pw)?; // confirma a palavra-passe antes de enviar
+        Ok(v)
+    })
+    .await?;
+    srv.register(&nome, &password, &vault).await.map_err(txt)?;
+    guardar_utilizador(&app, &nome);
+    Ok(nome)
+}
+
+/// Entra com utilizador e palavra-passe: traz a conta do servidor para este PC.
+#[tauri::command]
+pub async fn server_login(app: AppHandle, c: State<'_, Contas>, username: String, password: String) -> Res<bool> {
+    let srv = servidor()?;
+    let nome = normalize_username(&username).map_err(txt)?;
+    let (vault, _) = srv.login(&nome, &password).await.map_err(txt)?;
+    let store = store(&app)?;
+    // Não apagar sem aviso uma conta que só existe neste PC.
+    let local = { let s = store.clone(); bloqueante(move || s.load()).await? };
+    if let Some(local) = local {
+        let outra = local.public_key().ok() != vault.public_key().ok();
+        if outra && ler_utilizador(&app).is_none() {
+            return Err(format!(
+                "Este PC já tem a conta {} e ela só existe aqui. Põe-na primeiro no servidor ou guarda as 12 palavras.",
+                local.display_name
+            ));
+        }
+    }
+    let conta = bloqueante(move || store.import(&vault, &password)).await?;
+    guardar_utilizador(&app, &nome);
+    *c.conta.lock().await = Some(conta);
+    Ok(true)
 }

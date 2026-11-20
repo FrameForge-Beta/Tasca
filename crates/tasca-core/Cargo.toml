@@ -26,6 +26,8 @@ url = { version = "2.5.8", optional = true }
 zeroize = "1.9.2"
 
 [features]
-default = ["google"]
+default = ["google", "servidor"]
 # Login com Google e cópia da conta no Google Drive.
 google = ["dep:reqwest", "dep:serde_json", "dep:url", "dep:sha2"]
+# Cliente do servidor de contas (login com utilizador e palavra-passe).
+servidor = ["dep:reqwest", "dep:serde_json", "dep:url"]

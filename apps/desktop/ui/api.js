@@ -8,7 +8,7 @@
 // Comandos Rust esperados (tasca-app):
 //   get_me, list_groups, list_channels, list_messages, send_message, list_members,
 //   account_status, create_account, unlock, recover, google_sign_in, google_restore,
-//   google_backup, lock,
+//   google_backup, lock, username_available, server_register, server_login,
 //   list_dms, create_group, join_group, create_invite, join_voice, leave_voice, set_voice_state,
 //   set_camera, list_capture_sources, start_screen_share, stop_screen_share,
 //   list_plugins, set_plugin_enabled, install_plugin, get_settings, set_settings,
@@ -216,7 +216,19 @@
   const phrase = () => Array.from(crypto.getRandomValues(new Uint8Array(12))).map((b) => WORDS[b % WORDS.length]).join(" ");
 
   const mock = {
-    async account_status() { const a = acct.get(); return { exists: !!a, unlocked, displayName: a ? a.displayName : null, google: a ? a.google || null : null }; },
+    async account_status() { const a = acct.get(); return { exists: !!a, unlocked, displayName: a ? a.displayName : null, google: a ? a.google || null : null, server: true, username: a ? a.username || null : null }; },
+    async username_available({ username }) {
+      await wait(300);
+      if (!/^@?[a-z0-9_.]{3,24}$/i.test(username)) throw new Error("O nome de utilizador tem de ter entre 3 e 24 caracteres: letras, números, _ e .");
+      return username.replace(/^@/, "").toLowerCase() !== "tiago";
+    },
+    async server_register({ username }) { await wait(400); const u = username.replace(/^@/, "").toLowerCase(); const a = acct.get(); if (a) acct.set({ ...a, username: u }); return u; },
+    async server_login({ username, password }) {
+      await wait(900);
+      if (password.length < 8) throw new Error("Nome de utilizador ou palavra-passe errados.");
+      const u = username.replace(/^@/, "").toLowerCase();
+      acct.set({ displayName: u, pw: password.length, google: null, username: u }); unlocked = true; people.me.name = u; return true;
+    },
     async create_account({ displayName, password }) {
       await wait(700); // Argon2id demora de propósito
       acct.set({ displayName, pw: password.length, google: null });

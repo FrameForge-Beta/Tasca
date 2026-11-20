@@ -1,0 +1,22 @@
+# Servidor de contas + Caddy (HTTPS automático com Let's Encrypt).
+# Antes de arrancar, muda o domínio no Caddyfile. Arrancar: docker compose up -d --build
+services:
+  contas:
+    build:
+      context: ../..
+      dockerfile: deploy/servidor/Dockerfile
+    restart: unless-stopped
+    volumes:
+      - contas:/dados
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data
+volumes:
+  contas:
+  caddy:

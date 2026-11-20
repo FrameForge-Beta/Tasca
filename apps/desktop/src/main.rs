@@ -94,6 +94,9 @@ fn main() {
             contas::google_sign_in,
             contas::google_restore,
             contas::google_backup,
+            contas::username_available,
+            contas::server_register,
+            contas::server_login,
         ])
         .setup(|app| {
             let app = app.handle().clone();
