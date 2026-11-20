@@ -3,13 +3,17 @@
 //! Cada grupo vive no PC do anfitrião (o dono). Os membros ligam-se diretamente
 //! ao anfitrião através do iroh e guardam uma cópia local do histórico.
 
+pub mod account;
 pub mod event;
+#[cfg(feature = "google")]
+pub mod google;
 pub mod identity;
 pub mod invite;
 pub mod node;
 pub mod protocol;
 pub mod store;
 
+pub use account::{Account, AccountStore, RecoveryPhrase, Vault};
 pub use event::{EventKind, GroupId, SignedEvent};
 pub use identity::Identity;
 pub use invite::Invite;
