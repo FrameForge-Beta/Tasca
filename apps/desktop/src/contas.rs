@@ -265,3 +265,39 @@ pub async fn server_login(app: AppHandle, c: State<'_, Contas>, username: String
     *c.conta.lock().await = Some(conta);
     Ok(true)
 }
+
+/// Grava as 12 palavras num `.txt` no ambiente de trabalho, a pedido do utilizador.
+/// Nunca substitui um ficheiro que já exista. Devolve o caminho.
+#[tauri::command]
+pub async fn save_phrase_desktop(app: AppHandle, phrase: String, display_name: String) -> Res<String> {
+    let palavras: Vec<&str> = phrase.split_whitespace().collect();
+    if palavras.len() != 12 {
+        return Err("Não há 12 palavras para guardar.".into());
+    }
+    let dir = app
+        .path()
+        .desktop_dir()
+        .map_err(|e| format!("Não encontrei o ambiente de trabalho: {e}"))?;
+    let mut texto = String::from("Tasca: palavras de recuperação\r\n");
+    if !display_name.trim().is_empty() {
+        texto += &format!("Conta: {}\r\n", display_name.trim());
+    }
+    texto += "\r\nGuarda-as em papel e apaga este ficheiro. Quem tiver estas palavras fica com a tua conta.\r\n\r\n";
+    for (i, p) in palavras.iter().enumerate() {
+        texto += &format!("{:>2}. {p}\r\n", i + 1);
+    }
+    for n in 1..100 {
+        let nome = if n == 1 { "Tasca - 12 palavras.txt".to_string() } else { format!("Tasca - 12 palavras ({n}).txt") };
+        let caminho = dir.join(nome);
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&caminho) {
+            Ok(mut f) => {
+                use std::io::Write;
+                f.write_all(texto.as_bytes()).map_err(|e| format!("Não consegui escrever o ficheiro: {e}"))?;
+                return Ok(caminho.display().to_string());
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("Não consegui criar o ficheiro: {e}")),
+        }
+    }
+    Err("Já há demasiados ficheiros de palavras no ambiente de trabalho.".into())
+}

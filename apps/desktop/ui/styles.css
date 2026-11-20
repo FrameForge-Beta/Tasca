@@ -884,7 +884,7 @@ button.vtile { cursor: pointer; }
 }
 .words li::before { content: counter(w); font-size: 11px; color: var(--texto-3); min-width: 16px; text-align: right; font-variant-numeric: tabular-nums; }
 .words li span { overflow: hidden; text-overflow: ellipsis; }
-.auth-row { display: flex; justify-content: flex-end; margin-top: -6px; }
+.auth-row { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 4px; margin-top: -6px; }
 .check { display: flex; gap: 10px; align-items: center; font-size: 14px; cursor: pointer; }
 .check input { width: 18px; height: 18px; accent-color: var(--vinho); }
 .auth-who { display: flex; align-items: center; gap: 14px; }
@@ -905,3 +905,10 @@ button.vtile { cursor: pointer; }
   .auth-main { place-items: start center; }
   .words { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* conta nova: sem grupos */
+.empty-home { flex: 1; display: grid; place-content: center; justify-items: center; gap: 12px; text-align: center; padding: 32px 16px; }
+.empty-home .empty-logo { width: 72px; height: 72px; display: block; }
+.empty-home .empty-logo svg { width: 100%; height: 100%; }
+.empty-home h2 { margin: 8px 0 0; font-size: 20px; }
+.empty-home p { margin: 0; max-width: 360px; color: var(--muted, #b9ab9a); }

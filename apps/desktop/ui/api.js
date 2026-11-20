@@ -198,6 +198,14 @@
   };
 
   // ---------------- eventos ----------------
+  // Na app instalada não há dados de teste: só a tua conta, até o núcleo P2P estar ligado.
+  if (tauri) {
+    for (const k of Object.keys(people)) if (k !== "me") delete people[k];
+    Object.assign(people.me, { name: "Eu", key: "" });
+    groups.length = 0; dms.length = 0;
+    for (const o of [channels, members, messages]) for (const k of Object.keys(o)) delete o[k];
+  }
+
   const listeners = {};
   function emit(ev, data) { (listeners[ev] || []).forEach((fn) => fn(data)); }
 
@@ -254,8 +262,25 @@
       acct.set({ displayName: "Tiago", pw: password.length, google: "conta Google ligada" }); unlocked = true; people.me.name = "Tiago"; return true;
     },
     async google_backup() { await wait(1200); const a = acct.get(); if (a) acct.set({ ...a, google: "conta Google ligada" }); return { email: "conta Google ligada" }; },
+    async save_phrase_desktop({ phrase }) {
+      // No browser não há ambiente de trabalho: descarrega o ficheiro.
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([phrase.split(" ").map((w, i) => `${i + 1}. ${w}`).join("\r\n")], { type: "text/plain" }));
+      a.download = "Tasca - 12 palavras.txt"; a.click();
+      return "Transferências/Tasca - 12 palavras.txt";
+    },
     async lock() { unlocked = false; return true; },
-    async get_me() { return clone(people.me); },
+    async get_me() {
+      if (tauri) {
+        try {
+          const s = await tauri.invoke("account_status");
+          if (s.displayName) people.me.name = s.displayName;
+          if (s.publicKey) people.me.key = "ed25519:" + s.publicKey;
+          if (s.username) people.me.username = s.username;
+        } catch {}
+      }
+      return clone(people.me);
+    },
     async list_people() { return clone(people); },
     async list_groups() { return clone(groups); },
     async list_channels({ groupId }) { return clone(channels[groupId] || []); },
@@ -346,7 +371,7 @@
   }
 
   // ---------------- voz simulada: quem está a falar ----------------
-  setInterval(() => {
+  if (!tauri) setInterval(() => {
     const speakers = ["rui", "ines", "joao", "me"].filter(() => Math.random() < 0.35);
     emit("voice_activity", { speaking: speakers });
   }, 900);
