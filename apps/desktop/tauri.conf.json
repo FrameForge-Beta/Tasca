@@ -1,0 +1,34 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Tasca",
+  "identifier": "pt.tasca.app",
+  "build": {
+    "frontendDist": "ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Tasca",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 380,
+        "minHeight": 500,
+        "backgroundColor": "#1C1714"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "icon": [
+      "../../assets/brand/png/tasca-icon-32.png",
+      "../../assets/brand/png/tasca-icon-128.png",
+      "../../assets/brand/png/tasca-icon-256.png",
+      "../../assets/brand/tasca.ico"
+    ]
+  }
+}
