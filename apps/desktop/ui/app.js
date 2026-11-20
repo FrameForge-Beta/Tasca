@@ -998,6 +998,23 @@
   }
 
   // ---------------- arranque ----------------
+  // Se algo falhar ao arrancar, mostra o erro em vez de deixar a janela vazia.
+  function startFailed(e) {
+    console.error("arranque falhou", e);
+    const box = document.createElement("div");
+    box.id = "start-error";
+    box.style.cssText = "position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:#1C1714;color:#F6EEE1;font-family:Inter,system-ui,sans-serif;padding:24px";
+    const msg = String((e && (e.message || e)) || "erro desconhecido");
+    box.innerHTML = '<div style="max-width:520px;text-align:center"><h2 style="margin:0 0 12px">A Tasca não conseguiu arrancar</h2>' +
+      '<p style="opacity:.8;margin:0 0 16px">Manda este erro a quem te está a ajudar:</p>' +
+      '<pre style="white-space:pre-wrap;text-align:left;background:#27201B;border-radius:10px;padding:12px;user-select:text"></pre>' +
+      '<button style="margin-top:16px;padding:10px 18px;border:0;border-radius:10px;background:#9B2C3F;color:#F6EEE1;font:inherit;cursor:pointer">Tentar outra vez</button></div>';
+    box.querySelector("pre").textContent = msg;
+    box.querySelector("button").onclick = () => location.reload();
+    document.body.appendChild(box);
+  }
+  window.addEventListener("error", (e) => { if (!S.groups) startFailed(e.error || e.message); });
+
   (async function start() {
     try { S.settings = await api.get_settings(); applyThemeOnly(); } catch {}
     await window.tascaAuth.gate();
@@ -1015,5 +1032,5 @@
     applyTheme();
     const saved = store.get("group", null);
     await openGroup(S.groups.some((g) => g.id === saved) ? saved : S.groups[0].id);
-  })();
+  })().catch(startFailed);
 })();
