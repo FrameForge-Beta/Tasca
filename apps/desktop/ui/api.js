@@ -1,0 +1,322 @@
+// Tasca — camada de dados da interface.
+//
+// Todas as chamadas da UI passam por `api`. Dentro da app Tauri, cada função chama o
+// comando Rust com o mesmo nome (snake_case) via `invoke`. No browser (pré-visualização),
+// usa os dados de teste abaixo. Os eventos (mensagem nova, alguém a falar, anfitrião
+// offline) chegam por `api.on(evento, fn)`, que no Tauri liga a `listen()`.
+//
+// Comandos Rust esperados (tasca-app):
+//   get_me, list_groups, list_channels, list_messages, send_message, list_members,
+//   list_dms, create_group, join_group, create_invite, join_voice, leave_voice, set_voice_state,
+//   set_camera, list_capture_sources, start_screen_share, stop_screen_share,
+//   list_plugins, set_plugin_enabled, install_plugin, get_settings, set_settings,
+//   run_backup, list_backups, transfer_ownership
+// Eventos: "message", "typing", "voice_activity", "video_track", "host_status", "backup_progress"
+
+(function () {
+  const tauri = window.__TAURI__ && window.__TAURI__.core;
+
+  // ---------------- dados de teste ----------------
+  const people = {
+    me:   { id: "me",   name: "Tiago",    color: "#9B2C3F", key: "ed25519:7Hk2…Qp9x", status: "online" },
+    rui:  { id: "rui",  name: "Rui",      color: "#2A5CAA", key: "ed25519:Rm4c…1aZe", status: "online" },
+    ines: { id: "ines", name: "Inês",     color: "#5E8C4A", key: "ed25519:In8s…v0Lk", status: "online" },
+    marta:{ id: "marta",name: "Marta",    color: "#B8791A", key: "ed25519:Mt2a…9cWw", status: "away" },
+    joao: { id: "joao", name: "João",     color: "#6B4C9A", key: "ed25519:Jo5a…oR3t", status: "online" },
+    bia:  { id: "bia",  name: "Beatriz",  color: "#2E7D7A", key: "ed25519:Bz7t…ee1Q", status: "offline" },
+    diogo:{ id: "diogo",name: "Diogo",    color: "#7A3B2E", key: "ed25519:Dg0o…Hh2s", status: "offline" },
+    carol:{ id: "carol",name: "Carolina", color: "#4A6FA5", key: "ed25519:Cr1l…xx8p", status: "online" },
+    bot:  { id: "bot",  name: "Lembretes",color: "#2A5CAA", key: "plugin:lembretes", status: "online", bot: true },
+  };
+
+  const groups = [
+    { id: "g-malta", name: "Malta do Secundário", short: "MS", owner: "rui", color: "#9B2C3F",
+      host: { online: true, route: "direto", ping: 18 }, unread: 3 },
+    { id: "g-tasca", name: "Projeto Tasca", short: "PT", owner: "me", color: "#2A5CAA",
+      host: { online: true, route: "este PC", ping: 0 }, unread: 0 },
+    { id: "g-xadrez", name: "Clube de Xadrez", short: "CX", owner: "marta", color: "#5E8C4A",
+      host: { online: true, route: "via relay", ping: 64 }, unread: 0 },
+    { id: "g-sexta", name: "Jogos de Sexta", short: "JS", owner: "diogo", color: "#B8791A",
+      host: { online: false, lastSeen: "ontem às 23:40" }, unread: 0 },
+  ];
+
+  const channels = {
+    "g-malta": [
+      { id: "c-geral", kind: "text", cat: "Conversa", name: "geral", topic: "Tudo e mais alguma coisa. Sejam simpáticos." },
+      { id: "c-memes", kind: "text", cat: "Conversa", name: "memes", topic: "Só memes.", unread: 2 },
+      { id: "c-jantar", kind: "text", cat: "Conversa", name: "jantar-de-natal", topic: "Dia 19, no sítio do costume. Quem vem?", unread: 1 },
+      { id: "v-sala", kind: "voice", cat: "Voz", name: "Sala de estar", inVoice: ["rui", "ines", "joao"] },
+      { id: "v-jogos", kind: "voice", cat: "Voz", name: "Jogos", inVoice: [] },
+    ],
+    "g-tasca": [
+      { id: "c-dev", kind: "text", cat: "Desenvolvimento", name: "núcleo-rust", topic: "iroh, SQLite, protocolo de eventos." },
+      { id: "c-ui", kind: "text", cat: "Desenvolvimento", name: "interface", topic: "Tauri + HTML. Capturas de ecrã aqui." },
+      { id: "c-plugins", kind: "text", cat: "Desenvolvimento", name: "plugins", topic: "Revisão de plugins para a loja." },
+      { id: "v-reuniao", kind: "voice", cat: "Voz", name: "Reunião", inVoice: [] },
+    ],
+    "g-xadrez": [
+      { id: "c-partidas", kind: "text", cat: "Clube", name: "partidas", topic: "Partilhem as vossas partidas (PGN)." },
+      { id: "c-torneio", kind: "text", cat: "Clube", name: "torneio-dezembro", topic: "Inscrições até dia 30." },
+      { id: "v-analise", kind: "voice", cat: "Voz", name: "Análise", inVoice: ["marta"] },
+    ],
+    "g-sexta": [
+      { id: "c-planos", kind: "text", cat: "Geral", name: "planos", topic: "O que jogamos esta sexta?" },
+      { id: "v-lobby", kind: "voice", cat: "Voz", name: "Lobby", inVoice: [] },
+    ],
+  };
+
+  const members = {
+    "g-malta": ["rui", "me", "ines", "joao", "carol", "marta", "bia", "diogo", "bot"],
+    "g-tasca": ["me", "rui"],
+    "g-xadrez": ["marta", "me", "joao", "bia"],
+    "g-sexta": ["diogo", "me", "rui", "joao", "carol"],
+  };
+
+  const today = "Hoje";
+  const messages = {
+    "c-geral": [
+      { id: 1, day: "Ontem", at: "22:14", from: "joao", text: "alguém viu o jogo de ontem? que segunda parte" },
+      { id: 2, day: "Ontem", at: "22:15", from: "joao", text: "o golo aos 89 foi ridículo" },
+      { id: 3, day: "Ontem", at: "22:31", from: "carol", text: "vi! o estádio veio abaixo", reactions: [{ e: "⚽", n: 3, mine: true }] },
+      { id: 4, day: today, at: "18:02", from: "rui", text: "Malta, passámos esta tasca para a Tasca 🎉 Está alojada no meu PC, por isso se eu desligar ficam a ver a cópia local até eu voltar." },
+      { id: 5, day: today, at: "18:03", from: "rui", text: "O convite para quem faltar está no canal #jantar-de-natal." },
+      { id: 6, day: today, at: "18:05", from: "ines", text: "Finalmente! Já instalei o plugin de lembretes, funciona muito bem.", reactions: [{ e: "👍", n: 4, mine: false }, { e: "🍷", n: 2, mine: true }] },
+      { id: 7, day: today, at: "18:06", from: "bot", text: "Lembrete criado: **Jantar de Natal** a 19 de dezembro, 20:30. Aviso 1 dia antes." },
+      { id: 8, day: today, at: "18:11", from: "marta", text: "@Tiago consegues trazer as colunas para o jantar?", mentionsMe: true },
+      { id: 9, day: today, at: "18:12", from: "me", text: "Consigo, levo as pequenas que cabem no carro." },
+      { id: 10, day: today, at: "18:20", from: "joao", text: "deixei aqui a lista de quem já confirmou", file: { name: "confirmados.xlsx", size: "12 KB", ext: "XLS" } },
+      { id: 11, day: today, at: "18:24", from: "ines", text: "Estamos na Sala de estar se alguém quiser aparecer 🎧" },
+    ],
+    "c-memes": [
+      { id: 1, day: today, at: "17:40", from: "joao", text: "quando o host desliga o PC a meio da call" },
+      { id: 2, day: today, at: "17:41", from: "carol", text: "😂😂" },
+    ],
+    "c-jantar": [
+      { id: 1, day: today, at: "16:10", from: "rui", text: "Convite para quem ainda não entrou:" },
+      { id: 2, day: today, at: "16:10", from: "rui", text: "`tasca1qx7f3k9w2m…v8hd0` (válido 7 dias)" },
+    ],
+    "c-dev": [
+      { id: 1, day: today, at: "19:30", from: "me", text: "Núcleo em Rust: identidade ed25519, grupos com log de eventos assinado, SQLite para o histórico." },
+      { id: 2, day: today, at: "19:41", from: "rui", text: "E o iroh trata do NAT? Tenho a fibra com CGNAT." },
+      { id: 3, day: today, at: "19:42", from: "me", text: "Trata. Se não der ligação direta passa pelo relay; o meu mini servidor pode ser um relay próprio." },
+    ],
+    "c-partidas": [
+      { id: 1, day: today, at: "15:00", from: "marta", text: "Partida de ontem: 1. e4 e5 2. Cf3 Cc6 3. Bb5 a6. Quem quer analisar logo à noite?" },
+    ],
+    "c-planos": [
+      { id: 1, day: "Ontem", at: "21:00", from: "diogo", text: "Esta sexta: torneio de Mario Kart às 22h." },
+      { id: 2, day: "Ontem", at: "21:04", from: "rui", text: "Conta comigo." },
+    ],
+  };
+
+  // mensagens privadas: ligação direta entre os dois PCs, sem anfitrião
+  const dms = [
+    { id: "dm-ines", with: "ines", unread: 2 },
+    { id: "dm-rui", with: "rui", unread: 0 },
+    { id: "dm-marta", with: "marta", unread: 0 },
+    { id: "dm-joao", with: "joao", unread: 0 },
+    { id: "dm-bia", with: "bia", unread: 0 },
+  ];
+  Object.assign(messages, {
+    "dm-ines": [
+      { id: 1, day: "Ontem", at: "23:02", from: "ines", text: "Viste o vídeo que te mandei?" },
+      { id: 2, day: "Ontem", at: "23:05", from: "me", text: "Vi! Muito bom 😂" },
+      { id: 3, day: today, at: "18:30", from: "ines", text: "Vens à chamada logo? Vamos jogar às 22h" },
+      { id: 4, day: today, at: "18:31", from: "ines", text: "E traz o comando extra se puderes" },
+    ],
+    "dm-rui": [
+      { id: 1, day: today, at: "17:50", from: "rui", text: "Já passei o grupo para a Tasca. Se der algum erro diz-me." },
+      { id: 2, day: today, at: "17:52", from: "me", text: "Combinado. Até agora está tudo a funcionar." },
+    ],
+    "dm-marta": [
+      { id: 1, day: "Ontem", at: "15:12", from: "marta", text: "Obrigada pela partida de ontem, foi renhida!" },
+    ],
+    "dm-joao": [
+      { id: 1, day: "Segunda", at: "21:40", from: "joao", text: "manda-me a lista do jantar quando tiveres" },
+      { id: 2, day: "Segunda", at: "21:45", from: "me", text: "Já está no #jantar-de-natal" },
+    ],
+    "dm-bia": [
+      { id: 1, day: "Domingo", at: "12:00", from: "bia", text: "Parabéns pelo projeto! 🎉" },
+    ],
+  });
+
+  const plugins = [
+    { id: "lembretes", name: "Lembretes", author: "equipa Tasca", version: "1.2.0", verified: true, installed: true, enabled: true,
+      runtime: "WASM", color: "#2A5CAA", icon: "bell",
+      desc: "Cria lembretes no chat com /lembrar. Avisa todo o grupo à hora marcada.",
+      perms: ["ler mensagens", "enviar mensagens"], installs: "2,1 mil" },
+    { id: "sons-tasca", name: "Sons de Tasca", author: "rui.dev", version: "0.4.1", verified: true, installed: true, enabled: false,
+      runtime: "JS", color: "#9B2C3F", icon: "music",
+      desc: "Painel de sons para as chamadas de voz. Inclui o clássico «saúde!».",
+      perms: ["áudio da chamada"], installs: "830" },
+    { id: "xadrez", name: "Tabuleiro de Xadrez", author: "marta_cx", version: "2.0.0", verified: true, installed: false, enabled: false,
+      runtime: "WASM", color: "#5E8C4A", icon: "grid",
+      desc: "Mostra partidas em PGN como tabuleiro interativo e deixa jogar dentro do canal.",
+      perms: ["ler mensagens", "painel próprio"], installs: "412" },
+    { id: "traduz", name: "Tradutor", author: "equipa Tasca", version: "1.0.3", verified: true, installed: false, enabled: false,
+      runtime: "WASM", color: "#E3A72F", icon: "globe",
+      desc: "Traduz mensagens com um clique, no teu PC, sem enviar texto para fora.",
+      perms: ["ler mensagens"], installs: "1,4 mil" },
+    { id: "spotify-status", name: "A ouvir agora", author: "joaozinho", version: "0.2.0", verified: false, installed: false, enabled: false,
+      runtime: "JS", color: "#6B4C9A", icon: "music",
+      desc: "Mostra no teu perfil a música que estás a ouvir. Ainda em revisão pela equipa.",
+      perms: ["rede: api.spotify.com", "editar perfil"], risky: ["rede: api.spotify.com"], installs: "—" },
+    { id: "temas", name: "Temas de Azulejo", author: "equipa Tasca", version: "1.1.0", verified: true, installed: false, enabled: false,
+      runtime: "CSS", color: "#2A5CAA", icon: "palette",
+      desc: "Seis temas extra inspirados em azulejos de Lisboa, Porto e Coimbra.",
+      perms: ["aparência"], installs: "3,0 mil" },
+  ];
+
+  const settings = {
+    theme: "dark",
+    fontSize: 15,
+    compact: false,
+    inputDevice: "Microfone (Realtek Audio)",
+    outputDevice: "Auscultadores (Realtek Audio)",
+    sensitivity: 62,
+    noiseSuppression: true,
+    echoCancel: true,
+    pushToTalk: false,
+    relay: "public",
+    relayUrl: "https://relay.omeuservidor.pt",
+    backup: {
+      dest: "gdrive",
+      connected: { gdrive: "conta Google ligada", onedrive: null, local: "D:\\Backups\\Tasca" },
+      auto: true,
+      every: "diario",
+      zstdLevel: 19,
+      avif: true,
+      groups: ["g-tasca"],
+      history: [
+        { at: "20 nov, 04:00", size: "3,8 MB", note: "incremental", ok: true },
+        { at: "19 nov, 04:00", size: "1,1 MB", note: "incremental", ok: true },
+        { at: "18 nov, 04:00", size: "42,6 MB", note: "completo", ok: true },
+      ],
+    },
+  };
+
+  // ---------------- eventos ----------------
+  const listeners = {};
+  function emit(ev, data) { (listeners[ev] || []).forEach((fn) => fn(data)); }
+
+  let nextId = 1000;
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const nowHHMM = () => new Date().toTimeString().slice(0, 5);
+  const clone = (x) => JSON.parse(JSON.stringify(x));
+
+  const mock = {
+    async get_me() { return clone(people.me); },
+    async list_people() { return clone(people); },
+    async list_groups() { return clone(groups); },
+    async list_channels({ groupId }) { return clone(channels[groupId] || []); },
+    async list_members({ groupId }) {
+      const g = groups.find((x) => x.id === groupId);
+      return (members[groupId] || []).map((id) => ({ ...clone(people[id]), owner: g && g.owner === id }));
+    },
+    async list_dms() {
+      return dms.map((d) => {
+        const list = messages[d.id] || []; const last = list[list.length - 1];
+        return { ...clone(d), last: last ? { text: last.text, from: last.from, at: last.at, day: last.day } : null };
+      });
+    },
+    async list_messages({ channelId }) { return clone(messages[channelId] || []); },
+    async send_message({ channelId, text }) {
+      const m = { id: nextId++, day: today, at: nowHHMM(), from: "me", text, pending: true };
+      (messages[channelId] = messages[channelId] || []).push(m);
+      // o anfitrião confirma (assina e guarda) pouco depois
+      setTimeout(() => { m.pending = false; emit("message_ack", { channelId, id: m.id }); }, 600);
+      if (/tasca|plugin|voz/i.test(text)) {
+        setTimeout(() => emit("typing", { channelId, who: "Inês" }), 900);
+        setTimeout(() => {
+          const r = { id: nextId++, day: today, at: nowHHMM(), from: "ines", text: "Boa! 👌" };
+          messages[channelId].push(r);
+          emit("message", { channelId, message: clone(r) });
+        }, 2600);
+      }
+      return clone(m);
+    },
+    async create_group({ name }) {
+      const g = { id: "g-" + nextId++, name, short: name.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase(),
+        owner: "me", host: { online: true, route: "este PC", ping: 0 }, unread: 0 };
+      groups.push(g);
+      channels[g.id] = [
+        { id: "c-" + nextId++, kind: "text", cat: "Conversa", name: "geral", topic: "Bem-vindos à " + name + "." },
+        { id: "v-" + nextId++, kind: "voice", cat: "Voz", name: "Sala", inVoice: [] },
+      ];
+      members[g.id] = ["me"];
+      return clone(g);
+    },
+    async join_group({ invite }) {
+      if (!/^tasca1[0-9a-z]{8,}/i.test(invite.trim())) throw new Error("Este código não parece um convite da Tasca. Os convites começam por «tasca1».");
+      await wait(900);
+      throw new Error("Não foi possível chegar ao anfitrião. Ele pode estar offline; tenta mais tarde.");
+    },
+    async create_invite({ groupId }) {
+      const rnd = Array.from(crypto.getRandomValues(new Uint8Array(24))).map((b) => "0123456789abcdefghjkmnpqrstvwxyz"[b % 32]).join("");
+      return { code: "tasca1" + rnd, expires: "7 dias", uses: "ilimitado" };
+    },
+    async join_voice({ channelId }) {
+      for (const list of Object.values(channels)) {
+        for (const c of list) {
+          c.inVoice = (c.inVoice || []).filter((x) => x !== "me");
+          if (c.id === channelId) c.inVoice.push("me");
+        }
+      }
+      return { route: "direto P2P", ping: 18, codec: "Opus 64 kbps" };
+    },
+    async leave_voice() {
+      for (const list of Object.values(channels)) for (const c of list) c.inVoice = (c.inVoice || []).filter((x) => x !== "me");
+      return true;
+    },
+    async set_voice_state() { return true; },
+    async set_camera() { return true; },
+    async list_capture_sources() { return []; },
+    async start_screen_share() { await wait(300); return true; },
+    async stop_screen_share() { return true; },
+    async list_plugins() { return clone(plugins); },
+    async set_plugin_enabled({ id, enabled }) { const p = plugins.find((x) => x.id === id); p.enabled = enabled; return clone(p); },
+    async install_plugin({ id }) { await wait(700); const p = plugins.find((x) => x.id === id); p.installed = true; p.enabled = true; return clone(p); },
+    async uninstall_plugin({ id }) { const p = plugins.find((x) => x.id === id); p.installed = false; p.enabled = false; return clone(p); },
+    async get_settings() { return clone(settings); },
+    async set_settings({ patch }) { deepMerge(settings, patch); return clone(settings); },
+    async run_backup() {
+      for (let i = 1; i <= 10; i++) { await wait(180); emit("backup_progress", { pct: i * 10 }); }
+      const entry = { at: "20 nov, " + nowHHMM(), size: "0,4 MB", note: "incremental", ok: true };
+      settings.backup.history.unshift(entry);
+      return clone(entry);
+    },
+    async transfer_ownership() { await wait(500); return true; },
+  };
+
+  function deepMerge(t, s) {
+    for (const k of Object.keys(s)) {
+      if (s[k] && typeof s[k] === "object" && !Array.isArray(s[k])) deepMerge((t[k] = t[k] || {}), s[k]);
+      else t[k] = s[k];
+    }
+  }
+
+  // ---------------- voz simulada: quem está a falar ----------------
+  setInterval(() => {
+    const speakers = ["rui", "ines", "joao", "me"].filter(() => Math.random() < 0.35);
+    emit("voice_activity", { speaking: speakers });
+  }, 900);
+
+  window.api = new Proxy({}, {
+    get(_, name) {
+      if (name === "on") {
+        return (ev, fn) => {
+          if (tauri && window.__TAURI__.event) window.__TAURI__.event.listen(ev, (e) => fn(e.payload));
+          (listeners[ev] = listeners[ev] || []).push(fn);
+        };
+      }
+      if (name === "isMock") return !tauri;
+      // Comandos que o Rust ainda não tem caem para os dados de teste.
+      return (args = {}) => (tauri
+        ? tauri.invoke(String(name), args).catch((e) => {
+            if (/not found|unknown command/i.test(String(e)) && mock[name]) return mock[name](args);
+            throw e;
+          })
+        : mock[name](args));
+    },
+  });
+})();

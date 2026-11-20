@@ -1,0 +1,65 @@
+# Cria o instalador da Tasca para Windows e publica-o como versão no GitHub.
+# Corre a cada push para o main: a versão passa a 0.1.<número da execução>.
+# A app instalada vê o latest.json da versão mais recente e atualiza-se sozinha ao abrir.
+#
+# Segredos necessários (Settings > Secrets and variables > Actions):
+#   TAURI_SIGNING_PRIVATE_KEY           chave privada que assina as atualizações
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  palavra-passe dessa chave
+name: Lançar app
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/desktop/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/lancar-app.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: lancar-app
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Definir versão
+        shell: pwsh
+        run: |
+          $v = "0.1.${{ github.run_number }}"
+          $f = "apps/desktop/tauri.conf.json"
+          $c = Get-Content $f -Raw | ConvertFrom-Json
+          $c.version = $v
+          $c | ConvertTo-Json -Depth 20 | Set-Content $f -Encoding utf8
+          "VERSAO=$v" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Instalar Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Criar instalador e publicar versão
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: apps/desktop
+          tauriScript: cargo tauri
+          tagName: v__VERSION__
+          releaseName: "Tasca v__VERSION__"
+          releaseBody: "Instala com o ficheiro Tasca_..._x64-setup.exe. Quem já tem a Tasca recebe esta versão automaticamente ao abrir a app."
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true

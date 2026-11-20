@@ -19,6 +19,7 @@ Chat e chamadas de voz **P2P**, feito em Rust. Os grupos vivem nos PCs dos utili
 |---|---|
 | `crates/tasca-core` | Núcleo: identidade, eventos assinados, SQLite, rede P2P |
 | `crates/tasca-cli` | Programa de teste em linha de comandos |
+| `apps/desktop` | Aplicação desktop (Tauri); a interface está em `apps/desktop/ui` |
 | `assets/brand` | Logos, ícones e paleta de cores |
 
 ## Experimentar (linha de comandos)
@@ -36,6 +37,19 @@ cargo run -p tasca-cli -- --dados ./outro entrar tasca1... --nome Ze
 ```
 
 Para voltar a abrir um grupo teu: `cargo run -p tasca-cli -- hospedar`.
+
+## Instalar no Windows
+
+Cada push para o `main` cria uma versão nova em [Releases](../../releases) (feita pelo GitHub Actions).
+Descarrega o `Tasca_..._x64-setup.exe` e instala. Ao abrir, a Tasca procura atualizações e instala-as sozinha.
+
+## Experimentar (aplicação desktop)
+
+```
+cargo run -p tasca-app
+```
+
+Por agora a interface usa dados de teste; o núcleo P2P ainda não está ligado. Também dá para abrir `apps/desktop/ui/index.html` diretamente no browser.
 
 Opções úteis:
 - `--local` usa só a rede local, sem relays.

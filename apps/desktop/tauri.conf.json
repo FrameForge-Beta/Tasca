@@ -1,0 +1,74 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Tasca",
+  "identifier": "pt.tasca.desktop",
+  "build": {
+    "frontendDist": "ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Tasca",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 380,
+        "minHeight": 500,
+        "backgroundColor": "#1C1714",
+        "visible": false,
+        "center": true
+      },
+      {
+        "label": "splash",
+        "url": "splash.html",
+        "title": "Tasca",
+        "width": 300,
+        "height": 340,
+        "resizable": false,
+        "decorations": false,
+        "center": true,
+        "skipTaskbar": false,
+        "backgroundColor": "#1C1714",
+        "alwaysOnTop": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "../../assets/brand/png/tasca-icon-32.png",
+      "../../assets/brand/png/tasca-icon-128.png",
+      "../../assets/brand/png/tasca-icon-256.png",
+      "../../assets/brand/tasca.ico"
+    ],
+    "createUpdaterArtifacts": true,
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "Portuguese"
+        ],
+        "displayLanguageSelector": false
+      }
+    }
+  },
+  "version": "0.1.0",
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUxMzgxMEEzQjQzQkE4NEUKUldST3FEdTBveEE0NFJxUW9xbG1uaEJOSWMzb1ZQZ3l6cVYvM3RrdkM3SldmYmtCMkR0UVFsSEIK",
+      "endpoints": [
+        "https://github.com/RubenFernandes2004/Tasca/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}
