@@ -33,6 +33,7 @@
     close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
     upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>',
     lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
+    phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2A19.8 19.8 0 0 1 3.1 4.2 2 2 0 0 1 5.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.4 2.1L9.1 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg>',
     cam: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5.2 3.5a.5.5 0 0 0 .8-.4V7.9a.5.5 0 0 0-.8-.4L16 11"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>',
     camOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.7 6H14a2 2 0 0 1 2 2v3.3l1 1 4.2-3.5a.5.5 0 0 1 .8.4v8.2M16 16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2M2 2l20 20"/></svg>',
     screen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4M12 13V7M9 10l3-3 3 3"/></svg>',
@@ -82,7 +83,9 @@
     camera: false,             // câmara ligada
     sharing: null,             // { source, quality, audio } quando estou a partilhar o ecrã
     focus: null,               // id do quadrado em destaque ("rui:screen", "me:cam", …); null = grelha
-    callSidebar: false,        // mostrar grupos e canais durante a chamada
+    callSidebar: false,
+    home: false,               // true = mensagens privadas (botão da Tasca)
+    dms: [], dmQuery: "",        // mostrar grupos e canais durante a chamada
     showMembers: store.get("members", true),
     pluginTab: "loja", pluginQuery: "",
     settingsTab: "aparencia",
@@ -94,7 +97,7 @@
   // ---------------- render ----------------
   function render() {
     const app = $("#app");
-    app.className = "app" + (S.showMembers && S.view === "chat" ? "" : " no-members") +
+    app.className = "app" + (S.showMembers && S.view === "chat" && !S.home ? "" : " no-members") +
       (S.navOpen ? " show-nav" : "") + (S.membersOpen ? " show-members" : "") +
       (S.view === "voice" && !S.callSidebar ? " call" : "");
     $("#rail").innerHTML = renderRail();
@@ -104,20 +107,20 @@
     else app.style.gridTemplateColumns = "";
     $("#main").innerHTML = renderMain();
     fitCallGrid();
-    $("#members").innerHTML = S.view === "chat" ? renderMembers() : "";
+    $("#members").innerHTML = S.view === "chat" && !S.home ? renderMembers() : "";
     const list = $(".messages");
     if (list) list.scrollTop = list.scrollHeight;
   }
 
   function renderRail() {
     const gs = S.groups.map((g) => {
-      const on = S.groupId === g.id && (S.view === "chat" || S.view === "voice");
+      const on = !S.home && S.groupId === g.id && (S.view === "chat" || S.view === "voice");
       const dot = `<i class="host-dot ${g.host.online ? "online" : ""}"></i>`;
       const badge = g.unread && !on ? `<span class="badge">${g.unread}</span>` : "";
-      return `<button class="rail-btn ${on ? "on" : ""} ${g.unread ? "unread" : ""}" data-group="${g.id}" data-tip="${esc(g.name)}${g.host.online ? "" : " (anfitrião offline)"}" aria-label="${esc(g.name)}">${esc(g.short)}${badge || (g.owner === "me" ? "" : dot)}</button>`;
+      return `<button class="rail-btn ${on ? "on" : ""} ${g.unread ? "unread" : ""}" data-group="${g.id}" data-tip="${esc(g.name)}${g.host.online ? "" : " (anfitrião offline)"}" aria-label="${esc(g.name)}" style="--g:${g.color || "var(--vinho)"}">${esc(g.short)}${badge || (g.owner === "me" ? "" : dot)}</button>`;
     }).join("");
     return `
-      <button class="rail-btn logo" data-act="home" data-tip="Tasca" aria-label="Tasca">${LOGO}</button>
+      <button class="rail-btn logo ${S.home && S.view === "chat" ? "on" : ""}" data-act="home" data-tip="Mensagens privadas" aria-label="Mensagens privadas">${LOGO}${S.dms.some((d) => d.unread) && !S.home ? `<span class="badge">${S.dms.reduce((a, d) => a + d.unread, 0)}</span>` : ""}</button>
       <div class="rail-sep"></div>
       ${gs}
       <button class="rail-btn add" data-act="new-group" data-tip="Criar ou entrar num grupo" aria-label="Criar ou entrar num grupo">${I.plus}</button>
@@ -142,6 +145,7 @@
           <div class="host-card" style="margin-top:16px"><i class="led" style="background:var(--oliva)"></i><b>Como funciona a verificação</b><span>Cada plugin da loja é revisto pela equipa e assinado. A Tasca confirma a assinatura antes de instalar.</span></div>
         </div>${renderMe()}`;
     }
+    if (S.home) return renderDmSidebar();
     const g = group();
     if (!g) return "";
     const cats = [];
@@ -164,6 +168,26 @@
         <button class="icon-btn" data-act="group-menu" aria-label="Opções do grupo" title="Opções do grupo">${I.chevron}</button></div>
       ${hostCard(g)}
       <div class="channels">${body}</div>
+      ${renderVoiceBar()}
+      ${renderMe()}`;
+  }
+
+  function renderDmSidebar() {
+    const q = S.dmQuery.toLowerCase();
+    const list = S.dms.filter((d) => !q || S.people[d.with].name.toLowerCase().includes(q));
+    const rows = list.map((d) => {
+      const p = S.people[d.with];
+      const on = d.id === S.channelId && S.view === "chat";
+      const last = d.last ? (d.last.from === "me" ? "Tu: " : "") + d.last.text : "";
+      return `<button class="dm ${on ? "on" : ""} ${d.unread && !on ? "unread" : ""}" data-dm="${d.id}">${avatar(p, "s", true)}
+        <span class="dm-txt"><b>${esc(p.name)}</b><small>${esc(last)}</small></span>
+        <span class="dm-side"><small>${d.last ? esc(d.last.day === "Hoje" ? d.last.at : d.last.day) : ""}</small>${d.unread && !on ? `<span class="pill">${d.unread}</span>` : ""}</span></button>`;
+    }).join("");
+    return `
+      <div class="group-head"><span class="name">Mensagens privadas</span>
+        <button class="icon-btn" data-act="new-dm" aria-label="Nova conversa" title="Nova conversa">${I.plus}</button></div>
+      <div class="dm-search search"><label class="sr" for="dm-q">Procurar conversa</label>${I.search}<input id="dm-q" placeholder="Procurar pessoa" value="${esc(S.dmQuery)}"></div>
+      <div class="channels dms">${rows || `<p class="empty">Ninguém com esse nome.</p>`}</div>
       ${renderVoiceBar()}
       ${renderMe()}`;
   }
@@ -199,7 +223,9 @@
   const menuBtn = () => `<button class="icon-btn menu-btn" data-act="nav" aria-label="Grupos e canais">${I.menu}</button>`;
 
   function renderChat() {
-    const c = channel(), g = group();
+    const dm = S.home ? S.dms.find((d) => d.id === S.channelId) : null;
+    const c = dm ? { id: dm.id, name: S.people[dm.with].name } : channel();
+    const g = dm ? { owner: null, host: { online: true }, name: "" } : group();
     if (!c) return "";
     let lastDay = null, lastFrom = null, lastAt = null;
     const rows = S.messages.map((m) => {
@@ -211,15 +237,42 @@
       const reacts = m.reactions ? `<div class="reactions">${m.reactions.map((r, i) => `<button class="reaction ${r.mine ? "mine" : ""}" data-react="${m.id}:${i}">${r.e} ${r.n}</button>`).join("")}</div>` : "";
       const file = m.file ? `<div class="attach"><span class="ext">${esc(m.file.ext)}</span><div><b>${esc(m.file.name)}</b><small>${esc(m.file.size)} · enviado diretamente por ${esc(p.name)}</small></div></div>` : "";
       const state = m.pending ? `<span class="sent-state">a enviar ao anfitrião…</span>` : "";
-      const cls = `msg ${first ? "first" : ""} ${m.mentionsMe ? "mentioned" : ""} ${m.pending ? "pending" : ""}`;
+      const mine = m.from === "me";
+      const cls = `msg ${mine ? "mine" : ""} ${first ? "first" : ""} ${m.mentionsMe ? "mentioned" : ""} ${m.pending ? "pending" : ""}`;
       if (first) {
         const tag = p.bot ? '<span class="tag bot">plugin</span>' : g.owner === p.id ? '<span class="tag">anfitrião</span>' : "";
-        out += `<div class="${cls}">${avatar(p)}<div><div class="meta"><span class="author" style="color:${p.id === "me" ? "var(--texto)" : "inherit"}">${esc(p.name)}</span>${tag}<span class="time">${esc(m.day)} às ${esc(m.at)}</span></div><div class="body">${fmt(m.text)}${state}</div>${file}${reacts}</div></div>`;
+        out += `<div class="${cls}">${avatar(p)}<div><div class="bubble"><div class="meta"><span class="author" style="--a:${p.color}">${esc(p.name)}</span>${tag}<span class="time">${esc(m.at)}</span></div><div class="body">${fmt(m.text)}${state}</div>${file}</div>${reacts}</div></div>`;
       } else {
-        out += `<div class="${cls}"><span class="gutter">${esc(m.at)}</span><div><div class="body">${fmt(m.text)}${state}</div>${file}${reacts}</div></div>`;
+        out += `<div class="${cls}"><span class="gutter">${esc(m.at)}</span><div><div class="bubble"><div class="body">${fmt(m.text)}${state}</div>${file}</div>${reacts}</div></div>`;
       }
       return out;
     }).join("");
+    if (dm) {
+      const p = S.people[dm.with];
+      const st = { online: "online", away: "ausente", offline: "offline" }[p.status];
+      return `
+      <div class="main-head">${menuBtn()}
+        <span class="title">${avatar(p, "s", true)}${esc(p.name)}</span>
+        <span class="topic">${st} · ligação direta entre os vossos PCs</span>
+        <button class="icon-btn" data-act="dm-call" aria-label="Ligar a ${esc(p.name)}" title="Chamada de voz">${I.phone}</button>
+        <button class="icon-btn" data-act="dm-video" aria-label="Videochamada com ${esc(p.name)}" title="Videochamada">${I.cam}</button>
+      </div>
+      <div class="messages ${S.settings.msgStyle === "list" ? "" : "bubbles"}" role="log" aria-live="polite">
+        <div class="spacer"></div>
+        <div class="welcome">${avatar(p).replace('class="av ', 'class="av big ')}<h2>${esc(p.name)}</h2><p>Esta conversa vai diretamente do teu PC para o de ${esc(p.name)}, cifrada. Se ${p.status === "offline" ? "estiver offline" : "um de vocês estiver offline"}, a mensagem fica guardada e é entregue quando os dois estiverem ligados.</p></div>
+        ${rows}
+      </div>
+      <div class="composer">
+        <form id="composer">
+          <button type="button" class="icon-btn" data-act="attach" aria-label="Anexar ficheiro" title="Anexar ficheiro">${I.clip}</button>
+          <label class="sr" for="msg-input">Mensagem</label>
+          <textarea id="msg-input" rows="1" placeholder="Mensagem para ${esc(p.name)}"></textarea>
+          <button type="button" class="icon-btn" data-act="emoji" aria-label="Emoji" title="Emoji">${I.smile}</button>
+          <button type="submit" class="icon-btn send" aria-label="Enviar">${I.send}</button>
+        </form>
+        <div class="typing">${S.typing && S.typing.channelId === c.id ? `<b>${esc(S.typing.who)}</b> está a escrever…` : ""}</div>
+      </div>`;
+    }
     const offline = !g.host.online ? `<div class="banner">${I.warn}<div><b>${esc(S.people[g.owner].name)}</b>, o anfitrião, está offline. Estás a ver a tua cópia local. O que escreveres fica guardado e é enviado quando ele voltar, ou quando outro membro assumir o grupo.</div></div>` : "";
     const typing = S.typing && S.typing.channelId === c.id ? `<b>${esc(S.typing.who)}</b> está a escrever…` : "";
     return `
@@ -229,7 +282,7 @@
         <button class="icon-btn ${S.showMembers ? "on" : ""}" data-act="toggle-members" aria-label="Mostrar membros" title="Membros">${I.users}</button>
       </div>
       ${offline}
-      <div class="messages" role="log" aria-live="polite">
+      <div class="messages ${S.settings.msgStyle === "list" ? "" : "bubbles"}" role="log" aria-live="polite">
         <div class="spacer"></div>
         <div class="welcome"><div class="tile"><span>#</span></div><h2>Bem-vindo a #${esc(c.name)}</h2><p>Este é o início do canal #${esc(c.name)} em ${esc(g.name)}. As mensagens ficam guardadas no PC do anfitrião e numa cópia em cada membro.</p></div>
         ${rows}
@@ -469,6 +522,8 @@
     const s = S.settings;
     return `<div class="section"><h2>Tema</h2><div class="box"><div class="row"><div class="txt"><b>Modo</b><small>Madeira escura é o tema da casa.</small></div>
       <div class="seg" role="radiogroup" aria-label="Tema">${[["dark", "Madeira (escuro)"], ["light", "Cal (claro)"], ["system", "Sistema"]].map(([k, l]) => `<button role="radio" aria-checked="${s.theme === k}" class="${s.theme === k ? "on" : ""}" data-theme-set="${k}">${l}</button>`).join("")}</div></div>
+      <div class="row"><div class="txt"><b>Estilo das mensagens</b><small>Balões ou lista corrida.</small></div>
+      <div class="seg" role="radiogroup" aria-label="Estilo das mensagens">${[["bubbles", "Balões"], ["list", "Lista"]].map(([k, l]) => `<button role="radio" aria-checked="${(s.msgStyle || "bubbles") === k}" class="${(s.msgStyle || "bubbles") === k ? "on" : ""}" data-msg-style="${k}">${l}</button>`).join("")}</div></div>
       <div class="row"><div class="txt"><b>Tamanho do texto</b><small>${s.fontSize} px</small></div><input class="range" style="max-width:240px" type="range" min="13" max="18" id="fontSize" data-setting="fontSize" value="${s.fontSize}"></div>
       <div class="row"><div class="txt"><b>Mensagens compactas</b><small>Menos espaço entre mensagens.</small></div>${sw("compact", s.compact, "Mensagens compactas")}</div>
     </div></div>`;
@@ -629,7 +684,17 @@
   }
 
   // ---------------- navegação ----------------
+  async function openDm(id) {
+    S.home = true; S.view = "chat"; S.channelId = id;
+    const d = S.dms.find((x) => x.id === id); if (d) d.unread = 0;
+    S.messages = await api.list_messages({ channelId: id });
+    S.navOpen = false;
+    render();
+    store.set("dm", id);
+    const inp = $("#msg-input"); if (inp && window.innerWidth > 720) inp.focus();
+  }
   async function openGroup(id) {
+    S.home = false;
     S.groupId = id; S.view = "chat"; S.navOpen = S.navOpen && window.innerWidth <= 720;
     const g = group(); g.unread = 0;
     S.channels = await api.list_channels({ groupId: id });
@@ -641,7 +706,7 @@
     store.set("group", id);
   }
   async function openChannel(id, keepNav) {
-    S.channelId = id; S.view = "chat";
+    S.home = false; S.channelId = id; S.view = "chat";
     const c = channel(); if (c) c.unread = 0;
     S.messages = await api.list_messages({ channelId: id });
     if (!keepNav) S.navOpen = false;
@@ -689,6 +754,7 @@
     if (!t) return;
     const d = t.dataset;
     if (d.group) return openGroup(d.group);
+    if (d.dm) return openDm(d.dm);
     if (d.chan) return openChannel(d.chan);
     if (d.chanName) {
       e.preventDefault();
@@ -717,11 +783,14 @@
     }
     if (d.setTab) { S.settingsTab = d.setTab; return render(); }
     if (d.themeSet) { await patch({ theme: d.themeSet }); applyTheme(); return render(); }
+    if (d.msgStyle) { await patch({ msgStyle: d.msgStyle }); return render(); }
     if (d.relay) { await patch({ relay: d.relay }); return render(); }
     if (d.dest) { await patch({ backup: { dest: d.dest } }); return render(); }
     if (d.every) { await patch({ backup: { every: d.every } }); return render(); }
     switch (d.act) {
-      case "home": return openGroup(S.groups[0].id);
+      case "home": { const saved = store.get("dm", null); return openDm(S.dms.some((d) => d.id === saved) ? saved : S.dms[0].id); }
+      case "dm-call": case "dm-video": return toast("Chamadas privadas: em breve. Vão diretamente entre os dois PCs.");
+      case "new-dm": return toast("Escolhe alguém da lista de membros de um grupo para começar a conversar.");
       case "new-group": return openNewGroup();
       case "plugins": S.view = "plugins"; S.navOpen = window.innerWidth <= 720 ? S.navOpen : false; return render();
       case "settings": S.prevView = S.view === "settings" ? S.prevView : S.view; S.view = "settings"; S.navOpen = false; return render();
@@ -780,6 +849,7 @@
     if (!text) return;
     inp.value = "";
     const m = await api.send_message({ channelId: S.channelId, text });
+    if (S.home) S.dms = await api.list_dms();
     S.messages.push(m); render(); $("#msg-input").focus();
   });
   document.addEventListener("keydown", (e) => {
@@ -795,6 +865,11 @@
   document.addEventListener("input", async (e) => {
     const t = e.target;
     if (t.id === "msg-input") { t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 160) + "px"; return; }
+    if (t.id === "dm-q") {
+      S.dmQuery = t.value; const pos = t.selectionStart;
+      const ch = $(".channels"); $("#sidebar").innerHTML = renderSidebar();
+      const n = $("#dm-q"); n.focus(); n.setSelectionRange(pos, pos); return;
+    }
     if (t.id === "plugin-q") {
       S.pluginQuery = t.value; const pos = t.selectionStart; render();
       const n = $("#plugin-q"); n.focus(); n.setSelectionRange(pos, pos); return;
@@ -846,7 +921,7 @@
     S.speaking = speaking;
     if (S.voice || S.view === "chat") {
       if (S.view === "voice" && !document.fullscreenElement) { $("#main").innerHTML = renderVoice(); fitCallGrid(); }
-      if (S.view !== "settings" && S.view !== "plugins") {
+      if (S.view !== "settings" && S.view !== "plugins" && !(S.home && !S.voice) && document.activeElement?.id !== "dm-q") {
         const ch = $(".channels"); const st = ch ? ch.scrollTop : 0;
         $("#sidebar").innerHTML = renderSidebar();
         const ch2 = $(".channels"); if (ch2) ch2.scrollTop = st;
@@ -870,6 +945,7 @@
     S.people = await api.list_people();
     S.groups = await api.list_groups();
     S.plugins = await api.list_plugins();
+    S.dms = await api.list_dms();
     S.settings = await api.get_settings();
     S.allChannels = {}; S.allMembers = {};
     for (const g of S.groups) {

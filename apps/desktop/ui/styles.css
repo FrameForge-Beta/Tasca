@@ -618,3 +618,116 @@ button.vtile { cursor: pointer; }
   .call-top .title { flex: 1; }
   .call-strip .vtile { width: 128px; }
 }
+
+/* ============================================================
+   Identidade Tasca: painéis soltos sobre a madeira, grupos como
+   azulejos quadrados, mensagens em balões.
+   ============================================================ */
+.app { gap: 8px; padding: 8px; background: var(--rail); }
+.app > .sidebar, .app > .main, .app > .members { border-radius: 14px; overflow: hidden; }
+.app > .main { border: 1px solid var(--linha); }
+.rail { padding-block: 4px; gap: 10px; }
+
+/* grupos: azulejos com a cor do grupo */
+.rail-btn {
+  border-radius: 14px; width: 48px; height: 48px;
+  background: color-mix(in srgb, var(--g, var(--caixa)) 22%, var(--caixa));
+  color: var(--texto);
+  transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.rail-btn:hover { border-radius: 14px; transform: translateY(-1px); background: color-mix(in srgb, var(--g, var(--caixa)) 40%, var(--caixa)); }
+.rail-btn.on {
+  border-radius: 14px; background: var(--g, var(--vinho)); color: #F6EEE1;
+  box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px var(--ocre);
+}
+.rail-btn::before { display: none; }
+.rail-btn.unread::after {
+  content: ""; position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--ocre); border: 2px solid var(--rail);
+}
+.rail-btn .host-dot { border-radius: 4px; width: 12px; height: 12px; border-width: 2px; right: -3px; bottom: -3px; }
+.rail-btn.logo { background: none; }
+.rail-btn.logo.on { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px var(--ocre); border-radius: 14px; }
+.rail-btn.logo svg { border-radius: 14px; }
+.rail-btn.add { background: var(--caixa); }
+.rail-btn.store { background: var(--caixa); }
+.rail-sep { width: 24px; height: 3px; background: none; border-top: 3px dotted var(--linha); }
+
+/* cabeçalho do grupo e canais */
+.group-head { height: 56px; border-bottom: 0; font-size: 17px; }
+.chan { border-radius: 8px; }
+.chan.on { background: var(--selecao); color: var(--texto); box-shadow: inset 3px 0 0 var(--azulejo); }
+.cat { letter-spacing: .1em; }
+
+/* conversa */
+.main-head { height: 56px; border-bottom: 1px solid var(--linha); }
+.main-head .title .av { width: 28px; height: 28px; font-size: 12px; }
+.main-head .title .av .st { border-color: var(--fundo); width: 9px; height: 9px; border-width: 2px; }
+.messages.bubbles { padding-inline: 4px; }
+.messages.bubbles .msg { grid-template-columns: 36px minmax(0, 1fr); gap: 0 10px; padding: 1px 16px; }
+.messages.bubbles .msg:hover { background: none; }
+.messages.bubbles .msg > .av { width: 36px; height: 36px; font-size: 14px; align-self: end; }
+.messages.bubbles .msg .gutter { display: none; }
+.messages.bubbles .msg > div { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
+.messages.bubbles .bubble {
+  max-width: min(640px, 100%); padding: 7px 12px 8px; border-radius: 16px 16px 16px 6px;
+  background: var(--painel); border: 1px solid var(--linha);
+}
+.messages.bubbles .msg:not(.first) .bubble { border-radius: 6px 16px 16px 6px; }
+.messages.bubbles .msg:not(.first) { grid-template-columns: 36px minmax(0, 1fr); }
+.messages.bubbles .msg:not(.first)::before { content: ""; }
+.messages.bubbles .meta { gap: 6px; }
+.messages.bubbles .author { color: color-mix(in srgb, var(--a, var(--texto)) 55%, var(--texto)); font-size: 13.5px; }
+.messages.bubbles .time { font-size: 11px; }
+.messages.bubbles .msg.mine { grid-template-columns: minmax(0, 1fr); }
+.messages.bubbles .msg.mine > .av { display: none; }
+.messages.bubbles .msg.mine > div { align-items: flex-end; }
+.messages.bubbles .msg.mine .bubble {
+  background: color-mix(in srgb, var(--vinho) 30%, var(--painel)); border-color: color-mix(in srgb, var(--vinho) 45%, var(--linha));
+  border-radius: 16px 16px 6px 16px;
+}
+.messages.bubbles .msg.mine:not(.first) .bubble { border-radius: 16px 6px 6px 16px; }
+.messages.bubbles .msg.mine .meta .author, .messages.bubbles .msg.mine .meta .tag { display: none; }
+.messages.bubbles .msg.mentioned { background: none; box-shadow: none; }
+.messages.bubbles .msg.mentioned .bubble { border-color: var(--ocre); background: var(--mencao-bg); }
+.messages.bubbles .attach { background: var(--caixa); }
+.messages.bubbles .reactions { margin-top: 3px; }
+.day { font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; }
+.day::before, .day::after { background: none; border-top: 2px dotted var(--linha); height: 0; }
+
+/* caixa de escrita */
+.composer form { border-radius: 22px; padding: 5px 5px 5px 10px; border: 1px solid var(--linha); background: var(--painel); }
+.composer form:focus-within { border-color: var(--azulejo); }
+.composer .send { border-radius: 50%; width: 36px; height: 36px; }
+
+/* mensagens privadas */
+.dm-search { margin: 0 8px 4px; height: 36px; flex: none; min-width: 0; }
+.dms { padding-top: 4px; display: grid; align-content: start; gap: 2px; }
+.dm {
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 10px; text-align: left;
+  color: var(--texto-2);
+}
+.dm:hover { background: var(--hover); }
+.dm.on { background: var(--selecao); color: var(--texto); }
+.dm.unread { color: var(--texto); }
+.dm.unread .dm-txt b { font-weight: 800; }
+.dm .av .st { border-color: var(--painel); }
+.dm-txt { flex: 1; min-width: 0; line-height: 1.25; }
+.dm-txt b { display: block; font-weight: 600; font-size: 14px; color: var(--texto); }
+.dm-txt small { display: block; font-size: 12.5px; color: var(--texto-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-side { display: grid; justify-items: end; gap: 3px; font-variant-numeric: tabular-nums; }
+.dm-side small { font-size: 11px; color: var(--texto-3); }
+.dm-side .pill { font-size: 11px; font-weight: 700; background: var(--ocre); color: var(--tinta); border-radius: 8px; padding: 0 6px; }
+.dms .empty { color: var(--texto-3); font-size: 13px; padding: 8px; margin: 0; }
+.welcome .av.big { width: 72px; height: 72px; font-size: 28px; }
+
+/* ecrãs estreitos: sem moldura */
+@media (max-width: 720px) {
+  .app { gap: 0; padding: 0; }
+  .app > .sidebar, .app > .main, .app > .members { border-radius: 0; border: 0; }
+  .app.show-nav { gap: 0; }
+}
+.app.call { padding: 0; gap: 0; }
+.app.call > .main { border: 0; border-radius: 0; }
+.dm { min-width: 0; }
+.av.s .st { width: 9px; height: 9px; border-width: 2px; right: -3px; bottom: -3px; }

@@ -7,7 +7,7 @@
 //
 // Comandos Rust esperados (tasca-app):
 //   get_me, list_groups, list_channels, list_messages, send_message, list_members,
-//   create_group, join_group, create_invite, join_voice, leave_voice, set_voice_state,
+//   list_dms, create_group, join_group, create_invite, join_voice, leave_voice, set_voice_state,
 //   set_camera, list_capture_sources, start_screen_share, stop_screen_share,
 //   list_plugins, set_plugin_enabled, install_plugin, get_settings, set_settings,
 //   run_backup, list_backups, transfer_ownership
@@ -30,13 +30,13 @@
   };
 
   const groups = [
-    { id: "g-malta", name: "Malta do Secundário", short: "MS", owner: "rui",
+    { id: "g-malta", name: "Malta do Secundário", short: "MS", owner: "rui", color: "#9B2C3F",
       host: { online: true, route: "direto", ping: 18 }, unread: 3 },
-    { id: "g-tasca", name: "Projeto Tasca", short: "PT", owner: "me",
+    { id: "g-tasca", name: "Projeto Tasca", short: "PT", owner: "me", color: "#2A5CAA",
       host: { online: true, route: "este PC", ping: 0 }, unread: 0 },
-    { id: "g-xadrez", name: "Clube de Xadrez", short: "CX", owner: "marta",
+    { id: "g-xadrez", name: "Clube de Xadrez", short: "CX", owner: "marta", color: "#5E8C4A",
       host: { online: true, route: "via relay", ping: 64 }, unread: 0 },
-    { id: "g-sexta", name: "Jogos de Sexta", short: "JS", owner: "diogo",
+    { id: "g-sexta", name: "Jogos de Sexta", short: "JS", owner: "diogo", color: "#B8791A",
       host: { online: false, lastSeen: "ontem às 23:40" }, unread: 0 },
   ];
 
@@ -108,6 +108,37 @@
       { id: 2, day: "Ontem", at: "21:04", from: "rui", text: "Conta comigo." },
     ],
   };
+
+  // mensagens privadas: ligação direta entre os dois PCs, sem anfitrião
+  const dms = [
+    { id: "dm-ines", with: "ines", unread: 2 },
+    { id: "dm-rui", with: "rui", unread: 0 },
+    { id: "dm-marta", with: "marta", unread: 0 },
+    { id: "dm-joao", with: "joao", unread: 0 },
+    { id: "dm-bia", with: "bia", unread: 0 },
+  ];
+  Object.assign(messages, {
+    "dm-ines": [
+      { id: 1, day: "Ontem", at: "23:02", from: "ines", text: "Viste o vídeo que te mandei?" },
+      { id: 2, day: "Ontem", at: "23:05", from: "me", text: "Vi! Muito bom 😂" },
+      { id: 3, day: today, at: "18:30", from: "ines", text: "Vens à chamada logo? Vamos jogar às 22h" },
+      { id: 4, day: today, at: "18:31", from: "ines", text: "E traz o comando extra se puderes" },
+    ],
+    "dm-rui": [
+      { id: 1, day: today, at: "17:50", from: "rui", text: "Já passei o grupo para a Tasca. Se der algum erro diz-me." },
+      { id: 2, day: today, at: "17:52", from: "me", text: "Combinado. Até agora está tudo a funcionar." },
+    ],
+    "dm-marta": [
+      { id: 1, day: "Ontem", at: "15:12", from: "marta", text: "Obrigada pela partida de ontem, foi renhida!" },
+    ],
+    "dm-joao": [
+      { id: 1, day: "Segunda", at: "21:40", from: "joao", text: "manda-me a lista do jantar quando tiveres" },
+      { id: 2, day: "Segunda", at: "21:45", from: "me", text: "Já está no #jantar-de-natal" },
+    ],
+    "dm-bia": [
+      { id: 1, day: "Domingo", at: "12:00", from: "bia", text: "Parabéns pelo projeto! 🎉" },
+    ],
+  });
 
   const plugins = [
     { id: "lembretes", name: "Lembretes", author: "equipa Tasca", version: "1.2.0", verified: true, installed: true, enabled: true,
@@ -181,6 +212,12 @@
     async list_members({ groupId }) {
       const g = groups.find((x) => x.id === groupId);
       return (members[groupId] || []).map((id) => ({ ...clone(people[id]), owner: g && g.owner === id }));
+    },
+    async list_dms() {
+      return dms.map((d) => {
+        const list = messages[d.id] || []; const last = list[list.length - 1];
+        return { ...clone(d), last: last ? { text: last.text, from: last.from, at: last.at, day: last.day } : null };
+      });
     },
     async list_messages({ channelId }) { return clone(messages[channelId] || []); },
     async send_message({ channelId, text }) {
