@@ -26,6 +26,8 @@ pub enum HostMsg {
     Rejected(String),
     Event { seq: u64, event: SignedEvent },
     PublishFailed(String),
+    /// Chave atual da caixa do grupo no servidor (vai pela ligação iroh, já cifrada).
+    GroupKey { epoch: u32, key: [u8; 32] },
 }
 
 pub async fn write_frame<T: Serialize>(send: &mut SendStream, msg: &T) -> Result<()> {

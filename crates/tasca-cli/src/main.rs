@@ -77,6 +77,7 @@ async fn main() -> Result<()> {
         NodeOptions {
             local_only: cli.local,
             relay_urls: cli.relay,
+            servidor: tasca_core::servidor::AccountServer::from_env(),
         },
     )
     .await?;

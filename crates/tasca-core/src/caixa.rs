@@ -28,7 +28,10 @@ use iroh::PublicKey;
 use sha2::{Digest, Sha512};
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::{event::SignedEvent, identity::Identity};
+use crate::{
+    event::{GroupId, SignedEvent},
+    identity::Identity,
+};
 
 const CTX_ID: &str = "tasca 2026 caixa id v1";
 const CTX_TOKEN: &str = "tasca 2026 caixa token v1";
@@ -112,9 +115,34 @@ impl ChaveCaixa {
         XChaCha20Poly1305::new_from_slice(k.as_ref()).expect("chave de 32 bytes")
     }
 
-    /// Cifra um evento para guardar na caixa. Formato: versão (1) | nonce (24) | cifra.
+    /// Cifra um evento para guardar na caixa (conversas privadas).
     pub fn seal(&self, ev: &SignedEvent) -> Result<Vec<u8>> {
-        let plain = Zeroizing::new(postcard::to_stdvec(ev)?);
+        self.seal_bytes(&postcard::to_stdvec(ev)?)
+    }
+
+    /// Decifra um bloco da caixa e verifica a assinatura do autor.
+    pub fn open(&self, bloco: &[u8]) -> Result<SignedEvent> {
+        let ev: SignedEvent = postcard::from_bytes(&self.open_bytes(bloco)?)?;
+        ev.verify()?;
+        Ok(ev)
+    }
+
+    /// Cifra uma entrada da caixa de um grupo.
+    pub fn seal_item(&self, item: &ItemGrupo) -> Result<Vec<u8>> {
+        self.seal_bytes(&postcard::to_stdvec(item)?)
+    }
+
+    /// Decifra uma entrada da caixa de um grupo e verifica a assinatura do autor do evento.
+    /// A assinatura do anfitrião num `Registo` é verificada por quem conhece o dono.
+    pub fn open_item(&self, bloco: &[u8]) -> Result<ItemGrupo> {
+        let item: ItemGrupo = postcard::from_bytes(&self.open_bytes(bloco)?)?;
+        item.event().verify()?;
+        Ok(item)
+    }
+
+    /// Formato: versão (1) | nonce (24) | cifra.
+    fn seal_bytes(&self, plain: &[u8]) -> Result<Vec<u8>> {
+        let plain = Zeroizing::new(plain.to_vec());
         let mut nonce = [0u8; 24];
         getrandom::fill(&mut nonce).map_err(|e| anyhow!("gerador aleatório: {e}"))?;
         let id = self.id();
@@ -130,8 +158,7 @@ impl ChaveCaixa {
         Ok(out)
     }
 
-    /// Decifra um bloco da caixa e verifica a assinatura do autor.
-    pub fn open(&self, bloco: &[u8]) -> Result<SignedEvent> {
+    fn open_bytes(&self, bloco: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
         ensure!(bloco.len() > 25 && bloco[0] == VERSAO, "bloco desconhecido");
         let nonce: [u8; 24] = bloco[1..25].try_into().expect("24 bytes");
         let id = self.id();
@@ -140,9 +167,50 @@ impl ChaveCaixa {
                 .decrypt(&XNonce::from(nonce), Payload { msg: &bloco[25..], aad: &id })
                 .map_err(|_| anyhow!("bloco adulterado ou de outra conversa"))?,
         );
-        let ev: SignedEvent = postcard::from_bytes(&plain)?;
-        ev.verify()?;
-        Ok(ev)
+        Ok(plain)
+    }
+}
+
+/// Uma entrada na caixa de um grupo.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ItemGrupo {
+    /// Evento já aceite pelo anfitrião, com o número de ordem que ele lhe deu. A
+    /// assinatura do anfitrião impede um membro de inventar números de ordem.
+    Registo { seq: u64, event: SignedEvent, anfitriao: Vec<u8> },
+    /// Evento enviado por um membro enquanto o anfitrião estava desligado. O anfitrião
+    /// valida-o e dá-lhe número quando voltar.
+    Pedido { event: SignedEvent },
+}
+
+impl ItemGrupo {
+    pub fn event(&self) -> &SignedEvent {
+        match self {
+            Self::Registo { event, .. } | Self::Pedido { event } => event,
+        }
+    }
+
+    /// O que o anfitrião assina num `Registo`.
+    pub fn registo_msg(group: &GroupId, seq: u64, event: &SignedEvent) -> Vec<u8> {
+        let mut h = blake3::Hasher::new_derive_key("tasca 2026 registo v1");
+        h.update(&group.0);
+        h.update(&seq.to_be_bytes());
+        h.update(&event.id());
+        h.finalize().as_bytes().to_vec()
+    }
+
+    pub fn registo(anfitriao: &Identity, group: &GroupId, seq: u64, event: SignedEvent) -> Self {
+        let sig = anfitriao.secret().sign(&Self::registo_msg(group, seq, &event)).to_bytes().to_vec();
+        Self::Registo { seq, event, anfitriao: sig }
+    }
+
+    /// Confirma que um `Registo` foi assinado por `dono`.
+    pub fn verify_registo(&self, group: &GroupId, dono: &PublicKey) -> Result<()> {
+        let Self::Registo { seq, event, anfitriao } = self else {
+            anyhow::bail!("não é um registo");
+        };
+        let sig: [u8; 64] = anfitriao.as_slice().try_into().map_err(|_| anyhow!("assinatura inválida"))?;
+        dono.verify(&Self::registo_msg(group, *seq, event), &iroh::Signature::from_bytes(&sig))
+            .map_err(|_| anyhow!("registo não assinado pelo anfitrião"))
     }
 }
 
@@ -174,7 +242,11 @@ mod cliente {
     impl AccountServer {
         /// Guarda um evento na caixa da conversa. Devolve o número de ordem.
         pub async fn caixa_enviar(&self, chave: &ChaveCaixa, ev: &SignedEvent) -> Result<u64> {
-            let bloco = chave.seal(ev)?;
+            self.caixa_enviar_bloco(chave, chave.seal(ev)?).await
+        }
+
+        /// Guarda um bloco já cifrado.
+        pub async fn caixa_enviar_bloco(&self, chave: &ChaveCaixa, bloco: Vec<u8>) -> Result<u64> {
             let r: Escrita = self
                 .send(
                     self.http()
@@ -196,6 +268,23 @@ mod cliente {
             desde: u64,
             espera: u32,
         ) -> Result<Vec<(u64, SignedEvent)>> {
+            let mut out = Vec::new();
+            for (seq, b) in self.caixa_ler_blocos(chave, desde, espera).await? {
+                match chave.open(&b) {
+                    Ok(ev) => out.push((seq, ev)),
+                    Err(err) => tracing::warn!("bloco {seq} ignorado: {err}"),
+                }
+            }
+            Ok(out)
+        }
+
+        /// Lê os blocos cifrados depois de `desde`, sem os abrir.
+        pub async fn caixa_ler_blocos(
+            &self,
+            chave: &ChaveCaixa,
+            desde: u64,
+            espera: u32,
+        ) -> Result<Vec<(u64, Vec<u8>)>> {
             let r: Entradas = self
                 .send(
                     self.http()
@@ -207,14 +296,7 @@ mod cliente {
                 .await?
                 .json()
                 .await?;
-            let mut out = Vec::with_capacity(r.entradas.len());
-            for e in r.entradas {
-                match unb64(&e.dados).and_then(|b| chave.open(&b)) {
-                    Ok(ev) => out.push((e.seq, ev)),
-                    Err(err) => tracing::warn!("bloco {} ignorado: {err}", e.seq),
-                }
-            }
-            Ok(out)
+            r.entradas.into_iter().map(|e| Ok((e.seq, unb64(&e.dados)?))).collect()
         }
     }
 }
