@@ -387,7 +387,7 @@
       $("#do-share", el).onclick = async () => {
         const audio = $("#share-audio", el).checked;
         await api.start_screen_share({ source: src, quality: q, audio });
-        S.sharing = { source: src, quality: q, audio };
+        S.sharing = { source: src, quality: q, audio }; sfx.shareStart();
         close(); render(); toast(`Estás a partilhar «${src}».`);
       };
     });
@@ -482,6 +482,9 @@
       <div class="row"><div class="txt"><b>Carregar para falar</b><small>Só transmite enquanto carregas na tecla (V).</small></div>${sw("pushToTalk", s.pushToTalk, "Carregar para falar")}</div>
       <div class="row"><div class="txt"><b>Supressão de ruído</b><small>Remove ventoinhas e teclado. Corre no teu PC.</small></div>${sw("noiseSuppression", s.noiseSuppression, "Supressão de ruído")}</div>
       <div class="row"><div class="txt"><b>Cancelamento de eco</b></div>${sw("echoCancel", s.echoCancel, "Cancelamento de eco")}</div>
+      <div class="row"><div class="txt"><b>Sons da chamada</b><small>Entrar e sair, microfone, som e partilha de ecrã.</small></div>
+        <button class="btn ghost" data-act="test-sound">Ouvir</button>${sw("callSounds", S.settings.callSounds !== false, "Sons da chamada")}</div>
+      <div class="row"><div class="txt"><b>Volume dos sons</b><small>${Math.round((S.settings.soundVolume ?? 0.6) * 100)}%</small></div><input class="range" style="max-width:200px" type="range" min="0" max="100" id="soundVolume" data-setting="soundVolume" value="${Math.round((S.settings.soundVolume ?? 0.6) * 100)}"></div>
     </div><h2>Vídeo</h2><div class="box">
       <div class="row"><div class="field" style="flex:1;min-width:200px"><label for="camDevice">Câmara</label><select class="input" id="camDevice" data-setting="camDevice">${["Câmara integrada (HD)", "Logitech C920", "OBS Virtual Camera"].map((d) => `<option>${d}</option>`).join("")}</select></div>
         <div class="field" style="flex:1;min-width:200px"><label for="shareQuality">Qualidade da partilha de ecrã</label><select class="input" id="shareQuality" data-setting="shareQuality">${["720p · 30 fps", "1080p · 30 fps", "1080p · 60 fps"].map((d, i) => `<option ${i === 1 ? "selected" : ""}>${d}</option>`).join("")}</select></div></div>
@@ -647,13 +650,16 @@
   }
   async function joinVoice(id) {
     if (S.voice && S.voice.channelId === id) { S.view = "voice"; S.navOpen = false; render(); return; }
+    if (S.voice) sfx.leave();
     const info = await api.join_voice({ channelId: id });
+    sfx.join();
     S.voice = { channelId: id, groupId: S.groupId, ...info };
     S.channels = await api.list_channels({ groupId: S.groupId });
     S.allChannels[S.groupId] = S.channels;
     S.view = "voice"; S.navOpen = false; render();
   }
   async function leaveVoice() {
+    sfx.leave();
     await api.leave_voice();
     const gid = S.voice.groupId; S.voice = null; S.camera = false; S.sharing = null;
     S.allChannels[gid] = await api.list_channels({ groupId: gid });
@@ -667,6 +673,8 @@
     if (t === "system") document.documentElement.removeAttribute("data-theme");
     else document.documentElement.setAttribute("data-theme", t);
     document.body.style.fontSize = S.settings.fontSize + "px";
+    sfx.setEnabled(S.settings.callSounds !== false);
+    sfx.setVolume(S.settings.soundVolume ?? 0.6);
   }
   async function patch(p) { S.settings = await api.set_settings({ patch: p }); }
   function pathPatch(path, value) {
@@ -719,14 +727,14 @@
       case "settings": S.prevView = S.view === "settings" ? S.prevView : S.view; S.view = "settings"; S.navOpen = false; return render();
       case "settings-voz": S.prevView = S.view; S.settingsTab = "voz"; S.view = "settings"; return render();
       case "close-settings": S.view = S.prevView || "chat"; return render();
-      case "mute": S.muted = !S.muted; if (!S.muted && S.deaf) S.deaf = false; api.set_voice_state({ muted: S.muted, deaf: S.deaf }); return render();
-      case "deaf": S.deaf = !S.deaf; S.muted = S.deaf ? true : S.muted; api.set_voice_state({ muted: S.muted, deaf: S.deaf }); return render();
+      case "mute": S.muted = !S.muted; (S.muted ? sfx.mute : sfx.unmute)(); if (!S.muted && S.deaf) S.deaf = false; api.set_voice_state({ muted: S.muted, deaf: S.deaf }); return render();
+      case "deaf": S.deaf = !S.deaf; (S.deaf ? sfx.deafen : sfx.undeafen)(); S.muted = S.deaf ? true : S.muted; api.set_voice_state({ muted: S.muted, deaf: S.deaf }); return render();
       case "leave-voice": return leaveVoice();
       case "camera":
         S.camera = !S.camera; await api.set_camera({ on: S.camera }); render();
         return toast(S.camera ? "Câmara ligada." : "Câmara desligada.");
       case "share":
-        if (S.sharing) { await api.stop_screen_share(); S.sharing = null; render(); return toast("Deixaste de partilhar o ecrã."); }
+        if (S.sharing) { sfx.shareStop(); await api.stop_screen_share(); S.sharing = null; render(); return toast("Deixaste de partilhar o ecrã."); }
         return openSharePicker();
       case "call-sidebar": S.callSidebar = !S.callSidebar; return render();
       case "call-chat": { const gid = S.voice.groupId; if (S.groupId !== gid) await openGroup(gid); else await openChannel(S.channels.find((x) => x.kind === "text").id); return; }
@@ -753,6 +761,7 @@
         S.backupPct = null; S.settings = await api.get_settings(); render();
         return toast("Cópia feita, cifrada e enviada.");
       }
+      case "test-sound": sfx.join(); return;
       case "test-relay": return toast("Relay respondeu em 12 ms.");
       case "new-channel": return toast("Criar canal: em breve.");
     }
@@ -794,6 +803,7 @@
       const v = +t.value;
       await patch(pathPatch(t.dataset.setting, v));
       if (t.dataset.setting === "fontSize") applyTheme();
+      if (t.dataset.setting === "soundVolume") { await patch({ soundVolume: v / 100 }); applyTheme(); t.closest(".row").querySelector(".txt small").textContent = v + "%"; return; }
       const small = t.closest(".row").querySelector(".txt small");
       if (t.dataset.setting === "fontSize") small.textContent = v + " px";
       if (t.dataset.setting === "backup.zstdLevel") small.textContent = `Nível ${v}. Mais alto ocupa menos espaço mas demora mais.`;
@@ -806,7 +816,7 @@
       Object.assign(S.plugins.find((x) => x.id === p.id), p); render(); return;
     }
     if (t.id === "sideload" && t.files[0]) { toast(`«${t.files[0].name}» carregado. Revê as permissões antes de ativar.`); return; }
-    if (t.dataset.setting && t.type === "checkbox") return patch(pathPatch(t.dataset.setting, t.checked));
+    if (t.dataset.setting && t.type === "checkbox") { await patch(pathPatch(t.dataset.setting, t.checked)); if (t.dataset.setting === "callSounds") applyTheme(); return; }
     if (t.dataset.setting && t.tagName === "SELECT") return patch(pathPatch(t.dataset.setting, t.value));
     if (t.dataset.setting && t.type !== "range") return patch(pathPatch(t.dataset.setting, t.value));
   });
