@@ -639,7 +639,7 @@
   }
   function setSobre() {
     return `<div class="section"><div class="box"><div class="row"><span style="width:56px;height:56px;display:block">${LOGO}</span><div class="txt"><b style="font-size:18px">Tasca</b><small>Versão 0.1.0 (pré-visualização) · ${window.api.isMock ? "dados de teste no browser" : "app desktop, núcleo P2P ainda por ligar"}</small></div></div>
-      <div class="row"><div class="txt"><small>Conversa, voz e plugins sem servidores centrais. Cada grupo vive no PC de quem o criou. Feito com Rust, iroh, SQLite e Tauri.</small></div></div></div></div>`;
+      <div class="row"><div class="txt"><small>Conversa, voz e plugins. As mensagens vão cifradas de ponta a ponta; ficheiros e chamadas vão direto entre PCs. Feito com Rust, iroh, SQLite e Tauri.</small></div></div></div></div>`;
   }
 
   // ---------------- modais ----------------
