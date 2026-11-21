@@ -115,6 +115,8 @@
       (S.navOpen ? " show-nav" : "") + (S.membersOpen ? " show-members" : "") +
       (S.view === "voice" && !S.callSidebar ? " call" : "");
     $("#rail").innerHTML = renderRail();
+    const tbp = document.getElementById("tb-plugins"); if (tbp) tbp.classList.toggle("on", S.view === "plugins");
+    document.body.classList.add("ready");
     $("#sidebar").innerHTML = S.view === "settings" ? "" : renderSidebar();
     $("#sidebar").hidden = S.view === "settings";
     if (S.view === "settings") app.style.gridTemplateColumns = window.innerWidth > 720 ? "72px minmax(0,1fr)" : "";
@@ -139,9 +141,7 @@
       <button class="rail-btn logo ${S.home && S.view === "chat" ? "on" : ""}" data-act="home" data-tip="Mensagens privadas" aria-label="Mensagens privadas">${LOGO}${S.dms.some((d) => d.unread) && !S.home ? `<span class="badge">${S.dms.reduce((a, d) => a + d.unread, 0)}</span>` : ""}</button>
       <div class="rail-sep"></div>
       ${gs}
-      <button class="rail-btn add" data-act="new-group" data-tip="Criar ou entrar num grupo" aria-label="Criar ou entrar num grupo">${I.plus}</button>
-      <div class="rail-sep"></div>
-      <button class="rail-btn store ${S.view === "plugins" ? "on" : ""}" data-act="plugins" data-tip="Plugins" aria-label="Plugins">${I.puzzle}</button>`;
+      <button class="rail-btn add" data-act="new-group" data-tip="Criar ou entrar num grupo" aria-label="Criar ou entrar num grupo">${I.plus}</button>`;
   }
 
   function hostCard(g) {
