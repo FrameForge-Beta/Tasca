@@ -79,8 +79,144 @@
     Object.assign(A, { ctx: null, node: null, stream: null });
   }
 
+  // ---------------- vídeo: câmara e partilha de ecrã ----------------
+  // Cada imagem é codificada aqui (WebCodecs: H.264 se o PC o fizer, senão VP8) e vai
+  // para o Rust (`video_send`), que a manda pelo anfitrião. Formato: byte 0 = bit 0
+  // imagem chave, bit 1 ecrã (senão câmara); byte 1 = codec (0 VP8, 1 H.264); depois a
+  // imagem. As imagens dos outros chegam por um canal (`video_subscribe`), com o id da
+  // pessoa à frente, e são desenhadas em <canvas>.
+  const CODECS = ["avc1.42E034", "vp8"];
+  const V = { pubs: {}, decs: {}, canvases: new Map(), emVoo: 0, onStreams: null };
+
+  async function escolherCodec(cfg) {
+    if (!window.VideoEncoder) return null;
+    for (const codec of CODECS) {
+      const c = { ...cfg, codec, ...(codec.startsWith("avc") ? { avc: { format: "annexb" } } : {}) };
+      try { const r = await VideoEncoder.isConfigSupported(c); if (r.supported) return c; } catch {}
+    }
+    return null;
+  }
+
+  function enviarImagem(kind, codecId, chunk, pub) {
+    const key = chunk.type === "key";
+    // Rede ou IPC atrasada: deita fora e pede uma imagem chave para recuperar.
+    if (V.emVoo > 4 && !key) { pub.forceKey = true; return; }
+    const buf = new Uint8Array(2 + chunk.byteLength);
+    buf[0] = (key ? 1 : 0) | (kind === "screen" ? 2 : 0);
+    buf[1] = codecId;
+    chunk.copyTo(buf.subarray(2));
+    V.emVoo++;
+    core.invoke("video_send", buf).catch((e) => console.warn("vídeo:", e)).finally(() => V.emVoo--);
+  }
+
+  async function publish(kind, stream, o) {
+    const track = stream && stream.getVideoTracks()[0];
+    if (!core || !track) return;
+    const old = V.pubs[kind];
+    if (old && old.track === track) return;
+    unpublish(kind);
+    if (!window.MediaStreamTrackProcessor || !window.VideoEncoder) { console.warn("este sistema não codifica vídeo"); return; }
+    const pub = { track, stop: false, forceKey: true, enc: null, w: 0, h: 0 };
+    V.pubs[kind] = pub;
+    const reader = new MediaStreamTrackProcessor({ track }).readable.getReader();
+    pub.reader = reader;
+    let n = 0, codecId = 0;
+    while (!pub.stop) {
+      let r;
+      try { r = await reader.read(); } catch { break; }
+      if (r.done) break;
+      const frame = r.value;
+      try {
+        // tamanho de saída: a altura pedida, sem aumentar, com lados pares
+        const sw = frame.displayWidth, sh = frame.displayHeight;
+        const h = Math.min(o.height, sh) & ~1, w = Math.round((sw * h) / sh) & ~1;
+        if (!pub.enc || w !== pub.w || h !== pub.h) {
+          if (pub.enc) try { pub.enc.close(); } catch {}
+          const cfg = await escolherCodec({ width: w, height: h, bitrate: o.bitrate, framerate: o.fps, latencyMode: "realtime", hardwareAcceleration: "no-preference" });
+          if (!cfg) { console.warn("nenhum codec de vídeo disponível"); frame.close(); break; }
+          codecId = cfg.codec.startsWith("avc") ? 1 : 0;
+          const id = codecId;
+          pub.enc = new VideoEncoder({ output: (chunk) => enviarImagem(kind, id, chunk, pub), error: (e) => { console.warn("codificador:", e); pub.enc = null; } });
+          pub.enc.configure(cfg);
+          Object.assign(pub, { w, h, forceKey: true });
+        }
+        if (pub.enc.encodeQueueSize > 2) { pub.forceKey = true; continue; }
+        const keyFrame = pub.forceKey || n % (o.fps * 2) === 0; // uma imagem chave a cada 2 s
+        pub.forceKey = false;
+        pub.enc.encode(frame, { keyFrame });
+        n++;
+      } catch (e) { console.warn("vídeo:", e); }
+      finally { frame.close(); }
+    }
+    try { reader.releaseLock(); } catch {}
+  }
+
+  function unpublish(kind) {
+    const pub = V.pubs[kind];
+    if (!pub) return;
+    pub.stop = true;
+    try { pub.reader && pub.reader.cancel(); } catch {}
+    try { pub.enc && pub.enc.close(); } catch {}
+    delete V.pubs[kind];
+  }
+
+  function canvas(key) {
+    let c = V.canvases.get(key);
+    if (!c) {
+      c = document.createElement("canvas");
+      c.className = "live-video";
+      V.canvases.set(key, c);
+    }
+    return c;
+  }
+
+  function receber(data) {
+    const buf = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data);
+    const idLen = buf[0];
+    const id = new TextDecoder().decode(buf.subarray(1, 1 + idLen));
+    const flags = buf[1 + idLen], codecId = buf[2 + idLen];
+    const img = buf.subarray(3 + idLen);
+    const key = id + ":" + (flags & 2 ? "screen" : "cam");
+    const isKey = !!(flags & 1);
+    let d = V.decs[key];
+    if (d && d.codecId !== codecId) { try { d.dec.close(); } catch {} d = null; }
+    if (!d || d.dec.state === "closed") {
+      if (!isKey) return; // espera por uma imagem chave
+      if (!window.VideoDecoder) return;
+      const dec = new VideoDecoder({
+        output: (frame) => {
+          const c = canvas(key);
+          if (c.width !== frame.displayWidth || c.height !== frame.displayHeight) { c.width = frame.displayWidth; c.height = frame.displayHeight; }
+          c.getContext("2d").drawImage(frame, 0, 0);
+          frame.close();
+        },
+        error: (e) => { console.warn("descodificador:", e); },
+      });
+      dec.configure({ codec: codecId === 1 ? "avc1.42E034" : "vp8", optimizeForLatency: true, ...(codecId === 1 ? { avc: { format: "annexb" } } : {}) });
+      d = V.decs[key] = { dec, codecId };
+    }
+    if (d.dec.decodeQueueSize > 4 && !isKey) return;
+    try { d.dec.decode(new EncodedVideoChunk({ type: isKey ? "key" : "delta", timestamp: performance.now() * 1000, data: img })); }
+    catch (e) { console.warn("vídeo recebido:", e); try { d.dec.close(); } catch {} delete V.decs[key]; }
+  }
+
+  function subscribe() {
+    if (!core || !core.Channel) return;
+    const ch = new core.Channel();
+    ch.onmessage = (m) => { try { receber(m); } catch (e) { console.warn("vídeo:", e); } };
+    core.invoke("video_subscribe", { channel: ch }).catch((e) => console.warn("vídeo:", e));
+  }
+
+  function limparVideo() {
+    for (const k of Object.keys(V.pubs)) unpublish(k);
+    for (const d of Object.values(V.decs)) try { d.dec.close(); } catch {}
+    V.decs = {};
+    V.canvases.clear();
+  }
+
   window.vozAudio = {
     start, stop,
+    video: { publish, unpublish, canvas, subscribe, clear: limparVideo },
     get active() { return !!A.ctx; },
     set transmit(f) { A.transmit = f; },
     set onFrame(f) { A.onFrame = f; },

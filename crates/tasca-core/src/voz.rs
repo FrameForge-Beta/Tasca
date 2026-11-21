@@ -8,6 +8,11 @@
 //! Datagramas:
 //! - membro → anfitrião: `seq: u16` + pacote Opus;
 //! - anfitrião → membro: `id do autor: u16` + `seq: u16` + pacote Opus.
+//!
+//! Vídeo (câmara e partilha de ecrã): cada imagem codificada vai num stream QUIC
+//! unidirecional próprio, para chegar inteira sem atrasar as outras:
+//! - membro → anfitrião: a imagem (bytes opacos, ver [`Chamada::enviar_video`]);
+//! - anfitrião → membro: `id do autor: u16` + a imagem.
 
 use std::{
     collections::HashMap,
@@ -46,6 +51,24 @@ pub struct Participante {
     pub key: [u8; 32],
     pub muted: bool,
     pub deaf: bool,
+    /// Câmara ligada.
+    pub camera: bool,
+    /// A partilhar o ecrã.
+    pub screen: bool,
+}
+
+/// Tamanho máximo de uma imagem de vídeo (8 MiB).
+const MAX_IMAGEM: usize = 8 * 1024 * 1024;
+/// Imagens a caminho de uma pessoa a partir das quais se deitam fora as que não são chave.
+const FILA_VIDEO: usize = 6;
+/// A partir daqui deitam-se fora todas.
+const FILA_VIDEO_MAX: usize = 24;
+
+/// Uma imagem de vídeo de outro participante.
+#[derive(Debug, Clone)]
+pub struct Imagem {
+    pub from: [u8; 32],
+    pub data: Bytes,
 }
 
 /// Um pacote de áudio de outro participante.
@@ -60,6 +83,7 @@ pub struct Pacote {
 enum VozCliente {
     Entrar { group: GroupId, room: String },
     Estado { muted: bool, deaf: bool },
+    Video { camera: bool, screen: bool },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -87,13 +111,35 @@ struct Membro {
     key: [u8; 32],
     muted: bool,
     deaf: bool,
+    camera: bool,
+    screen: bool,
     saida: Saida,
+    /// Imagens de vídeo a caminho desta pessoa.
+    fila: Arc<std::sync::atomic::AtomicUsize>,
     sala: watch::Sender<Vec<Participante>>,
 }
 
 enum Saida {
     Rede(Connection),
-    Local(mpsc::Sender<Pacote>),
+    Local(mpsc::Sender<Pacote>, mpsc::Sender<Imagem>),
+}
+
+impl Membro {
+    fn participante(&self, id: u16) -> Participante {
+        Participante {
+            id,
+            key: self.key,
+            muted: self.muted,
+            deaf: self.deaf,
+            camera: self.camera,
+            screen: self.screen,
+        }
+    }
+}
+
+/// O primeiro byte de uma imagem diz se é chave (bit 0), por convenção de quem a envia.
+fn e_chave(data: &[u8]) -> bool {
+    data.first().is_some_and(|b| b & 1 == 1)
 }
 
 impl Hub {
@@ -138,7 +184,16 @@ impl Hub {
         let (tx, rx) = watch::channel(Vec::new());
         e.salas.entry(sala_chave).or_default().insert(
             id,
-            Membro { key, muted: false, deaf: false, saida, sala: tx },
+            Membro {
+                key,
+                muted: false,
+                deaf: false,
+                camera: false,
+                screen: false,
+                saida,
+                fila: Default::default(),
+                sala: tx,
+            },
         );
         for r in antigas {
             Self::anunciar(&mut e, group, &r);
@@ -166,13 +221,27 @@ impl Hub {
     }
 
     fn set_estado(&self, group: GroupId, room: &str, id: u16, muted: bool, deaf: bool) {
+        self.mudar(group, room, id, |m| {
+            m.muted = muted;
+            m.deaf = deaf;
+        });
+    }
+
+    fn set_video(&self, group: GroupId, room: &str, id: u16, camera: bool, screen: bool) {
+        self.mudar(group, room, id, |m| {
+            m.camera = camera;
+            m.screen = screen;
+        });
+    }
+
+    fn mudar(&self, group: GroupId, room: &str, id: u16, f: impl FnOnce(&mut Membro)) {
         let mut e = self.estado.lock().unwrap();
         let Some(m) = e.salas.get_mut(&(group, room.to_string())).and_then(|s| s.get_mut(&id)) else { return };
-        if (m.muted, m.deaf) == (muted, deaf) {
+        let antes = (m.muted, m.deaf, m.camera, m.screen);
+        f(m);
+        if antes == (m.muted, m.deaf, m.camera, m.screen) {
             return;
         }
-        m.muted = muted;
-        m.deaf = deaf;
         Self::anunciar(&mut e, group, room);
         drop(e);
         self.mudou.send_modify(|v| *v += 1);
@@ -183,7 +252,7 @@ impl Hub {
         let Some(membros) = e.salas.get(&(group, room.to_string())) else { return };
         let mut lista: Vec<Participante> = membros
             .iter()
-            .map(|(id, m)| Participante { id: *id, key: m.key, muted: m.muted, deaf: m.deaf })
+            .map(|(id, m)| m.participante(*id))
             .collect();
         lista.sort_by_key(|p| p.id);
         for m in membros.values() {
@@ -214,8 +283,50 @@ impl Hub {
                         debug!("datagrama de voz não seguiu: {err}");
                     }
                 }
-                Saida::Local(tx) => {
+                Saida::Local(tx, _) => {
                     let _ = tx.try_send(Pacote { from: autor.key, seq, data: dg.slice(4..) });
+                }
+            }
+        }
+    }
+
+    /// Copia uma imagem de vídeo para os outros participantes da sala. `chave` diz se é uma
+    /// imagem chave (as outras dependem dela): quando alguém está atrasado, só essas seguem.
+    fn encaminhar_video(&self, group: GroupId, room: &str, from: u16, chave: bool, data: Bytes) {
+        use std::sync::atomic::Ordering;
+        let e = self.estado.lock().unwrap();
+        let Some(membros) = e.salas.get(&(group, room.to_string())) else { return };
+        let Some(autor) = membros.get(&from) else { return };
+        for (id, m) in membros {
+            if *id == from {
+                continue;
+            }
+            let fila = m.fila.load(Ordering::Relaxed);
+            if fila >= FILA_VIDEO_MAX || (fila >= FILA_VIDEO && !chave) {
+                continue;
+            }
+            match &m.saida {
+                Saida::Rede(c) => {
+                    let (c, data, fila) = (c.clone(), data.clone(), m.fila.clone());
+                    fila.fetch_add(1, Ordering::Relaxed);
+                    tokio::spawn(async move {
+                        let r: Result<()> = async {
+                            let mut s = c.open_uni().await?;
+                            s.write_all(&from.to_be_bytes()).await?;
+                            s.write_all(&data).await?;
+                            s.finish()?;
+                            s.stopped().await?;
+                            Ok(())
+                        }
+                        .await;
+                        if let Err(e) = r {
+                            debug!("imagem de vídeo não seguiu: {e:#}");
+                        }
+                        fila.fetch_sub(1, Ordering::Relaxed);
+                    });
+                }
+                Saida::Local(_, tx) => {
+                    let _ = tx.try_send(Imagem { from: autor.key, data: data.clone() });
                 }
             }
         }
@@ -231,7 +342,7 @@ impl Hub {
             .map(|((_, r), membros)| {
                 let mut l: Vec<_> = membros
                     .iter()
-                    .map(|(id, m)| Participante { id: *id, key: m.key, muted: m.muted, deaf: m.deaf })
+                    .map(|(id, m)| m.participante(*id))
                     .collect();
                 l.sort_by_key(|p| p.id);
                 (r.clone(), l)
@@ -305,6 +416,23 @@ impl HostVoz {
             }
         }));
 
+        // Vídeo que chega deste membro.
+        let hub = self.hub.clone();
+        let v_conn = conn.clone();
+        let v_room = room.clone();
+        let video = AbortOnDrop(tokio::spawn(async move {
+            while let Ok(mut s) = v_conn.accept_uni().await {
+                let hub = hub.clone();
+                let v_room = v_room.clone();
+                tokio::spawn(async move {
+                    if let Ok(data) = s.read_to_end(MAX_IMAGEM).await {
+                        let chave = e_chave(&data);
+                        hub.encaminhar_video(group, &v_room, id, chave, Bytes::from(data));
+                    }
+                });
+            }
+        }));
+
         // Lista da sala para este membro, sempre que muda.
         let lista = AbortOnDrop(tokio::spawn(async move {
             loop {
@@ -321,6 +449,7 @@ impl HostVoz {
         loop {
             match read_frame::<VozCliente>(&mut recv).await {
                 Ok(Some(VozCliente::Estado { muted, deaf })) => self.hub.set_estado(group, &room, id, muted, deaf),
+                Ok(Some(VozCliente::Video { camera, screen })) => self.hub.set_video(group, &room, id, camera, screen),
                 Ok(Some(VozCliente::Entrar { .. })) => bail!("Entrar repetido"),
                 Ok(None) => break,
                 Err(e) => {
@@ -329,7 +458,7 @@ impl HostVoz {
                 }
             }
         }
-        drop((audio, lista));
+        drop((audio, video, lista));
         conn.close(0u32.into(), b"adeus");
         Ok(())
     }
@@ -365,6 +494,7 @@ pub struct Chamada {
     modo: Modo,
     sala: watch::Receiver<Vec<Participante>>,
     pacotes: Option<mpsc::Receiver<Pacote>>,
+    imagens: Option<mpsc::Receiver<Imagem>>,
     seq: std::sync::atomic::AtomicU16,
     alive: watch::Receiver<bool>,
     _tarefas: Vec<AbortOnDrop>,
@@ -380,7 +510,8 @@ impl Chamada {
     /// Entra como anfitrião (o grupo é hospedado neste PC).
     pub(crate) fn local(hub: Arc<Hub>, group: GroupId, room: &str, key: [u8; 32]) -> Self {
         let (tx, rx) = mpsc::channel(256);
-        let (id, sala) = hub.entrar(group, room, key, Saida::Local(tx));
+        let (vtx, vrx) = mpsc::channel(64);
+        let (id, sala) = hub.entrar(group, room, key, Saida::Local(tx, vtx));
         let (alive_tx, alive) = watch::channel(true);
         Chamada {
             group,
@@ -393,6 +524,7 @@ impl Chamada {
             },
             sala,
             pacotes: Some(rx),
+            imagens: Some(vrx),
             seq: Default::default(),
             alive,
             _tarefas: Vec::new(),
@@ -450,6 +582,27 @@ impl Chamada {
             let _ = a.send(false);
         });
 
+        let (vtx, vrx) = mpsc::channel(64);
+        let sala_rx = sala.clone();
+        let v_conn = conn.clone();
+        let video = tokio::spawn(async move {
+            while let Ok(mut s) = v_conn.accept_uni().await {
+                let (vtx, sala_rx) = (vtx.clone(), sala_rx.clone());
+                tokio::spawn(async move {
+                    let Ok(data) = s.read_to_end(MAX_IMAGEM + 2).await else { return };
+                    if data.len() < 3 {
+                        return;
+                    }
+                    let from = u16::from_be_bytes([data[0], data[1]]);
+                    let key = sala_rx.borrow().iter().find(|p| p.id == from).map(|p| p.key);
+                    if let Some(from) = key {
+                        let data = Bytes::from(data).slice(2..);
+                        let _ = vtx.try_send(Imagem { from, data });
+                    }
+                });
+            }
+        });
+
         Ok(Chamada {
             group,
             room: room.to_string(),
@@ -457,9 +610,10 @@ impl Chamada {
             modo: Modo::Rede { conn, controlo: Arc::new(tokio::sync::Mutex::new(send)) },
             sala,
             pacotes: Some(rx),
+            imagens: Some(vrx),
             seq: Default::default(),
             alive,
-            _tarefas: vec![AbortOnDrop(controlo), AbortOnDrop(audio)],
+            _tarefas: vec![AbortOnDrop(controlo), AbortOnDrop(audio), AbortOnDrop(video)],
         })
     }
 
@@ -476,6 +630,58 @@ impl Chamada {
                 if let Err(e) = conn.send_datagram(dg.freeze()) {
                     debug!("datagrama de voz não seguiu: {e}");
                 }
+            }
+        }
+    }
+
+    /// Envia uma imagem de vídeo aos outros da sala. O primeiro byte é de quem envia, com o
+    /// bit 0 ligado nas imagens chave (as outras dependem delas); o resto é livre. Se a
+    /// ligação estiver lenta, as imagens que não são chave podem perder-se.
+    pub fn enviar_video(&self, data: Bytes) {
+        let chave = e_chave(&data);
+        match &self.modo {
+            Modo::Local { hub, .. } => hub.encaminhar_video(self.group, &self.room, self.id, chave, data),
+            Modo::Rede { conn, .. } => {
+                use std::sync::atomic::Ordering;
+                static FILA: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+                let fila = FILA.load(Ordering::Relaxed);
+                if fila >= FILA_VIDEO_MAX || (fila >= FILA_VIDEO && !chave) {
+                    return;
+                }
+                FILA.fetch_add(1, Ordering::Relaxed);
+                let c = conn.clone();
+                tokio::spawn(async move {
+                    let r: Result<()> = async {
+                        let mut s = c.open_uni().await?;
+                        s.write_all(&data).await?;
+                        s.finish()?;
+                        s.stopped().await?;
+                        Ok(())
+                    }
+                    .await;
+                    if let Err(e) = r {
+                        debug!("imagem de vídeo não seguiu: {e:#}");
+                    }
+                    FILA.fetch_sub(1, Ordering::Relaxed);
+                });
+            }
+        }
+    }
+
+    /// As imagens de vídeo dos outros. Só se pode tirar uma vez.
+    pub fn imagens(&mut self) -> Option<mpsc::Receiver<Imagem>> {
+        self.imagens.take()
+    }
+
+    /// Diz aos outros se tens a câmara ligada ou estás a partilhar o ecrã.
+    pub async fn set_video(&self, camera: bool, screen: bool) -> Result<()> {
+        match &self.modo {
+            Modo::Local { hub, .. } => {
+                hub.set_video(self.group, &self.room, self.id, camera, screen);
+                Ok(())
+            }
+            Modo::Rede { controlo, .. } => {
+                write_frame(&mut *controlo.lock().await, &VozCliente::Video { camera, screen }).await
             }
         }
     }

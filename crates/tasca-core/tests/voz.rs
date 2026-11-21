@@ -104,3 +104,42 @@ async fn quem_nao_e_membro_nao_entra() {
     let outro = host.create_group("Outro", "Tiago").unwrap();
     assert!(intruso.entrar_voz(outro, "sala").await.is_err());
 }
+
+#[tokio::test]
+async fn video_passa_pelo_anfitriao() {
+    let host = node().await;
+    let group = host.create_group("Malta", "Tiago").unwrap();
+    let code = host.create_invite(group).await.unwrap().encode();
+    let ze = node().await;
+    let _g1 = ze.join(&Invite::decode(&code).unwrap(), "Zé").await.unwrap();
+    let ana = node().await;
+    let code = host.create_invite(group).await.unwrap().encode();
+    let _g2 = ana.join(&Invite::decode(&code).unwrap(), "Ana").await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let mut h = host.entrar_voz(group, "sala").await.unwrap();
+    let z = ze.entrar_voz(group, "sala").await.unwrap();
+    let mut a = ana.entrar_voz(group, "sala").await.unwrap();
+    sala_com(&z, 3).await;
+    sala_com(&a, 3).await;
+
+    // O Zé liga a câmara: todos veem o estado.
+    z.set_video(true, false).await.unwrap();
+    let mut rx = a.sala();
+    timeout(Duration::from_secs(5), rx.wait_for(|l| l.iter().any(|p| p.camera && !p.screen))).await.unwrap().unwrap();
+
+    // Uma imagem grande (chave) chega inteira ao anfitrião e à Ana.
+    let img: Vec<u8> = std::iter::once(1u8).chain((0..300_000).map(|i| (i % 251) as u8)).collect();
+    z.enviar_video(bytes::Bytes::from(img.clone()));
+    let mut hv = h.imagens().unwrap();
+    let mut av = a.imagens().unwrap();
+    for rx in [&mut hv, &mut av] {
+        let i = timeout(Duration::from_secs(10), rx.recv()).await.expect("timeout").unwrap();
+        assert_eq!(i.from, *ze.identity().public().as_bytes());
+        assert_eq!(&i.data[..], &img[..]);
+    }
+    // O anfitrião também envia.
+    h.enviar_video(bytes::Bytes::from_static(b"\x00delta"));
+    let i = timeout(Duration::from_secs(5), av.recv()).await.expect("timeout").unwrap();
+    assert_eq!(&i.data[..], b"\x00delta");
+}
