@@ -50,7 +50,7 @@
         fill.style.width = (pct ?? 50) + "%";
         msg.textContent = `A transferir a versão ${e.versao}` + (pct != null ? ` · ${pct}%` : ` · ${mb(e.feito)}`);
       }
-      if (e.fase === "a_instalar") { barra.classList.add("det"); fill.style.width = "100%"; msg.textContent = `A instalar a versão ${e.versao}…`; }
+      if (e.fase === "a_instalar") { barra.classList.add("det"); fill.style.width = "100%"; msg.textContent = `A instalar a versão ${e.versao}… A Tasca volta a abrir sozinha.`; }
       if (e.fase === "pronto") { msg.textContent = "A arrancar…"; }
     });
   }
