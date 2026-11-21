@@ -70,8 +70,8 @@ enum VozAnfitriao {
 }
 
 /// As salas de voz que este PC hospeda.
-#[derive(Default)]
 pub(crate) struct Hub {
+    inner: Weak<Inner>,
     estado: Mutex<HubEstado>,
     /// Muda sempre que alguém entra, sai ou muda o estado numa sala.
     mudou: watch::Sender<u64>,
@@ -97,6 +97,17 @@ enum Saida {
 }
 
 impl Hub {
+    pub(crate) fn new(inner: Weak<Inner>) -> Self {
+        Hub { inner, estado: Default::default(), mudou: watch::channel(0).0 }
+    }
+
+    /// Põe a sala de voz na presença do grupo, que o anfitrião manda a todos os membros.
+    fn presenca(&self, group: GroupId, key: [u8; 32], room: Option<String>) {
+        if let Some(inner) = self.inner.upgrade() {
+            inner.set_voice_presence(group, key, room);
+        }
+    }
+
     fn entrar(&self, group: GroupId, room: &str, key: [u8; 32], saida: Saida) -> (u16, watch::Receiver<Vec<Participante>>) {
         let mut e = self.estado.lock().unwrap();
         let sala_chave = (group, room.to_string());
@@ -134,6 +145,7 @@ impl Hub {
         }
         Self::anunciar(&mut e, group, room);
         drop(e);
+        self.presenca(group, key, Some(room.to_string()));
         self.mudou.send_modify(|v| *v += 1);
         (id, rx)
     }
@@ -142,15 +154,14 @@ impl Hub {
         let mut e = self.estado.lock().unwrap();
         let chave = (group, room.to_string());
         let Some(membros) = e.salas.get_mut(&chave) else { return };
-        if membros.remove(&id).is_none() {
-            return;
-        }
+        let Some(saiu) = membros.remove(&id) else { return };
         if membros.is_empty() {
             e.salas.remove(&chave);
         } else {
             Self::anunciar(&mut e, group, room);
         }
         drop(e);
+        self.presenca(group, saiu.key, None);
         self.mudou.send_modify(|v| *v += 1);
     }
 

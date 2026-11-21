@@ -46,6 +46,8 @@ struct Ativa {
     servidor: bool,
     ligacoes: StdMutex<HashMap<GroupId, Ligacao>>,
     tarefas: StdMutex<Vec<JoinHandle<()>>>,
+    /// Sala de voz onde estou (grupo, id do canal).
+    voz: StdMutex<Option<(GroupId, String)>>,
 }
 
 struct Ligacao {
@@ -159,6 +161,15 @@ impl Ativa {
             }
         });
 
+        // quem está online (e em que sala) mudou → interface volta a ler o grupo
+        let ap = app.clone();
+        let mut pres = self.node.presence(g);
+        self.tarefa(async move {
+            while pres.changed().await.is_ok() {
+                let _ = ap.emit("group_changed", json!({ "groupId": hex(&g.0) }));
+            }
+        });
+
         if info.hosted {
             let h = self.node.open_hosted(g).map_err(txt)?;
             self.definir(app, g, h, true);
@@ -211,6 +222,11 @@ impl Ativa {
             };
             espera = 3;
             self.definir(app, g, h.clone(), true);
+            // estava numa sala deste grupo: diz outra vez ao anfitrião
+            let sala = self.voz.lock().unwrap().clone().filter(|(vg, _)| *vg == g).map(|(_, c)| c);
+            if sala.is_some() {
+                let _ = h.set_voice(sala).await;
+            }
             h.disconnected().await;
             if let Ok(off) = self.node.open_offline(g) {
                 self.definir(app, g, off, false);
@@ -249,6 +265,23 @@ impl Ativa {
             "ts": ev.body.timestamp_ms,
             "from": self.pessoa_id(&ev.body.author),
             "text": text,
+        })
+    }
+
+    /// Quem está online no grupo agora, e em que sala de voz.
+    fn presenca(&self, g: GroupId) -> tasca_core::protocol::Presence {
+        self.node.presence(g).borrow().clone()
+    }
+
+    /// Uma pessoa para a interface, com o perfil que publicou no grupo.
+    fn pessoa_json(&self, k: &[u8; 32], nome: &str, perfil: Option<&tasca_core::store::Profile>, online: bool) -> Value {
+        json!({
+            "id": self.pessoa_id(k),
+            "name": nome,
+            "color": perfil.map(|p| p.color.as_str()).filter(|c| !c.is_empty()).unwrap_or(cor(k)),
+            "photo": perfil.and_then(|p| p.photo.clone()),
+            "key": format!("ed25519:{}…{}", &hex(k)[..4], &hex(k)[60..]),
+            "status": if online || self.eu(k) { "online" } else { "offline" },
         })
     }
 
@@ -339,6 +372,7 @@ async fn ativa(app: &AppHandle, rede: &Rede, contas: &Contas) -> Res<Arc<Ativa>>
         servidor: tem_servidor,
         ligacoes: Default::default(),
         tarefas: Default::default(),
+        voz: Default::default(),
     });
     for info in a.node.with_store(|s| s.groups()).map_err(txt)? {
         if let Err(e) = a.arrancar(app, info.id, None) {
@@ -358,25 +392,23 @@ pub async fn list_group_people(app: AppHandle, rede: State<'_, Rede>, c: State<'
     let mut out = serde_json::Map::new();
     let grupos = a.node.with_store(|s| s.groups()).map_err(txt)?;
     for info in grupos {
-        let host_online = info.hosted || a.online(info.id);
+        let pres = a.presenca(info.id);
+        let perfis = a.node.with_store(|s| s.profiles(info.id)).map_err(txt)?;
         for (pk, nome) in a.node.with_store(|s| s.members(info.id)).map_err(txt)? {
             let k = pk.as_bytes();
             if a.eu(k) {
                 continue;
             }
-            let dono = pk == info.owner;
             let id = hex(k);
             let ja = out.get(&id).and_then(|p| p["status"].as_str()) == Some("online");
-            out.insert(
-                id.clone(),
-                json!({
-                    "id": id,
-                    "name": nome,
-                    "color": cor(k),
-                    "key": format!("ed25519:{}…{}", &hex(k)[..4], &hex(k)[60..]),
-                    "status": if ja || (dono && host_online) { "online" } else { "offline" },
-                }),
-            );
+            let mut p = a.pessoa_json(k, &nome, perfis.get(k), ja || pres.contains_key(k));
+            // outro grupo já tinha foto e este não: fica com a que há
+            if p["photo"].is_null() {
+                if let Some(f) = out.get(&id).map(|o| o["photo"].clone()) {
+                    p["photo"] = f;
+                }
+            }
+            out.insert(id, p);
         }
     }
     Ok(Value::Object(out))
@@ -394,21 +426,16 @@ pub async fn list_members(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Co
     let a = ativa(&app, &rede, &c).await?;
     let g = grupo(&group_id)?;
     let info = a.node.with_store(|s| s.group(g)).map_err(txt)?.ok_or("Grupo desconhecido.")?;
-    let host_online = info.hosted || a.online(g);
+    let pres = a.presenca(g);
+    let perfis = a.node.with_store(|s| s.profiles(g)).map_err(txt)?;
     let membros = a.node.with_store(|s| s.members(g)).map_err(txt)?;
     Ok(membros
         .into_iter()
         .map(|(pk, nome)| {
             let k = pk.as_bytes();
-            let dono = pk == info.owner;
-            json!({
-                "id": a.pessoa_id(k),
-                "name": nome,
-                "color": cor(k),
-                "key": format!("ed25519:{}…{}", &hex(k)[..4], &hex(k)[60..]),
-                "status": if a.eu(k) || (dono && host_online) { "online" } else { "offline" },
-                "owner": dono,
-            })
+            let mut p = a.pessoa_json(k, &nome, perfis.get(k), pres.contains_key(k));
+            p["owner"] = json!(pk == info.owner);
+            p
         })
         .collect())
 }
@@ -418,7 +445,22 @@ pub async fn list_channels(app: AppHandle, rede: State<'_, Rede>, c: State<'_, C
     let a = ativa(&app, &rede, &c).await?;
     let g = grupo(&group_id)?;
     let (canais, _) = a.layout(g)?;
-    Ok(canais.iter().map(|c| a.canal_json(g, c)).collect())
+    let pres = a.presenca(g);
+    Ok(canais
+        .iter()
+        .map(|ch| {
+            let mut v = a.canal_json(g, ch);
+            if ch.kind == ChannelKind::Voice {
+                let quem: Vec<String> = pres
+                    .iter()
+                    .filter(|(_, sala)| sala.as_deref() == Some(ch.id.as_str()))
+                    .map(|(k, _)| a.pessoa_id(k))
+                    .collect();
+                v["inVoice"] = json!(quem);
+            }
+            v
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -861,5 +903,68 @@ pub async fn reorder_channels(
         Ok(())
     })
     .await?;
+    Ok(true)
+}
+
+// ---------------- presença e perfil ----------------
+
+/// Entra numa sala de voz (por agora só avisa o grupo de que estás lá; o som é outra tarefa).
+#[tauri::command]
+pub async fn join_voice(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>, channel_id: String) -> Res<bool> {
+    let a = ativa(&app, &rede, &c).await?;
+    let (g, ch) = canal(&channel_id)?;
+    let antes = a.voz.lock().unwrap().replace((g, ch.clone()));
+    if let Some((vg, _)) = antes.filter(|(vg, _)| *vg != g) {
+        if let Ok(h) = a.handle(vg) {
+            let _ = h.set_voice(None).await;
+        }
+    }
+    a.handle(g)?.set_voice(Some(ch)).await.map_err(txt)?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn leave_voice(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>) -> Res<bool> {
+    let a = ativa(&app, &rede, &c).await?;
+    let antes = a.voz.lock().unwrap().take();
+    if let Some((g, _)) = antes {
+        if let Ok(h) = a.handle(g) {
+            let _ = h.set_voice(None).await;
+        }
+    }
+    Ok(true)
+}
+
+/// Publica o teu perfil (nome da conta, cor e foto) nos grupos onde ainda está diferente.
+#[tauri::command]
+pub async fn publish_profile(
+    app: AppHandle,
+    rede: State<'_, Rede>,
+    c: State<'_, Contas>,
+    color: String,
+    photo: Option<String>,
+) -> Res<bool> {
+    let a = ativa(&app, &rede, &c).await?;
+    let nome = c.nome().await.unwrap_or_else(|| "Eu".into());
+    let photo = photo.filter(|p| p.starts_with("data:image/") && p.len() <= tasca_core::store::MAX_PHOTO_CHARS);
+    let novo = tasca_core::store::Profile { color: color.chars().take(32).collect(), photo };
+    for info in a.node.with_store(|s| s.groups()).map_err(txt)? {
+        let g = info.id;
+        let (perfil, nome_grupo) = a.node.with_store(|s| {
+            let p = s.profiles(g).ok().and_then(|mut m| m.remove(&a.conta));
+            let n = s.members(g).ok().and_then(|m| m.into_iter().find(|(k, _)| *k.as_bytes() == a.conta).map(|(_, n)| n));
+            (p, n)
+        });
+        if perfil.as_ref() == Some(&novo) && nome_grupo.as_deref() == Some(nome.as_str()) {
+            continue;
+        }
+        let Ok(h) = a.handle(g) else { continue };
+        if !h.is_connected() && !a.servidor {
+            continue; // volta a tentar na próxima vez que a interface pedir
+        }
+        if let Err(e) = h.set_profile(&nome, &novo.color, novo.photo.clone()).await {
+            eprintln!("perfil no grupo {g}: {e:#}");
+        }
+    }
     Ok(true)
 }

@@ -41,6 +41,11 @@ async fn audio_passa_pelo_anfitriao() {
     sala_com(&h, 3).await;
     assert!(lista.iter().any(|p| p.key == *ze.identity().public().as_bytes()));
     assert_eq!(host.salas_voz(group).len(), 1);
+    // A sala aparece na presença, que chega aos membros.
+    let zk = *ze.identity().public().as_bytes();
+    assert_eq!(host.presence(group).borrow().get(&zk), Some(&Some("sala".to_string())));
+    let mut pa = ana.presence(group);
+    timeout(Duration::from_secs(5), pa.wait_for(|p| p.get(&zk) == Some(&Some("sala".to_string())))).await.unwrap().unwrap();
 
     let mut hp = h.pacotes().unwrap();
     let mut zp = z.pacotes().unwrap();
@@ -76,6 +81,7 @@ async fn audio_passa_pelo_anfitriao() {
     // O Zé sai: a sala fica com dois.
     drop(z);
     sala_com(&h, 2).await;
+    timeout(Duration::from_secs(5), pa.wait_for(|p| p.get(&zk) == Some(&None))).await.unwrap().unwrap();
     sala_com(&a, 2).await;
     drop((a, h));
     timeout(Duration::from_secs(5), async {

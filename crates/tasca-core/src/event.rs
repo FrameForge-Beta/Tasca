@@ -40,6 +40,12 @@ pub enum EventKind {
         channels: Vec<ChannelDef>,
         categories: Vec<String>,
     },
+    /// Perfil do autor neste grupo: nome, cor e foto (`data:image/...`, pequena).
+    Profile {
+        name: String,
+        color: String,
+        photo: Option<String>,
+    },
 }
 
 /// Tipo de canal.
