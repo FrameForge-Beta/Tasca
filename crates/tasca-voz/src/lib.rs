@@ -88,10 +88,19 @@ impl Filtro {
 
 /// O que sai de [`Captura::processar`].
 pub struct Capturado {
-    /// Nível do microfone (0 a 100), na mesma escala do medidor das definições.
+    /// Nível do microfone (0 a 100, ver [`nivel`]).
     pub nivel: u8,
     /// Pacote Opus para enviar, ou `None` quando a porta está fechada (silêncio ou mudo).
     pub pacote: Option<Vec<u8>>,
+}
+
+/// Nível de 0 a 100 de um pico (0 a 1): -60 dBFS ou menos é 0, 0 dBFS é 100. É a escala
+/// do medidor e da sensibilidade nas definições.
+pub fn nivel(pico: f32) -> u8 {
+    if pico <= 0.0 {
+        return 0;
+    }
+    ((20.0 * pico.log10() + 60.0) / 60.0 * 100.0).clamp(0.0, 100.0) as u8
 }
 
 /// Microfone → pacotes Opus.
@@ -131,7 +140,7 @@ impl Captura {
     pub fn processar(&mut self, pcm: &mut [f32], transmitir: bool) -> Result<Capturado> {
         anyhow::ensure!(pcm.len() == FRAME, "bloco de áudio com tamanho errado");
         let pico = pcm.iter().fold(0f32, |m, v| m.max(v.abs()));
-        let nivel = (pico * 160.0).min(100.0) as u8;
+        let nivel = nivel(pico);
         if !transmitir {
             self.aberta = 0;
             return Ok(Capturado { nivel, pacote: None });

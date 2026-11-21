@@ -11,14 +11,16 @@
 //   google_backup, lock, username_available, server_register, server_login,
 //   list_accounts, select_account, sign_out, suggest_usernames, save_phrase_desktop,
 //   list_dms, create_group, join_group, create_invite, join_voice, leave_voice, set_voice_state,
+//   set_voice_options, set_user_volume, voice_frame (áudio em bytes, ver voz.js),
 //   set_camera, list_capture_sources, start_screen_share, stop_screen_share,
 //   list_plugins, set_plugin_enabled, install_plugin, get_settings, set_settings,
 //   run_backup, list_backups, transfer_ownership
 // Eventos: "message", "message_ack", "group_changed", "host_status", "typing", "voice_activity",
+//   "voice_status" (ping, rota, ligação), "voice_members" (quem está sem microfone/som),
 //   "video_track", "backup_progress"
 //
 // Na app instalada, grupos, canais, membros e mensagens vêm do núcleo (apps/desktop/src/grupos.rs);
-// ver `real` mais abaixo. Voz, plugins, conversas privadas e cópias ainda são simulados.
+// ver `real` mais abaixo. Plugins, conversas privadas e cópias ainda são simulados.
 
 (function () {
   const tauri = window.__TAURI__ && window.__TAURI__.core;
@@ -183,6 +185,7 @@
     outputDevice: "default",
     sensitivity: 62,
     noiseSuppression: true,
+    noiseMode: "deep",
     echoCancel: true,
     pushToTalk: false,
     relay: "public",
@@ -563,9 +566,10 @@
     async set_profile(a) { const r = await mock.set_profile(a); publishProfile(); return r; },
     async set_display_name(a) { const r = await inv("set_display_name", a); publishProfile(); return r; },
     async create_invite(a) { return inv("create_invite", a); },
-    // o som ainda é simulado; o grupo já fica a saber em que sala estás
-    async join_voice(a) { await inv("join_voice", a); return mock.join_voice(a); },
-    async leave_voice() { await inv("leave_voice"); return mock.leave_voice(); },
+    // voz a sério: o áudio corre em voz.js e no Rust (voz.rs)
+    async join_voice(a) { return inv("join_voice", a); },
+    async leave_voice() { return inv("leave_voice"); },
+    async set_voice_state(a) { return inv("set_voice_state", a); },
   };
 
   // nome de canal: texto em minúsculas com hífens; voz fica como está
