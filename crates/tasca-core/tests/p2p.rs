@@ -150,3 +150,56 @@ async fn volta_a_ligar_pela_internet() {
     assert_eq!(next_text(&mut rx).await, "outra vez");
     drop((chat, again));
 }
+
+#[tokio::test]
+async fn presenca_sala_de_voz_e_perfil() {
+    let host = node().await;
+    let group = host.create_group("Malta", "Tiago").unwrap();
+    let hosted = host.open_hosted(group).unwrap();
+    let invite = host.create_invite(group).await.unwrap();
+    let member = node().await;
+    let chat = member.join(&invite, "Zé").await.unwrap();
+    let eu = *member.identity().public().as_bytes();
+    let dono = *host.identity().public().as_bytes();
+
+    // O membro fica a ver o anfitrião e a si próprio online.
+    let mut pres = member.presence(group);
+    timeout(Duration::from_secs(10), pres.wait_for(|p| p.contains_key(&eu) && p.contains_key(&dono)))
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Sala de voz: o membro avisa, o anfitrião e o próprio membro veem.
+    chat.set_voice(Some("sala".into())).await.unwrap();
+    let mut host_pres = host.presence(group);
+    timeout(Duration::from_secs(10), host_pres.wait_for(|p| p.get(&eu) == Some(&Some("sala".into()))))
+        .await
+        .unwrap()
+        .unwrap();
+    hosted.set_voice(Some("sala".into())).await.unwrap();
+    timeout(Duration::from_secs(10), pres.wait_for(|p| p.get(&dono) == Some(&Some("sala".into()))))
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Perfil: nome novo, cor e foto chegam ao anfitrião.
+    chat.set_profile("Zé Manel", "#2A5CAA", Some("data:image/webp;base64,AAAA".into())).await.unwrap();
+    let mut rx = host.subscribe(group);
+    loop {
+        let (_, ev) = timeout(Duration::from_secs(10), rx.recv()).await.unwrap().unwrap();
+        if matches!(ev.body.kind, EventKind::Profile { .. }) {
+            break;
+        }
+    }
+    let k = member.identity().public();
+    assert_eq!(host.with_store(|s| s.display_name(group, &k).unwrap()).as_deref(), Some("Zé Manel"));
+    let perfil = host.with_store(|s| s.profiles(group).unwrap()).remove(&eu).unwrap();
+    assert_eq!(perfil.color, "#2A5CAA");
+
+    // Ao sair, deixa de estar online para o anfitrião.
+    member.shutdown().await.unwrap();
+    timeout(Duration::from_secs(10), host_pres.wait_for(|p| !p.contains_key(&eu)))
+        .await
+        .unwrap()
+        .unwrap();
+}

@@ -333,6 +333,7 @@
           if (s.publicKey) people.me.key = "ed25519:" + s.publicKey;
           people.me.username = s.username || null;
           await loadLocal(s.publicKey);
+          if (s.unlocked) publishProfile();
         } catch {}
       }
       else {
@@ -548,22 +549,23 @@
     const day = diff === 0 ? today : diff === 1 ? "Ontem" : diff > 1 && diff < 7 ? DIAS[d.getDay()] : d.toLocaleDateString("pt-PT");
     return { ...m, day, at: d.toTimeString().slice(0, 5) };
   }
-  let myVoice = null; // voz ainda é simulada: lembra em que canal estás
+  // o teu perfil (cor e foto, guardados neste PC) vai para os grupos onde ainda está diferente
+  const publishProfile = () => inv("publish_profile", { color: people.me.color, photo: people.me.photo || null }).catch((e) => console.warn("perfil não publicado:", e));
+  if (tauri && window.__TAURI__.event) window.__TAURI__.event.listen("host_status", (e) => { if (e.payload && e.payload.online) publishProfile(); });
   const real = {
     async list_people() { const p = clone(people); try { Object.assign(p, await inv("list_group_people")); } catch (e) { console.warn(e); } return p; },
     async list_members(a) { return (await inv("list_members", a)).map((m) => (m.id === "me" ? { ...clone(people.me), owner: m.owner } : m)); },
-    async list_channels(a) {
-      const list = await inv("list_channels", a);
-      for (const c of list) if (c.kind === "voice") c.inVoice = myVoice === c.id ? ["me"] : [];
-      return list;
-    },
+    async list_channels(a) { return inv("list_channels", a); },
     async list_messages(a) { return (await inv("list_messages", a)).map(fmt); },
     async send_message(a) { return fmt(await inv("send_message", a)); },
     async create_group(a) { return inv("create_group", a); },
-    async join_group(a) { return inv("join_group", a); },
+    async join_group(a) { const g = await inv("join_group", a); publishProfile(); return g; },
+    async set_profile(a) { const r = await mock.set_profile(a); publishProfile(); return r; },
+    async set_display_name(a) { const r = await inv("set_display_name", a); publishProfile(); return r; },
     async create_invite(a) { return inv("create_invite", a); },
-    async join_voice(a) { const r = await mock.join_voice(a); myVoice = a.channelId; return r; },
-    async leave_voice() { myVoice = null; return mock.leave_voice(); },
+    // o som ainda é simulado; o grupo já fica a saber em que sala estás
+    async join_voice(a) { await inv("join_voice", a); return mock.join_voice(a); },
+    async leave_voice() { await inv("leave_voice"); return mock.leave_voice(); },
   };
 
   // nome de canal: texto em minúsculas com hífens; voz fica como está
