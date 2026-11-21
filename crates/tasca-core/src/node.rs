@@ -11,7 +11,7 @@ use iroh::{
     endpoint::{Connection, SendStream, presets},
     protocol::{AcceptError, ProtocolHandler, Router},
 };
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 use tracing::{debug, warn};
 
 use crate::{
@@ -152,7 +152,7 @@ impl Node {
     /// desligado). As mensagens vão para a caixa do servidor e o anfitrião aceita-as quando voltar.
     pub fn open_offline(&self, group: GroupId) -> Result<GroupHandle> {
         ensure!(self.inner.store().group(group)?.is_some(), "grupo desconhecido");
-        Ok(GroupHandle { group, inner: self.inner.clone(), remote: None })
+        Ok(GroupHandle { group, inner: self.inner.clone(), remote: None, alive: None })
     }
 
     /// Gera um convite novo para um grupo que este PC hospeda.
@@ -202,16 +202,49 @@ impl Node {
             group,
             inner: self.inner.clone(),
             remote: None,
+            alive: None,
         })
     }
 
     /// Liga-se ao anfitrião de um grupo usando um convite, e entra se ainda não for membro.
     pub async fn join(&self, invite: &Invite, display_name: &str) -> Result<GroupHandle> {
-        let group = invite.group;
+        let handle = self
+            .connect(invite.host.clone(), invite.group, Some(invite.token))
+            .await?;
+        let me = self.inner.identity.public();
+        if !self.inner.store().is_member(invite.group, &me)? {
+            handle
+                .publish(EventKind::MemberJoined {
+                    display_name: display_name.trim().to_string(),
+                })
+                .await?;
+        }
+        Ok(handle)
+    }
+
+    /// Volta a ligar-se ao anfitrião de um grupo de que já somos membro (sem convite).
+    /// O anfitrião é encontrado pela chave do dono, que é o id do nó dele no iroh.
+    pub async fn reconnect(&self, group: GroupId) -> Result<GroupHandle> {
+        let info = self
+            .inner
+            .store()
+            .group(group)?
+            .ok_or_else(|| anyhow!("grupo desconhecido"))?;
+        ensure!(!info.hosted, "este grupo é hospedado aqui");
+        self.connect(iroh::EndpointAddr::new(info.owner), group, None)
+            .await
+    }
+
+    async fn connect(
+        &self,
+        addr: iroh::EndpointAddr,
+        group: GroupId,
+        invite_token: Option<[u8; 16]>,
+    ) -> Result<GroupHandle> {
         let conn = self
             .router
             .endpoint()
-            .connect(invite.host.clone(), ALPN)
+            .connect(addr, ALPN)
             .await
             .map_err(|e| anyhow!("não consegui ligar ao anfitrião: {e}"))?;
         let (mut send, mut recv) = conn.open_bi().await?;
@@ -220,7 +253,7 @@ impl Node {
             &mut send,
             &ClientMsg::Hello {
                 group,
-                invite_token: Some(invite.token),
+                invite_token,
                 since,
             },
         )
@@ -230,6 +263,9 @@ impl Node {
             Some(HostMsg::Rejected(why)) => bail!("o anfitrião recusou: {why}"),
             other => bail!("resposta inesperada do anfitrião: {other:?}"),
         }
+
+        // `true` enquanto a ligação ao anfitrião estiver viva.
+        let (alive_tx, alive_rx) = watch::channel(true);
 
         // Tarefa que recebe eventos do anfitrião e os guarda na réplica local.
         let inner = self.inner.clone();
@@ -265,22 +301,15 @@ impl Node {
                     }
                 }
             }
+            let _ = alive_tx.send(false);
         });
 
-        let handle = GroupHandle {
+        Ok(GroupHandle {
             group,
             inner: self.inner.clone(),
             remote: Some(Arc::new(tokio::sync::Mutex::new(send))),
-        };
-        let me = self.inner.identity.public();
-        if !self.inner.store().is_member(group, &me)? {
-            handle
-                .publish(EventKind::MemberJoined {
-                    display_name: display_name.trim().to_string(),
-                })
-                .await?;
-        }
-        Ok(handle)
+            alive: Some(alive_rx),
+        })
     }
 
     pub async fn shutdown(self) -> Result<()> {
@@ -293,12 +322,53 @@ impl Node {
 pub struct GroupHandle {
     pub group: GroupId,
     inner: Arc<Inner>,
-    /// `None` quando somos o anfitrião.
+    /// `None` quando somos o anfitrião (ou o grupo foi aberto sem anfitrião).
     remote: Option<Arc<tokio::sync::Mutex<SendStream>>>,
+    /// Estado da ligação ao anfitrião (só quando `remote` existe).
+    alive: Option<watch::Receiver<bool>>,
 }
 
 impl GroupHandle {
-    pub async fn send_message(&self, channel: &str, text: &str) -> Result<()> {
+    /// Está ligado diretamente ao anfitrião (ou é o próprio anfitrião).
+    pub fn is_connected(&self) -> bool {
+        match &self.alive {
+            Some(rx) => *rx.borrow(),
+            None => self.remote.is_none() && self.is_hosted(),
+        }
+    }
+
+    /// Este PC é o anfitrião do grupo.
+    pub fn is_hosted(&self) -> bool {
+        self.inner
+            .store()
+            .group(self.group)
+            .ok()
+            .flatten()
+            .is_some_and(|g| g.hosted)
+    }
+
+    /// Espera até a ligação ao anfitrião cair. Sem ligação (anfitrião ou grupo aberto
+    /// sem anfitrião), volta logo.
+    pub async fn disconnected(&self) {
+        if let Some(rx) = &self.alive {
+            let mut rx = rx.clone();
+            let _ = rx.wait_for(|v| !*v).await;
+        }
+    }
+
+    /// Dono: publica a disposição nova de canais e categorias.
+    pub async fn set_layout(
+        &self,
+        channels: Vec<crate::event::ChannelDef>,
+        categories: Vec<String>,
+    ) -> Result<()> {
+        crate::store::check_layout(&channels, &categories)?;
+        self.publish(EventKind::Layout { channels, categories }).await?;
+        Ok(())
+    }
+
+    /// Envia uma mensagem. Devolve o id do evento (o mesmo que chega depois pelo `subscribe`).
+    pub async fn send_message(&self, channel: &str, text: &str) -> Result<[u8; 32]> {
         self.publish(EventKind::Message {
             channel: channel.into(),
             text: text.into(),
@@ -306,12 +376,13 @@ impl GroupHandle {
         .await
     }
 
-    async fn publish(&self, kind: EventKind) -> Result<()> {
+    async fn publish(&self, kind: EventKind) -> Result<[u8; 32]> {
         let ev = SignedEvent::sign(&self.inner.identity, Some(self.group), kind);
+        let id = ev.id();
         if let Some(send) = &self.remote {
             let sent = write_frame(&mut *send.lock().await, &ClientMsg::Publish(ev.clone())).await;
             match sent {
-                Ok(()) => return Ok(()),
+                Ok(()) => return Ok(id),
                 // Anfitrião caiu: tenta pela caixa do servidor.
                 Err(e) if !self.inner.has_server() => return Err(e),
                 Err(e) => warn!("anfitrião indisponível ({e:#}); a enviar pelo servidor"),
@@ -323,9 +394,10 @@ impl GroupHandle {
             if let Some(seq) = seq {
                 let _ = self.inner.feed(self.group).send((seq, ev));
             }
-            return Ok(());
+            return Ok(id);
         }
-        self.inner.send_request(self.group, ev).await
+        self.inner.send_request(self.group, ev).await?;
+        Ok(id)
     }
 }
 

@@ -8,11 +8,63 @@ use iroh::PublicKey;
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::caixa::ChaveCaixa;
-use crate::event::{EventKind, GroupId, SignedEvent};
+use crate::event::{ChannelDef, ChannelKind, EventKind, GroupId, SignedEvent};
 
 /// Tamanho máximo de uma mensagem de texto (em caracteres).
 pub const MAX_MESSAGE_CHARS: usize = 4000;
 const MAX_NAME_CHARS: usize = 64;
+const MAX_TOPIC_CHARS: usize = 1024;
+const MAX_CHANNELS: usize = 200;
+const MAX_CATEGORIES: usize = 50;
+
+/// Canais e categorias de um grupo, por ordem.
+pub type Layout = (Vec<ChannelDef>, Vec<String>);
+
+/// Disposição de um grupo que ainda não publicou nenhuma: `geral` (texto) e `Sala` (voz).
+/// O id `geral` é o mesmo que a CLI usa, por isso as mensagens antigas aparecem lá.
+pub fn default_layout() -> Layout {
+    (
+        vec![
+            ChannelDef {
+                id: "geral".into(),
+                kind: ChannelKind::Text,
+                name: "geral".into(),
+                topic: String::new(),
+                category: "Conversa".into(),
+            },
+            ChannelDef {
+                id: "sala".into(),
+                kind: ChannelKind::Voice,
+                name: "Sala".into(),
+                topic: String::new(),
+                category: "Voz".into(),
+            },
+        ],
+        vec!["Conversa".into(), "Voz".into()],
+    )
+}
+
+/// Regras de uma disposição de canais (também usadas pela app antes de publicar).
+pub fn check_layout(channels: &[ChannelDef], categories: &[String]) -> Result<()> {
+    ensure!(channels.len() <= MAX_CHANNELS, "demasiados canais");
+    ensure!(categories.len() <= MAX_CATEGORIES, "demasiadas categorias");
+    ensure!(
+        channels.iter().any(|c| c.kind == ChannelKind::Text),
+        "o grupo precisa de pelo menos um canal de texto"
+    );
+    let mut ids = std::collections::HashSet::new();
+    for c in channels {
+        check_name(&c.id)?;
+        ensure!(ids.insert(c.id.as_str()), "canal repetido");
+        check_name(&c.name)?;
+        check_name(&c.category)?;
+        ensure!(c.topic.chars().count() <= MAX_TOPIC_CHARS, "descrição do canal demasiado longa");
+    }
+    for c in categories {
+        check_name(c)?;
+    }
+    Ok(())
+}
 
 pub struct Store {
     conn: Connection,
@@ -79,6 +131,11 @@ impl Store {
                  mirrored  INTEGER NOT NULL DEFAULT 0,
                  read      INTEGER NOT NULL DEFAULT 0,
                  PRIMARY KEY (group_id, epoch)
+             );
+             -- Última disposição de canais e categorias de cada grupo (postcard).
+             CREATE TABLE IF NOT EXISTS layouts (
+                 group_id BLOB PRIMARY KEY,
+                 data     BLOB NOT NULL
              );",
         )?;
         Ok(Self { conn })
@@ -144,6 +201,10 @@ impl Store {
                     text.chars().count() <= MAX_MESSAGE_CHARS,
                     "mensagem demasiado longa"
                 );
+            }
+            EventKind::Layout { channels, categories } => {
+                ensure!(author == info.owner, "só o dono pode mudar os canais");
+                check_layout(channels, categories)?;
             }
         }
         let tx = self.conn.transaction()?;
@@ -294,6 +355,37 @@ impl Store {
             .optional()?)
     }
 
+    /// Membros do grupo, pela ordem em que entraram: `(chave, nome)`.
+    pub fn members(&self, group: GroupId) -> Result<Vec<(PublicKey, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT pubkey, display_name FROM members WHERE group_id = ?1 ORDER BY rowid",
+        )?;
+        let rows = stmt.query_map(params![group.0], |r| {
+            Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, String>(1)?))
+        })?;
+        rows.map(|r| {
+            let (k, n) = r?;
+            Ok((pubkey(&k)?, n))
+        })
+        .collect()
+    }
+
+    /// Canais e categorias do grupo. Sem nenhum `Layout` publicado, a disposição de origem.
+    pub fn layout(&self, group: GroupId) -> Result<Layout> {
+        let data: Option<Vec<u8>> = self
+            .conn
+            .query_row(
+                "SELECT data FROM layouts WHERE group_id = ?1",
+                params![group.0],
+                |r| r.get(0),
+            )
+            .optional()?;
+        match data {
+            Some(d) => Ok(postcard::from_bytes(&d)?),
+            None => Ok(default_layout()),
+        }
+    }
+
     pub fn add_invite(&self, group: GroupId, token: [u8; 16]) -> Result<()> {
         self.conn.execute(
             "INSERT INTO invites (group_id, token) VALUES (?1, ?2)",
@@ -355,6 +447,12 @@ fn apply(conn: &Connection, group: GroupId, ev: &SignedEvent) -> Result<()> {
             )?;
         }
         EventKind::Message { .. } => {}
+        EventKind::Layout { channels, categories } => {
+            conn.execute(
+                "INSERT OR REPLACE INTO layouts (group_id, data) VALUES (?1, ?2)",
+                params![group.0, postcard::to_stdvec(&(channels, categories))?],
+            )?;
+        }
     }
     Ok(())
 }

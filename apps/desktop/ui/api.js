@@ -14,7 +14,11 @@
 //   set_camera, list_capture_sources, start_screen_share, stop_screen_share,
 //   list_plugins, set_plugin_enabled, install_plugin, get_settings, set_settings,
 //   run_backup, list_backups, transfer_ownership
-// Eventos: "message", "typing", "voice_activity", "video_track", "host_status", "backup_progress"
+// Eventos: "message", "message_ack", "group_changed", "host_status", "typing", "voice_activity",
+//   "video_track", "backup_progress"
+//
+// Na app instalada, grupos, canais, membros e mensagens vêm do núcleo (apps/desktop/src/grupos.rs);
+// ver `real` mais abaixo. Voz, plugins, conversas privadas e cópias ainda são simulados.
 
 (function () {
   const tauri = window.__TAURI__ && window.__TAURI__.core;
@@ -208,24 +212,30 @@
     for (const o of [channels, cats, members, messages]) for (const k of Object.keys(o)) delete o[k];
   }
 
-  // Na app instalada, os grupos e canais que crias ficam guardados neste PC (por conta),
-  // até o núcleo P2P os guardar a sério.
+  // Na app instalada, os grupos, canais e mensagens vivem no núcleo (Rust). Aqui no
+  // browser só fica o perfil (cor e foto), por conta. Versões antigas guardavam também
+  // grupos de teste aqui: na primeira vez passam para o núcleo (só nome e canais).
   let localKey = null;
   function persist() {
     if (!tauri || !localKey) return;
-    try { localStorage.setItem("tasca:local:" + localKey, JSON.stringify({ groups, channels, cats, members, messages, profile: { color: people.me.color, photo: people.me.photo || null } })); } catch {}
+    try { localStorage.setItem("tasca:local:" + localKey, JSON.stringify({ v: 2, profile: { color: people.me.color, photo: people.me.photo || null } })); } catch {}
   }
-  function loadLocal(key) {
+  async function loadLocal(key) {
     if (!tauri || !key || localKey === key) return;
     localKey = key;
     let d = null; try { d = JSON.parse(localStorage.getItem("tasca:local:" + key)); } catch {}
     if (!d) return;
-    groups.length = 0; groups.push(...(d.groups || []));
-    for (const [o, src] of [[channels, d.channels], [cats, d.cats], [members, d.members], [messages, d.messages]]) Object.assign(o, src || {});
-    for (const list of Object.values(channels)) for (const c of list) if (c.inVoice) c.inVoice = [];
-    for (const list of Object.values(messages)) for (const m of list) if (m.pending) m.pending = false;
     if (d.profile && d.profile.color) people.me.color = d.profile.color;
     if (d.profile && d.profile.photo) people.me.photo = d.profile.photo;
+    if (d.v !== 2) {
+      for (const g of d.groups || []) {
+        if (g.owner !== "me") continue;
+        try {
+          await inv("import_local_group", { name: g.name, channels: ((d.channels || {})[g.id] || []).map((c) => ({ id: c.id, kind: c.kind, name: c.name, topic: c.topic || "", cat: c.cat })), categories: (d.cats || {})[g.id] || null });
+        } catch (e) { console.warn("grupo antigo não importado:", e); }
+      }
+      persist();
+    }
   }
   const mockProfile = {
     get() { try { return JSON.parse(localStorage.getItem("tasca:mock-profile")) || {}; } catch { return {}; } },
@@ -322,7 +332,7 @@
           if (s.displayName) people.me.name = s.displayName;
           if (s.publicKey) people.me.key = "ed25519:" + s.publicKey;
           people.me.username = s.username || null;
-          loadLocal(s.publicKey);
+          await loadLocal(s.publicKey);
         } catch {}
       }
       else {
@@ -526,6 +536,36 @@
     async transfer_ownership() { await wait(500); return true; },
   };
 
+  // ---------------- app instalada: comandos do núcleo ----------------
+  const inv = (n, a) => tauri.invoke(n, a).catch((e) => { throw e instanceof Error ? e : new Error(String(e)); });
+  const DIAS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+  // mensagens do núcleo trazem `ts` (ms); a interface mostra `day` e `at`
+  function fmt(m) {
+    if (!m || m.ts == null) return m;
+    const d = new Date(m.ts), now = new Date();
+    const dia = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const diff = Math.round((dia(now) - dia(d)) / 86400000);
+    const day = diff === 0 ? today : diff === 1 ? "Ontem" : diff > 1 && diff < 7 ? DIAS[d.getDay()] : d.toLocaleDateString("pt-PT");
+    return { ...m, day, at: d.toTimeString().slice(0, 5) };
+  }
+  let myVoice = null; // voz ainda é simulada: lembra em que canal estás
+  const real = {
+    async list_people() { const p = clone(people); try { Object.assign(p, await inv("list_group_people")); } catch (e) { console.warn(e); } return p; },
+    async list_members(a) { return (await inv("list_members", a)).map((m) => (m.id === "me" ? { ...clone(people.me), owner: m.owner } : m)); },
+    async list_channels(a) {
+      const list = await inv("list_channels", a);
+      for (const c of list) if (c.kind === "voice") c.inVoice = myVoice === c.id ? ["me"] : [];
+      return list;
+    },
+    async list_messages(a) { return (await inv("list_messages", a)).map(fmt); },
+    async send_message(a) { return fmt(await inv("send_message", a)); },
+    async create_group(a) { return inv("create_group", a); },
+    async join_group(a) { return inv("join_group", a); },
+    async create_invite(a) { return inv("create_invite", a); },
+    async join_voice(a) { const r = await mock.join_voice(a); myVoice = a.channelId; return r; },
+    async leave_voice() { myVoice = null; return mock.leave_voice(); },
+  };
+
   // nome de canal: texto em minúsculas com hífens; voz fica como está
   function cleanName(n, kind) {
     n = String(n || "").trim().slice(0, 40);
@@ -548,12 +588,13 @@
     get(_, name) {
       if (name === "on") {
         return (ev, fn) => {
-          if (tauri && window.__TAURI__.event) window.__TAURI__.event.listen(ev, (e) => fn(e.payload));
+          if (tauri && window.__TAURI__.event) window.__TAURI__.event.listen(ev, (e) => fn(ev === "message" ? { ...e.payload, message: fmt(e.payload.message) } : e.payload));
           (listeners[ev] = listeners[ev] || []).push(fn);
         };
       }
       if (name === "isMock") return !tauri;
       // Comandos que o Rust ainda não tem caem para os dados de teste.
+      if (tauri && real[name]) return (args = {}) => real[name](args);
       return (args = {}) => (tauri
         ? tauri.invoke(String(name), args).catch((e) => {
             if (/not found|unknown command/i.test(String(e)) && mock[name]) return mock[name](args);

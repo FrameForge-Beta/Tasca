@@ -198,7 +198,7 @@
     const owner = S.people[g.owner];
     if (g.owner === "me") return `<div class="host-card online"><i class="led"></i><b>Alojado neste PC</b><span>És o anfitrião. Mantém a Tasca aberta.</span></div>`;
     if (!g.host.online) return `<div class="host-card offline"><i class="led"></i><b>${esc(owner.name)} está offline</b><span>Visto ${esc(g.host.lastSeen)}. A ver cópia local.</span></div>`;
-    return `<div class="host-card online"><i class="led"></i><b>Alojado no PC de ${esc(owner.name)}</b><span>Ligação ${esc(g.host.route)} · ${g.host.ping} ms</span></div>`;
+    return `<div class="host-card online"><i class="led"></i><b>Alojado no PC de ${esc(owner.name)}</b><span>Ligação ${esc(g.host.route)}${g.host.ping != null ? ` · ${g.host.ping} ms` : ""}</span></div>`;
   }
 
   function renderSidebar() {
@@ -1163,7 +1163,15 @@
       $("#do-join", el).onclick = async (e) => {
         const err = $("#join-err", el); err.hidden = true;
         e.target.disabled = true; e.target.textContent = "A ligar…";
-        try { await api.join_group({ invite: $("#invite-code", el).value }); close(); }
+        try {
+          const g = await api.join_group({ invite: $("#invite-code", el).value });
+          if (g && g.id) {
+            if (!S.groups.some((x) => x.id === g.id)) S.groups.push(g);
+            S.people = await api.list_people();
+            S.allMembers[g.id] = await api.list_members({ groupId: g.id });
+            close(); await openGroup(g.id); toast(`Entraste em «${g.name}».`);
+          } else close();
+        }
         catch (x) { err.textContent = x.message; err.hidden = false; }
         e.target.disabled = false; e.target.textContent = "Entrar";
       };
@@ -1175,7 +1183,7 @@
     const inv = await api.create_invite({ groupId: g.id });
     modal(`<h2>Convidar para ${esc(g.name)}</h2>
       <p>Envia este código a quem quiseres convidar. Quem o tiver entra diretamente no teu PC${g.owner === "me" ? "" : " do anfitrião"}, sem passar por servidores.</p>
-      <div class="field"><label for="inv">Convite · expira em ${inv.expires}</label><textarea class="input mono" id="inv" rows="3" readonly>${inv.code}</textarea></div>
+      <div class="field"><label for="inv">Convite${inv.expires ? " · expira em " + inv.expires : " · não expira"}</label><textarea class="input mono" id="inv" rows="3" readonly>${inv.code}</textarea></div>
       <div class="actions"><button class="btn ghost" data-close>Fechar</button><button class="btn primary" id="copy-inv">Copiar convite</button></div>`,
     (el) => {
       $("#copy-inv", el).onclick = () => copy($("#inv", el).value, $("#inv", el), "Convite copiado.");
@@ -1620,9 +1628,40 @@
   });
 
   // ---------------- eventos do núcleo ----------------
-  api.on("message", ({ channelId, message }) => {
+  api.on("message", ({ channelId, groupId, message }) => {
     if (S.typing && S.typing.channelId === channelId) S.typing = null;
-    if (channelId === S.channelId && S.view === "chat") { S.messages.push(message); render(); }
+    if (channelId === S.channelId && S.view === "chat") { S.messages.push(message); render(); return; }
+    // noutro canal: conta como não lida
+    if (!S.groups || !S.allChannels) return;
+    const c = groupId && (S.allChannels[groupId] || []).find((x) => x.id === channelId);
+    if (c) c.unread = (c.unread || 0) + 1;
+    const g = groupId && S.groups.find((x) => x.id === groupId);
+    if (g && (S.home || S.groupId !== groupId)) g.unread = (g.unread || 0) + 1;
+    if (c || g) rerenderKeepInput();
+  });
+  // o grupo mudou no núcleo (alguém entrou, canais novos, grupo acabado de chegar)
+  api.on("group_changed", async ({ groupId }) => {
+    if (!S.groups || !S.allChannels) return;
+    try {
+      S.people = await api.list_people();
+      const fresh = await api.list_groups();
+      for (const g of fresh) {
+        const old = S.groups.find((x) => x.id === g.id);
+        if (old) Object.assign(old, g, { unread: old.unread }); else S.groups.push(g);
+      }
+      if (!S.groups.some((x) => x.id === groupId)) return;
+      await refreshChannels(groupId);
+      S.allMembers[groupId] = await api.list_members({ groupId });
+      if (S.groupId === groupId) S.members = S.allMembers[groupId];
+      rerenderKeepInput();
+    } catch (x) { console.warn("grupo não atualizado:", x); }
+  });
+  // o PC do anfitrião ligou-se ou desligou-se
+  api.on("host_status", ({ groupId, online }) => {
+    const g = S.groups && S.groups.find((x) => x.id === groupId);
+    if (!g) return;
+    g.host = { ...g.host, online, lastSeen: online ? g.host.lastSeen : "há pouco" };
+    rerenderKeepInput();
   });
   api.on("message_ack", ({ channelId, id }) => {
     const m = S.messages.find((x) => x.id === id);

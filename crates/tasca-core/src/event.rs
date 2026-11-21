@@ -34,6 +34,29 @@ pub enum EventKind {
     MemberJoined { display_name: String },
     /// Mensagem de texto num canal.
     Message { channel: String, text: String },
+    /// Disposição dos canais e categorias do grupo (lista completa; a última vale).
+    /// Só o dono a pode publicar. Fica no fim do enum para não mudar os números do postcard.
+    Layout {
+        channels: Vec<ChannelDef>,
+        categories: Vec<String>,
+    },
+}
+
+/// Tipo de canal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChannelKind {
+    Text,
+    Voice,
+}
+
+/// Um canal do grupo, tal como aparece na lista. `id` é o que vai em `Message::channel`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChannelDef {
+    pub id: String,
+    pub kind: ChannelKind,
+    pub name: String,
+    pub topic: String,
+    pub category: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
