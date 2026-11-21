@@ -62,7 +62,8 @@ jobs:
           # Login com Google (ver docs/login-google.md). Ficam embutidos na app.
           TASCA_GOOGLE_CLIENT_ID: ${{ secrets.TASCA_GOOGLE_CLIENT_ID }}
           TASCA_GOOGLE_CLIENT_SECRET: ${{ secrets.TASCA_GOOGLE_CLIENT_SECRET }}
-          TASCA_SERVIDOR_URL: ${{ vars.TASCA_SERVIDOR_URL }}
+          # Servidor de contas e mensagens do Tiago (a variável do repositório, se existir, manda).
+          TASCA_SERVIDOR_URL: ${{ vars.TASCA_SERVIDOR_URL || 'https://tasca-pcnflabs.duckdns.org' }}
         with:
           projectPath: apps/desktop
           # CLI já compilada (npm): poupa ~8 min por execução face a cargo install
