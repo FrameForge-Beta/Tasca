@@ -162,7 +162,7 @@
         ${st.server ? `
         <p class="auth-lede">A tua conta vem cifrada do servidor e só abre aqui, com a tua palavra-passe.</p>
         <form id="f-login" class="auth-form" novalidate>
-          <div class="field"><label for="l-user">Nome de utilizador</label><input class="input" id="l-user" maxlength="25" autocomplete="username" autocapitalize="off" spellcheck="false" value="${esc(st.username || "")}"></div>
+          <div class="field"><label for="l-user">Nome de utilizador</label><input class="input" id="l-user" data-sugg="utilizador" maxlength="25" autocomplete="username" autocapitalize="off" spellcheck="false" value="${esc(st.username || "")}"></div>
           ${pwField("l-pw", "Palavra-passe", "current-password")}
           ${rememberField("l-rem")}
           <p class="auth-err" hidden></p>
@@ -395,6 +395,7 @@
           if (!v("l-user").trim()) return err("Escreve o teu nome de utilizador.");
           busy(btn, true, "A entrar…");
           await api.server_login({ username: v("l-user").trim(), password: v("l-pw"), remember: chk("l-rem") });
+          if (window.tascaSugg) tascaSugg.remember("utilizador", v("l-user").trim().replace(/^@/, "").toLowerCase());
           return finish();
         }
         if (f.id === "f-recover") {
@@ -420,6 +421,8 @@
   }
 
   // Mostra os ecrãs de conta e resolve quando a conta estiver desbloqueada.
+  // Sugestões no campo de utilizador: as contas que já entraram neste PC.
+  if (window.tascaSugg) tascaSugg.source("utilizador", () => (st.accounts || []).map((a) => a.username).filter(Boolean));
   window.tascaAuth = {
     async gate() {
       st = await api.account_status();
