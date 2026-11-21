@@ -1175,3 +1175,36 @@ body.has-titlebar .app.call { padding: 0; }
 .sugg-x { border: 0; background: none; color: var(--texto-3); font-size: 18px; line-height: 1; width: 24px; height: 24px; border-radius: 6px; cursor: pointer; }
 .sugg-x:hover { background: var(--caixa-2); color: var(--texto); }
 .sugg-opt:hover { background: var(--hover); }
+
+/* ---------- menu de botão direito ---------- */
+.ctx-menu {
+  position: fixed; z-index: 450; min-width: 220px; max-width: 280px; padding: 6px; display: grid; gap: 1px;
+  background: var(--painel); border: 1px solid var(--linha); border-radius: 10px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .5); animation: dd-in .1s ease-out;
+}
+.ctx-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border: 0; border-radius: 6px;
+  background: none; color: var(--texto); font: inherit; font-size: 14px; font-weight: 600; text-align: left; cursor: pointer;
+}
+.ctx-item:hover, .ctx-item:focus-visible { background: var(--hover); outline: none; }
+.ctx-item:disabled { color: var(--texto-3); cursor: default; background: none; }
+.ctx-item.danger { color: var(--perigo); }
+.ctx-item.danger:hover, .ctx-item.danger:focus-visible { background: var(--perigo); color: #fff; }
+.ctx-txt { flex: 1; min-width: 0; display: grid; }
+.ctx-txt small { font-size: 11.5px; font-weight: 500; color: var(--texto-3); }
+.ctx-item.danger:hover small { color: inherit; }
+.ctx-ic, .ctx-arrow { width: 16px; height: 16px; flex: none; display: grid; place-items: center; color: var(--texto-2); }
+.ctx-ic svg, .ctx-arrow svg { width: 16px; height: 16px; }
+.ctx-sep { height: 1px; margin: 4px 6px; background: var(--linha); }
+
+/* ---------- arrastar canais ---------- */
+.channels [draggable="true"] { -webkit-user-drag: element; }
+.chan-wrap.dragging, .cat.dragging { opacity: .4; }
+.chan-wrap.drop-before { box-shadow: 0 -2px 0 var(--azulejo); }
+.chan-wrap.drop-after { box-shadow: 0 2px 0 var(--azulejo); }
+.cat.drop-into { background: color-mix(in srgb, var(--azulejo) 18%, transparent); border-radius: 6px; }
+.cat.drop-before { box-shadow: 0 -2px 0 var(--azulejo); }
+.cat.drop-after { box-shadow: 0 2px 0 var(--azulejo); }
+.cat .cat-edit { opacity: 0; transition: opacity .12s; }
+.cat:hover .cat-edit, .cat .cat-edit:focus-visible { opacity: 1; }
+.chan-wrap.muted .chan { opacity: .5; }
