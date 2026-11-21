@@ -378,7 +378,9 @@ impl ProtocolHandler for HostVoz {
 
 impl HostVoz {
     async fn serve(&self, conn: Connection) -> Result<()> {
-        let remote = conn.remote_id();
+        let inner_ = self.inner.upgrade().ok_or_else(|| anyhow!("nó desligado"))?;
+        let remote = inner_.conta_de(&conn.remote_id());
+        drop(inner_);
         let key = *remote.as_bytes();
         let (mut send, mut recv) = conn.accept_bi().await?;
         let Some(VozCliente::Entrar { group, room }) = read_frame(&mut recv).await? else {

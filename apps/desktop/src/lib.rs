@@ -14,6 +14,7 @@ mod contas;
 mod dms;
 mod grupos;
 mod presenca;
+mod sincronia;
 mod voz;
 
 use std::time::Duration;

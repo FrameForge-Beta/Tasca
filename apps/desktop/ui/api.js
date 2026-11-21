@@ -600,8 +600,18 @@
     return { ...m, day, at: d.toTimeString().slice(0, 5) };
   }
   // o teu perfil (cor e foto, guardados neste PC) vai para os grupos onde ainda está diferente
-  const publishProfile = () => inv("publish_profile", { color: people.me.color, photo: people.me.photo || null, bio: people.me.bio || "", banner: people.me.banner || null }).catch((e) => console.warn("perfil não publicado:", e));
+  // `sync`: mudaste-o agora, por isso vai também para os teus outros dispositivos
+  const publishProfile = (sync) => inv("publish_profile", { color: people.me.color, photo: people.me.photo || null, bio: people.me.bio || "", banner: people.me.banner || null, sync: !!sync }).catch((e) => console.warn("perfil não publicado:", e));
   if (tauri && window.__TAURI__.event) window.__TAURI__.event.listen("host_status", (e) => { if (e.payload && e.payload.online) publishProfile(); });
+  // perfil mudado noutro dispositivo da conta (PC ou telemóvel)
+  if (tauri && window.__TAURI__.event) window.__TAURI__.event.listen("profile_synced", (e) => {
+    const p = e.payload || {};
+    if (p.color) people.me.color = p.color;
+    if ("bio" in p) people.me.bio = p.bio || "";
+    if ("photo" in p) people.me.photo = p.photo || null;
+    if ("banner" in p) people.me.banner = p.banner || null;
+    persist();
+  });
   const real = {
     async list_people() { const p = clone(people); try { Object.assign(p, await inv("list_group_people")); } catch (e) { console.warn(e); } return p; },
     async list_members(a) { return (await inv("list_members", a)).map((m) => (m.id === "me" ? { ...clone(people.me), owner: m.owner } : m)); },
@@ -619,7 +629,7 @@
     },
     async create_group(a) { return inv("create_group", a); },
     async join_group(a) { const g = await inv("join_group", a); publishProfile(); return g; },
-    async set_profile(a) { const r = await mock.set_profile(a); publishProfile(); return r; },
+    async set_profile(a) { const r = await mock.set_profile(a); publishProfile(true); return r; },
     async set_display_name(a) { const r = await inv("set_display_name", a); publishProfile(); return r; },
     async create_invite(a) { return inv("create_invite", a); },
     // voz a sério: o áudio corre em voz.js e no Rust (voz.rs)

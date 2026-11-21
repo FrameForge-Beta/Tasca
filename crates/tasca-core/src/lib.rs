@@ -6,6 +6,7 @@
 pub mod account;
 pub mod amigos;
 pub mod caixa;
+pub mod dispositivo;
 pub mod event;
 #[cfg(feature = "google")]
 pub mod google;
@@ -41,7 +42,7 @@ pub use identity::Identity;
 pub use invite::Invite;
 pub use node::{GroupHandle, Node, NodeOptions};
 pub use store::Store;
-pub use iroh::PublicKey;
+pub use iroh::{PublicKey, SecretKey};
 pub use voz::{Chamada, Imagem, Participante, VOZ_ALPN};
 
 /// Identificador do protocolo da Tasca na negociação QUIC (ALPN).

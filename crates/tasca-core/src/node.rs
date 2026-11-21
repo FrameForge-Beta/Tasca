@@ -35,6 +35,9 @@ pub struct NodeOptions {
     /// Servidor onde ficam as caixas cifradas dos grupos. Sem ele, tudo é só P2P.
     #[cfg(feature = "servidor")]
     pub servidor: Option<crate::servidor::AccountServer>,
+    /// Chave própria deste dispositivo (telemóvel). Sem ela, o nó usa a chave da conta.
+    /// Ver [`crate::dispositivo`].
+    pub dispositivo: Option<iroh::SecretKey>,
 }
 
 pub(crate) struct Inner {
@@ -50,6 +53,8 @@ pub(crate) struct Inner {
     conns: Mutex<HashMap<(GroupId, [u8; 32]), usize>>,
     /// Lista de amigos, o meu estado e os perfis deles.
     amigos: Arc<crate::amigos::Amigos>,
+    /// Certificado deste dispositivo, quando não usa a chave da conta.
+    certificado: Option<crate::dispositivo::Certificado>,
 }
 
 impl Inner {
@@ -91,6 +96,11 @@ impl Inner {
     pub(crate) fn store(&self) -> std::sync::MutexGuard<'_, Store> {
         self.store.lock().unwrap()
     }
+
+    /// A conta de quem está do outro lado (o telemóvel apresenta-se com certificado).
+    pub(crate) fn conta_de(&self, remoto: &iroh::PublicKey) -> iroh::PublicKey {
+        self.amigos.dispositivos.conta_de(remoto)
+    }
 }
 
 #[derive(Clone)]
@@ -116,8 +126,13 @@ impl Node {
         } else {
             Endpoint::builder(presets::N0)
         };
+        let chave = opts.dispositivo.clone().unwrap_or_else(|| identity.secret().clone());
+        let certificado = opts
+            .dispositivo
+            .as_ref()
+            .map(|d| crate::dispositivo::Certificado::emitir(&identity, &d.public()));
         let endpoint = builder
-            .secret_key(identity.secret().clone())
+            .secret_key(chave)
             .bind()
             .await
             .map_err(|e| anyhow!("não consegui abrir o endpoint: {e}"))?;
@@ -130,6 +145,7 @@ impl Node {
             presence: Default::default(),
             conns: Default::default(),
             amigos: Default::default(),
+            certificado,
         });
         let voz = Arc::new(crate::voz::Hub::new(Arc::downgrade(&inner)));
         let router = Router::builder(endpoint)
@@ -140,6 +156,10 @@ impl Node {
                 },
             )
             .accept(crate::amigos::ALPN, crate::amigos::Protocolo(inner.amigos.clone()))
+            .accept(
+                crate::dispositivo::ALPN,
+                crate::dispositivo::Apresentacao(inner.amigos.dispositivos.clone()),
+            )
             .accept(
                 crate::voz::VOZ_ALPN,
                 crate::voz::HostVoz { inner: Arc::downgrade(&inner), hub: voz.clone() },
@@ -161,7 +181,25 @@ impl Node {
     /// Pergunta ao PC de um amigo como está (e troca perfis). `None` = offline ou invisível.
     /// Aceita a chave pública do amigo (o iroh descobre onde está) ou um endereço completo.
     pub async fn perguntar_amigo(&self, quem: impl Into<iroh::EndpointAddr>) -> Result<Option<crate::amigos::Estado>> {
-        self.inner.amigos.perguntar(self.router.endpoint(), quem.into()).await
+        let quem = quem.into();
+        if let Err(e) = self.apresentar(&quem).await {
+            debug!("apresentação ao amigo falhou: {e:#}");
+        }
+        self.inner.amigos.perguntar(self.router.endpoint(), quem).await
+    }
+
+    /// Telemóvel: apresenta-se a outro nó como dispositivo da conta (ver
+    /// [`crate::dispositivo`]). No PC (chave da conta) não faz nada.
+    async fn apresentar(&self, a: &iroh::EndpointAddr) -> Result<()> {
+        match &self.inner.certificado {
+            Some(c) => crate::dispositivo::apresentar(self.router.endpoint(), a.clone(), c).await,
+            None => Ok(()),
+        }
+    }
+
+    /// `true` se este nó é um dispositivo extra da conta (não usa a chave da conta).
+    pub fn e_dispositivo(&self) -> bool {
+        self.inner.certificado.is_some()
     }
 
     /// Endereço deste nó (para testes e ligações na rede local).
@@ -315,6 +353,7 @@ impl Node {
         group: GroupId,
         invite_token: Option<[u8; 16]>,
     ) -> Result<GroupHandle> {
+        self.apresentar(&addr).await?;
         let conn = self
             .router
             .endpoint()
@@ -402,6 +441,7 @@ impl Node {
             let me = *self.inner.identity.public().as_bytes();
             return Ok(crate::voz::Chamada::local(self.voz.clone(), group, room, me));
         }
+        self.apresentar(&iroh::EndpointAddr::new(info.owner)).await?;
         let conn = tokio::time::timeout(
             std::time::Duration::from_secs(20),
             self.router.endpoint().connect(iroh::EndpointAddr::new(info.owner), crate::voz::VOZ_ALPN),
@@ -565,8 +605,9 @@ impl ProtocolHandler for HostProtocol {
 
 impl HostProtocol {
     async fn serve(&self, conn: Connection) -> Result<()> {
-        // A chave da ligação QUIC é a identidade do membro: não dá para fingir ser outro.
-        let remote = conn.remote_id();
+        // A chave da ligação QUIC é a identidade do membro (ou de um dispositivo dele que se
+        // apresentou com certificado): não dá para fingir ser outro.
+        let remote = self.inner.conta_de(&conn.remote_id());
         let (mut send, mut recv) = conn.accept_bi().await?;
         let Some(ClientMsg::Hello {
             group,
@@ -716,6 +757,10 @@ impl Drop for Online {
         *n = n.saturating_sub(1);
         if *n == 0 {
             conns.remove(&(self.group, self.who));
+            // o telemóvel do próprio anfitrião saiu: o anfitrião continua online
+            if self.who == *self.inner.identity.public().as_bytes() {
+                return;
+            }
             self.inner.presence(self.group).send_modify(|p| {
                 p.remove(&self.who);
             });

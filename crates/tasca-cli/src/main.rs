@@ -78,6 +78,7 @@ async fn main() -> Result<()> {
             local_only: cli.local,
             relay_urls: cli.relay,
             servidor: tasca_core::servidor::AccountServer::from_env(),
+            dispositivo: None,
         },
     )
     .await?;

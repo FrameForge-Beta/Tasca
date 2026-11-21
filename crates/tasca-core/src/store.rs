@@ -381,6 +381,17 @@ impl Store {
             .transpose()
     }
 
+    /// Grupo de que a conta já é membro mas que este dispositivo ainda não tem (soube dele
+    /// por outro dispositivo da conta). O histórico chega quando ligar ao anfitrião.
+    /// Devolve `false` se já o tinha.
+    pub fn add_known_group(&self, group: GroupId, name: &str, owner: &PublicKey) -> Result<bool> {
+        let n = self.conn.execute(
+            "INSERT OR IGNORE INTO groups (id, name, owner, hosted) VALUES (?1, ?2, ?3, 0)",
+            params![group.0, name, owner.as_bytes()],
+        )?;
+        Ok(n > 0)
+    }
+
     pub fn groups(&self) -> Result<Vec<GroupInfo>> {
         let mut stmt = self.conn.prepare("SELECT id FROM groups ORDER BY rowid")?;
         let ids: Vec<Vec<u8>> = stmt

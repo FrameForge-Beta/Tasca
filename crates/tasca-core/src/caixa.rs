@@ -37,6 +37,7 @@ const CTX_ID: &str = "tasca 2026 caixa id v1";
 const CTX_TOKEN: &str = "tasca 2026 caixa token v1";
 const CTX_CIFRA: &str = "tasca 2026 caixa cifra v1";
 const CTX_PRIVADA: &str = "tasca 2026 conversa privada v1";
+const CTX_CONTA: &str = "tasca 2026 caixa da conta entre dispositivos v1";
 const VERSAO: u8 = 1;
 
 /// Tamanho máximo de um bloco cifrado aceite pelo servidor.
@@ -94,6 +95,23 @@ impl ChaveCaixa {
         hasher.update(b.as_bytes());
         partilhado.zeroize();
         Ok(Self(Zeroizing::new(*hasher.finalize().as_bytes())))
+    }
+
+    /// Caixa só dos dispositivos da própria conta (PC, telemóvel…): a chave sai da
+    /// identidade, por isso só quem tem a conta a consegue abrir. Serve para sincronizar a
+    /// lista de amigos, os grupos e o perfil entre dispositivos.
+    pub fn da_conta(eu: &Identity) -> Self {
+        Self(Zeroizing::new(blake3::derive_key(CTX_CONTA, &eu.secret().to_bytes())))
+    }
+
+    /// Cifra dados quaisquer para esta caixa.
+    pub fn selar(&self, dados: &[u8]) -> Result<Vec<u8>> {
+        self.seal_bytes(dados)
+    }
+
+    /// Decifra dados selados com [`Self::selar`].
+    pub fn abrir(&self, bloco: &[u8]) -> Result<Vec<u8>> {
+        Ok(self.open_bytes(bloco)?.to_vec())
     }
 
     /// Id da caixa no servidor.
