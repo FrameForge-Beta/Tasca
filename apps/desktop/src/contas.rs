@@ -463,10 +463,15 @@ pub async fn save_phrase_desktop(app: AppHandle, phrase: String, display_name: S
     if palavras.len() != 12 {
         return Err("Não há 12 palavras para guardar.".into());
     }
+    #[cfg(desktop)]
     let dir = app
         .path()
         .desktop_dir()
         .map_err(|e| format!("Não encontrei o ambiente de trabalho: {e}"))?;
+    // No telemóvel não há ambiente de trabalho (o botão está escondido; usa-se "Copiar").
+    #[cfg(mobile)]
+    #[allow(unreachable_code)]
+    let dir: PathBuf = return Err("No telemóvel usa o botão Copiar.".into());
     let mut texto = String::from("Tasca: palavras de recuperação\r\n");
     if !display_name.trim().is_empty() {
         texto += &format!("Conta: {}\r\n", display_name.trim());
