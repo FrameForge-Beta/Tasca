@@ -251,31 +251,39 @@ impl Fonte {
 /// Junta o áudio de todos os outros numa só saída.
 pub struct Mistura<K> {
     fontes: HashMap<K, Fonte>,
+    volumes: HashMap<K, f32>,
     tmp: Vec<f32>,
 }
 
 impl<K: Hash + Eq + Clone> Default for Mistura<K> {
     fn default() -> Self {
-        Self { fontes: HashMap::new(), tmp: vec![0.0; FRAME * 6] }
+        Self { fontes: HashMap::new(), volumes: HashMap::new(), tmp: vec![0.0; FRAME * 6] }
     }
 }
 
 impl<K: Hash + Eq + Clone> Mistura<K> {
     /// Guarda um pacote Opus que chegou de `de`.
     pub fn receber(&mut self, de: K, seq: u16, data: Vec<u8>) -> Result<()> {
+        let volume = self.volumes.get(&de).copied().unwrap_or(1.0);
         let f = match self.fontes.entry(de) {
             std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
-            std::collections::hash_map::Entry::Vacant(e) => e.insert(Fonte::new()?),
+            std::collections::hash_map::Entry::Vacant(e) => {
+                let mut f = Fonte::new()?;
+                f.volume = volume;
+                e.insert(f)
+            }
         };
         f.receber(seq, data);
         Ok(())
     }
 
     /// Volume de uma pessoa (1.0 é o normal).
-    pub fn set_volume(&mut self, de: &K, volume: f32) {
-        if let Some(f) = self.fontes.get_mut(de) {
-            f.volume = volume.clamp(0.0, 3.0);
+    pub fn set_volume(&mut self, de: K, volume: f32) {
+        let volume = if volume.is_finite() { volume.clamp(0.0, 3.0) } else { 1.0 };
+        if let Some(f) = self.fontes.get_mut(&de) {
+            f.volume = volume;
         }
+        self.volumes.insert(de, volume);
     }
 
     /// Esquece quem já não está na chamada.

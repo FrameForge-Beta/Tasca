@@ -6388,6 +6388,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tasca-core",
+ "tasca-voz",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",
