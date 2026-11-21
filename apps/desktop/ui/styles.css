@@ -912,3 +912,77 @@ button.vtile { cursor: pointer; }
 .empty-home .empty-logo svg { width: 100%; height: 100%; }
 .empty-home h2 { margin: 8px 0 0; font-size: 20px; }
 .empty-home p { margin: 0; max-width: 360px; color: var(--muted, #b9ab9a); }
+
+/* medidor do microfone: verde quando passa a sensibilidade */
+.meter.mic i { transition: width 60ms linear; }
+.meter.mic i.on { background: var(--oliva, #5E8C4A); }
+.dev-err { color: var(--perigo, #E05A4E); }
+/* o WebView2 põe um olho próprio nos campos de palavra-passe: já temos o nosso */
+input::-ms-reveal, input::-ms-clear { display: none; }
+
+/* várias contas */
+.acct-list { display: grid; gap: 8px; margin: 4px 0 16px; }
+.acct-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; border-radius: 12px; background: var(--superficie-2, rgba(255,255,255,.04)); border: 1px solid var(--linha, rgba(255,255,255,.08)); text-align: left; }
+.acct-row:hover { border-color: var(--vinho); }
+.acct-row .av { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 700; flex: none; }
+.acct-txt { flex: 1; min-width: 0; }
+.acct-txt b { display: block; }
+.acct-txt small { color: var(--texto-3); font-size: 12.5px; }
+.acct-go { color: var(--texto-3); font-size: 22px; }
+.check.remember { align-items: flex-start; }
+.check.remember small { display: block; color: var(--texto-3); font-size: 12px; }
+/* nome de utilizador */
+.user-in { position: relative; }
+.user-in > span { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--texto-3); font-weight: 600; pointer-events: none; }
+.user-in .input { padding-left: 28px; }
+.hint.ok { color: var(--oliva, #5E8C4A); }
+.hint.bad { color: var(--perigo, #E05A4E); }
+.sugg { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+.sugg small { color: var(--texto-3); font-size: 12px; margin-right: 2px; }
+.chip { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--linha, rgba(255,255,255,.12)); font-size: 13px; font-family: "JetBrains Mono", monospace; }
+.chip:hover { border-color: var(--azulejo, #2A5CAA); }
+
+/* estado: flor da Tasca em miniatura */
+.av .st, .av .st.online, .av .st.away, .av .st.dnd, .av .st.offline {
+  width: 16px; height: 16px; border-width: 2px; padding: 0; display: grid; place-items: center; right: -4px; bottom: -4px;
+  background: var(--st-bg, var(--painel)); color: var(--texto-3);
+}
+.av .st { --st-bg: var(--painel); }
+.me .av .st { --st-bg: var(--caixa); }
+.main-head .title .av .st { --st-bg: var(--fundo); width: 12px; height: 12px; }
+.av .st svg, .st-dot svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.av .st .petals, .st-dot .petals { fill: currentColor; transition: fill .4s; }
+.av .st .miolo, .st-dot .miolo { fill: var(--ocre); }
+.av .st.online, .st-dot.online { color: var(--oliva); }
+.av .st.away, .st-dot.away { color: var(--ocre); }
+.av .st.away .miolo, .st-dot.away .miolo { fill: var(--cal); }
+.av .st.dnd, .st-dot.dnd { color: var(--perigo); }
+.av .st.offline .petals, .st-dot.offline .petals { fill: none; stroke: var(--texto-3); stroke-width: 14; }
+.av .st.offline .miolo, .st-dot.offline .miolo { fill: var(--texto-3); }
+.status-pop .st-dot, .st-dot.online, .st-dot.away, .st-dot.dnd, .st-dot.offline { width: 14px; height: 14px; background: none; box-shadow: none; border-radius: 0; margin-top: 3px; }
+.status-acct { border-top: 1px solid var(--linha, rgba(255,255,255,.08)); margin-top: 4px; padding-top: 4px; display: grid; }
+.status-acct button { display: flex; gap: 10px; align-items: center; }
+.status-acct svg { width: 16px; height: 16px; flex: none; }
+.status-acct .danger { color: var(--perigo); }
+button.vtile:not([data-focus]) { cursor: default; }
+
+/* em chamada: o cartão da chamada e o perfil ficam um só, com o mesmo degradê */
+.dock.in-call {
+  margin: 8px; padding: 0; gap: 0; border-radius: 12px; overflow: hidden;
+  background:
+    var(--flor-fantasma) right -34px top -40px / 120px 120px no-repeat,
+    linear-gradient(180deg, color-mix(in srgb, var(--g) 34%, var(--caixa)), color-mix(in srgb, var(--g) 12%, var(--caixa)) 100%);
+  border: 1px solid color-mix(in srgb, var(--g) 40%, var(--linha));
+}
+.dock.in-call .dock-call { background: none; border: 0; border-radius: 0; }
+.dock.in-call .me { background: none; border-radius: 0; border-top: 1px solid color-mix(in srgb, var(--g) 22%, transparent); }
+.dock.in-call .me .av .st { --st-bg: color-mix(in srgb, var(--g) 14%, var(--caixa)); }
+
+/* mensagem que não foi enviada */
+.msg.failed .bubble { opacity: .6; box-shadow: inset 0 0 0 1px var(--perigo); }
+.msg-fail { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.msg.mine .msg-fail { justify-content: flex-end; }
+.msg-fail small { color: var(--perigo); font-size: 11.5px; }
+.msg-fail .retry { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; color: var(--perigo); border: 1px solid color-mix(in srgb, var(--perigo) 50%, transparent); }
+.msg-fail .retry:hover { background: var(--perigo); color: #fff; }
+.msg-fail .retry svg { width: 13px; height: 13px; }

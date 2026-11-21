@@ -12,6 +12,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod contas;
+mod presenca;
 
 use std::time::Duration;
 
@@ -98,6 +99,11 @@ fn main() {
             contas::server_register,
             contas::server_login,
             contas::save_phrase_desktop,
+            contas::list_accounts,
+            contas::select_account,
+            contas::sign_out,
+            contas::suggest_usernames,
+            presenca::idle_seconds,
         ])
         .setup(|app| {
             let app = app.handle().clone();

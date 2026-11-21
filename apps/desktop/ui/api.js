@@ -9,6 +9,7 @@
 //   get_me, list_groups, list_channels, list_messages, send_message, list_members,
 //   account_status, create_account, unlock, recover, google_sign_in, google_restore,
 //   google_backup, lock, username_available, server_register, server_login,
+//   list_accounts, select_account, sign_out, suggest_usernames, save_phrase_desktop,
 //   list_dms, create_group, join_group, create_invite, join_voice, leave_voice, set_voice_state,
 //   set_camera, list_capture_sources, start_screen_share, stop_screen_share,
 //   list_plugins, set_plugin_enabled, install_plugin, get_settings, set_settings,
@@ -173,8 +174,8 @@
     theme: "dark",
     fontSize: 15,
     compact: false,
-    inputDevice: "Microfone (Realtek Audio)",
-    outputDevice: "Auscultadores (Realtek Audio)",
+    inputDevice: "default",
+    outputDevice: "default",
     sensitivity: 62,
     noiseSuppression: true,
     echoCancel: true,
@@ -220,46 +221,65 @@
     set(v) { try { localStorage.setItem("tasca:mock-account", JSON.stringify(v)); } catch {} },
   };
   let unlocked = false;
+  let noneSel = (() => { try { return sessionStorage.getItem("tasca:mock-none") === "1"; } catch { return false; } })(); // "Trocar de conta"
+  const remember = (on) => { const a = acct.get(); if (a) acct.set({ ...a, remember: !!on }); };
   const WORDS = "abandon ability able about above absent absorb abstract absurd abuse access accident acoustic acquire across action actor actress actual adapt address adjust admit adult advance advice aerobic afford afraid again agent agree ahead aim air airport aisle alarm album alcohol alert alien".split(" ");
   const phrase = () => Array.from(crypto.getRandomValues(new Uint8Array(12))).map((b) => WORDS[b % WORDS.length]).join(" ");
 
   const mock = {
-    async account_status() { const a = acct.get(); return { exists: !!a, unlocked, displayName: a ? a.displayName : null, google: a ? a.google || null : null, server: true, username: a ? a.username || null : null }; },
+    async account_status() {
+      const a = noneSel ? null : acct.get();
+      if (a && a.remember && !unlocked) { unlocked = true; people.me.name = a.displayName; }
+      return { exists: !!a, unlocked: unlocked && !!a, displayName: a ? a.displayName : null, google: a ? a.google || null : null, server: true, username: a ? a.username || null : null, remembered: !!(a && a.remember) };
+    },
+    async list_accounts() {
+      const a = acct.get();
+      return a ? [{ id: "teste", displayName: a.displayName, username: a.username || null, remembered: !!a.remember, active: !noneSel }] : [];
+    },
+    async idle_seconds() { return null; },
+    async set_presence() { return true; },
+    async select_account({ id }) { noneSel = !id; try { sessionStorage.setItem("tasca:mock-none", noneSel ? "1" : "0"); } catch {} unlocked = false; return true; },
+    async sign_out() { remember(false); unlocked = false; return true; },
+    async suggest_usernames({ username }) {
+      await wait(300);
+      const b = username.replace(/^@/, "").toLowerCase().replace(/[^a-z0-9_.]/g, "").slice(0, 19) || "tasca";
+      return [b + "_", b + ".pt", b + (10 + Math.floor(Math.random() * 90)), "o." + b];
+    },
     async username_available({ username }) {
       await wait(300);
       if (!/^@?[a-z0-9_.]{3,24}$/i.test(username)) throw new Error("O nome de utilizador tem de ter entre 3 e 24 caracteres: letras, números, _ e .");
       return username.replace(/^@/, "").toLowerCase() !== "tiago";
     },
     async server_register({ username }) { await wait(400); const u = username.replace(/^@/, "").toLowerCase(); const a = acct.get(); if (a) acct.set({ ...a, username: u }); return u; },
-    async server_login({ username, password }) {
+    async server_login({ username, password, remember: r }) {
       await wait(900);
       if (password.length < 8) throw new Error("Nome de utilizador ou palavra-passe errados.");
       const u = username.replace(/^@/, "").toLowerCase();
-      acct.set({ displayName: u, pw: password.length, google: null, username: u }); unlocked = true; people.me.name = u; return true;
+      acct.set({ displayName: u, pw: password.length, google: null, username: u, remember: !!r }); noneSel = false; unlocked = true; people.me.name = u; return true;
     },
-    async create_account({ displayName, password }) {
+    async create_account({ displayName, password, remember: r }) {
       await wait(700); // Argon2id demora de propósito
-      acct.set({ displayName, pw: password.length, google: null });
+      acct.set({ displayName, pw: password.length, google: null, remember: !!r }); noneSel = false;
       unlocked = true; people.me.name = displayName;
       return { recoveryPhrase: phrase() };
     },
-    async unlock({ password }) {
+    async unlock({ password, remember: r }) {
       await wait(500);
       const a = acct.get();
       if (!a || password.length !== a.pw) throw new Error("Palavra-passe errada.");
-      unlocked = true; people.me.name = a.displayName; return true;
+      remember(r); unlocked = true; people.me.name = a.displayName; return true;
     },
-    async recover({ phrase: p, displayName, newPassword }) {
+    async recover({ phrase: p, displayName, newPassword, remember: r }) {
       await wait(700);
       if (p.trim().split(/\s+/).length !== 12) throw new Error("A frase de recuperação tem de ter 12 palavras.");
       const a = { ...(acct.get() || {}), displayName: displayName || "Eu" };
-      acct.set({ ...a, pw: newPassword.length }); unlocked = true; people.me.name = a.displayName; return true;
+      acct.set({ ...a, pw: newPassword.length, remember: !!r }); noneSel = false; unlocked = true; people.me.name = a.displayName; return true;
     },
     async google_sign_in() { await wait(1500); return { email: "o.teu.email@gmail.com", hasBackup: true }; },
-    async google_restore({ password }) {
+    async google_restore({ password, remember: r }) {
       await wait(700);
       if (password.length < 8) throw new Error("Palavra-passe errada para a cópia guardada no Google Drive.");
-      acct.set({ displayName: "Tiago", pw: password.length, google: "conta Google ligada" }); unlocked = true; people.me.name = "Tiago"; return true;
+      acct.set({ displayName: "Eu", pw: password.length, google: "conta Google ligada", remember: !!r }); noneSel = false; unlocked = true; people.me.name = "Eu"; return true;
     },
     async google_backup() { await wait(1200); const a = acct.get(); if (a) acct.set({ ...a, google: "conta Google ligada" }); return { email: "conta Google ligada" }; },
     async save_phrase_desktop({ phrase }) {
@@ -279,6 +299,7 @@
           if (s.username) people.me.username = s.username;
         } catch {}
       }
+      else { const a = acct.get(); if (a && a.username) people.me.username = a.username; }
       return clone(people.me);
     },
     async list_people() { return clone(people); },
@@ -352,8 +373,15 @@
     async set_plugin_enabled({ id, enabled }) { const p = plugins.find((x) => x.id === id); p.enabled = enabled; return clone(p); },
     async install_plugin({ id }) { await wait(700); const p = plugins.find((x) => x.id === id); p.installed = true; p.enabled = true; return clone(p); },
     async uninstall_plugin({ id }) { const p = plugins.find((x) => x.id === id); p.installed = false; p.enabled = false; return clone(p); },
-    async get_settings() { return clone(settings); },
-    async set_settings({ patch }) { deepMerge(settings, patch); return clone(settings); },
+    async get_settings() {
+      try { const saved = JSON.parse(localStorage.getItem("tasca:settings")); if (saved) deepMerge(settings, saved); } catch {}
+      return clone(settings);
+    },
+    async set_settings({ patch }) {
+      deepMerge(settings, patch);
+      try { localStorage.setItem("tasca:settings", JSON.stringify(settings)); } catch {}
+      return clone(settings);
+    },
     async run_backup() {
       for (let i = 1; i <= 10; i++) { await wait(180); emit("backup_progress", { pct: i * 10 }); }
       const entry = { at: "20 nov, " + nowHHMM(), size: "0,4 MB", note: "incremental", ok: true };
