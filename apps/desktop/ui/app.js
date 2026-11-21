@@ -119,14 +119,34 @@
   const camAllowed = () => perm("camera");
 
   // ---------------- câmara e partilha de ecrã (a sério) ----------------
-  // O teu vídeo aparece já na chamada. Enviá-lo aos outros PCs é trabalho do núcleo P2P.
+  // O teu vídeo aparece na chamada e vai para os outros PCs pelo anfitrião (voz.js).
   const media = { cam: null, screen: null };
   function attachMedia() {
     document.querySelectorAll("video[data-stream]").forEach((v) => {
       const st = media[v.dataset.stream];
       if (st && v.srcObject !== st) { v.srcObject = st; v.play().catch(() => {}); }
     });
+    // vídeo dos outros: o mesmo <canvas> passa para o quadrado novo a cada render
+    if (window.vozAudio) document.querySelectorAll("[data-remote]").forEach((slot) => {
+      const c = vozAudio.video.canvas(slot.dataset.remote);
+      if (c.parentNode !== slot) slot.appendChild(c);
+    });
   }
+  // Manda a câmara e o ecrã aos outros da chamada, e diz-lhes o que está ligado.
+  function syncVideo() {
+    if (api.isMock || !S.voice || !window.vozAudio) return;
+    const v = vozAudio.video;
+    if (media.cam) v.publish("cam", media.cam, { height: 720, fps: 30, bitrate: 1_500_000 }); else v.unpublish("cam");
+    if (media.screen && S.sharing) {
+      const q = S.sharing.quality || "";
+      const [h, fps] = q.startsWith("720") ? [720, 30] : q.includes("60") ? [1080, 60] : [1080, 30];
+      v.publish("screen", media.screen, { height: h, fps, bitrate: h === 720 ? 2_500_000 : fps === 60 ? 6_000_000 : 4_000_000 });
+    } else v.unpublish("screen");
+    api.set_video_state({ camera: !!media.cam, screen: !!media.screen }).catch(() => {});
+  }
+  // Estado de voz de alguém na chamada onde estou (micro, som, câmara, ecrã).
+  const vs = (id) => (id === "me" ? { muted: S.muted, deaf: S.deaf, camera: S.camera, screen: !!S.sharing } : (S.voiceStates && S.voiceStates[id]) || {});
+  const voiceIc = (id) => { const v = vs(id); return v.deaf ? I.headOff : v.muted ? I.micOff : ""; };
   function mediaError(x, what) {
     const n = x && x.name;
     if (n === "NotAllowedError") return `O Windows não deixou a Tasca usar ${what}. Vê Definições do Windows > Privacidade e segurança.`;
@@ -150,12 +170,14 @@
   function stopCamera() {
     if (media.cam) media.cam.getTracks().forEach((t) => t.stop());
     media.cam = null; S.camera = false;
+    syncVideo();
   }
   function stopShare(quiet) {
     if (media.screen) media.screen.getTracks().forEach((t) => t.stop());
     media.screen = null;
     if (!S.sharing) return;
     S.sharing = null; sfx.shareStop(); api.stop_screen_share().catch(() => {});
+    syncVideo();
     if (!quiet) toast("Deixaste de partilhar o ecrã.");
   }
 
@@ -224,7 +246,7 @@
         const on = S.voice && S.voice.channelId === c.id;
         const ppl = (c.inVoice || []).map((id) => S.people[id]);
         return `<div class="chan-wrap ${isMuted(c.id) ? "muted" : ""}" ${drag(`data-drag-chan="${c.id}"`)}><button class="chan ${on && S.view === "voice" ? "on" : ""}" data-voice="${c.id}">${I.speaker}<span class="label">${esc(c.name)}</span>${ppl.length ? `<span class="pill" style="background:var(--caixa);color:var(--texto-2)">${ppl.length}</span>` : ""}</button>${editBtn(c)}</div>
-          ${ppl.length ? `<ul class="voice-people">${ppl.map((p) => `<li data-spk="${p.id}" class="${S.speaking.includes(p.id) && !(p.id === "me" && S.muted) ? "speaking" : ""}">${avatar(p, "")}${esc(p.name)}${(p.id === "me" ? S.muted : S.voice && S.voice.channelId === c.id && S.voiceStates && S.voiceStates[p.id] && S.voiceStates[p.id].muted) ? `<span class="muted-ic">${I.micOff}</span>` : ""}</li>`).join("")}</ul>` : ""}`;
+          ${ppl.length ? `<ul class="voice-people">${ppl.map((p) => `<li data-spk="${p.id}" class="${S.speaking.includes(p.id) && !(p.id === "me" && S.muted) ? "speaking" : ""}">${avatar(p, "")}${esc(p.name)}${(p.id === "me" || (S.voice && S.voice.channelId === c.id)) && voiceIc(p.id) ? `<span class="muted-ic">${voiceIc(p.id)}</span>` : ""}</li>`).join("")}</ul>` : ""}`;
       }).join("")}`).join("");
     return `
       <div class="group-head"><span class="name">${esc(g.name)}</span>
@@ -469,6 +491,7 @@
   function fakeScreen(kind, who) {
     if (who === "me" && kind === "screen" && media.screen) return `<video class="live-video" data-stream="screen" autoplay muted playsinline></video>`;
     if (who === "me" && kind === "cam" && media.cam) return `<video class="live-video mirror" data-stream="cam" autoplay muted playsinline></video>`;
+    if (who !== "me" && !api.isMock) return `<div class="live-video" data-remote="${esc(who)}:${kind}"></div>`;
     if (kind === "screen" && who === "rui") {
       return `<div class="fake fake-game"><div class="hud"><span>VOLTA 2/3</span><span>3.º</span></div><div class="road"></div><div class="kart"></div></div>`;
     }
@@ -501,8 +524,9 @@
     const items = [];
     if (c.inVoice.includes("rui") && c.id === "v-sala") items.push({ id: "rui:screen", who: "rui", kind: "screen", label: "Rui", meta: "1080p 60fps" });
     if (S.sharing) items.push({ id: "me:screen", who: "me", kind: "screen", label: "O teu ecrã", meta: S.sharing.quality.replace(" · ", " ") });
+    if (!api.isMock) for (const p of ppl) if (p && p.id !== "me" && vs(p.id).screen) items.push({ id: p.id + ":screen", who: p.id, kind: "screen", label: "Ecrã de " + p.name, meta: "" });
     for (const p of ppl) {
-      const cam = p.id === "me" ? S.camera : p.id === "ines";
+      const cam = p.id === "me" ? S.camera : api.isMock ? p.id === "ines" : !!vs(p.id).camera;
       items.push({ id: p.id + ":cam", who: p.id, kind: cam ? "cam" : "avatar", label: p.name + (p.id === "me" ? " (tu)" : "") });
     }
     if (S.focus && !items.some((x) => x.id === S.focus)) S.focus = null;
@@ -511,13 +535,13 @@
 
     const tile = (x, extra = "") => {
       const p = S.people[x.who];
-      const muted = x.who === "me" && S.muted;
+      const muted = !!(vs(x.who).muted || vs(x.who).deaf);
       const speaking = x.kind !== "screen" && S.speaking.includes(x.who) && !muted;
       const inner = x.kind === "avatar" ? `<span class="tile-bg" style="--c:${p.color}"></span>${avatar(p)}` : fakeScreen(x.kind === "screen" ? "screen" : "cam", x.who);
-      const badge = x.kind === "screen" ? `<span class="live"><b>${esc(x.meta)}</b>AO VIVO</span>` : "";
+      const badge = x.kind === "screen" ? `<span class="live">${x.meta ? `<b>${esc(x.meta)}</b>` : ""}AO VIVO</span>` : "";
       const host = x.kind !== "screen" && g.owner === x.who ? '<span class="host-tag">ANFITRIÃO</span>' : "";
       return `<button ${x.kind !== "screen" ? `data-spk="${x.who}"` : ""} class="vtile ${speaking ? "speaking" : ""} ${x.kind !== "avatar" ? "has-video" : ""} ${extra}" ${items.length > 1 ? `data-focus="${x.id}" aria-label="${S.focus === x.id ? "Voltar à grelha" : "Pôr em destaque: " + esc(x.label)}"` : `aria-label="${esc(x.label)}"`} ${extra.includes("grid-cell") ? 'style="width:var(--tw);"' : ""}>${inner}${badge}${host}
-        <span class="lbl">${x.kind === "screen" ? I.screen.replace("<svg", '<svg style="color:inherit"') : muted ? I.micOff : ""}${esc(x.label)}</span></button>`;
+        <span class="lbl">${x.kind === "screen" ? I.screen.replace("<svg", '<svg style="color:inherit"') : voiceIc(x.who)}${esc(x.label)}</span></button>`;
     };
 
     let body;
@@ -600,6 +624,7 @@
         media.screen = st;
         api.start_screen_share({ source: src, quality: q, audio }).catch(() => {});
         S.sharing = { source: src, quality: q, audio: audio && st.getAudioTracks().length > 0 }; sfx.shareStart();
+        syncVideo();
         render(); toast(`Estás a partilhar «${src}».`);
       };
     });
@@ -1337,6 +1362,7 @@
     S.voiceStates = {};
     if (S.muted || S.deaf) api.set_voice_state({ muted: S.muted, deaf: S.deaf });
     applyUserVolumes();
+    syncVideo();
     if (!micAllowed()) { S.muted = true; api.set_voice_state({ muted: true, deaf: S.deaf }); toast("Entraste só a ouvir: o microfone está desligado nas permissões."); }
     startVad();
     S.channels = await api.list_channels({ groupId: S.groupId });
@@ -1469,7 +1495,7 @@
         if (!S.camera && !camAllowed()) return toast("A câmara está desligada em Definições > Privacidade e permissões.");
         if (S.camera) stopCamera();
         else { if (!(await startCamera())) return; S.camera = true; }
-        api.set_camera({ on: S.camera }).catch(() => {}); render();
+        api.set_camera({ on: S.camera }).catch(() => {}); syncVideo(); render();
         return toast(S.camera ? "Câmara ligada." : "Câmara desligada.");
       case "share":
         if (S.sharing) { stopShare(); return render(); }
@@ -1807,6 +1833,7 @@
     // Na app instalada, o áudio da chamada (microfone e colunas) corre em voz.js.
     if (!api.isMock && window.vozAudio) {
       if (!S.voice) return;
+      vozAudio.video.subscribe();
       return vozAudio.start({
         inputDevice: S.settings.inputDevice, outputDevice: S.settings.outputDevice,
         echoCancel: S.settings.echoCancel, noise: noiseMode(), mic: micAllowed(),
@@ -1837,7 +1864,7 @@
     } catch (x) { console.warn("microfone indisponível:", x); }
   }
   function stopVad() {
-    if (!api.isMock && window.vozAudio) vozAudio.stop();
+    if (!api.isMock && window.vozAudio) { vozAudio.stop(); vozAudio.video.clear(); }
     clearInterval(vad.timer);
     if (vad.stream) vad.stream.getTracks().forEach((t) => t.stop());
     if (vad.ctx) vad.ctx.close().catch(() => {});
