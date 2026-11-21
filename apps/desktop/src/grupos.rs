@@ -1,0 +1,865 @@
+//! Grupos a sério: liga o `tasca_core::Node` aos comandos da interface (`ui/api.js`).
+//!
+//! Ao desbloquear a conta, o primeiro comando de grupos arranca um nó iroh com a identidade
+//! da conta e a base de dados `contas/<chave>/grupos.db`. Para cada grupo:
+//!
+//! - anfitrião (este PC): o grupo fica aberto e aceita membros enquanto a app estiver aberta;
+//! - membro: há uma tarefa que mantém a ligação ao PC do anfitrião e volta a ligar quando
+//!   ela cai. Sem anfitrião, as mensagens vão para a caixa cifrada no servidor;
+//! - com servidor de contas, outra tarefa sincroniza a caixa do grupo.
+//!
+//! Os eventos novos chegam à interface como `message`, `message_ack`, `group_changed` e
+//! `host_status`.
+//!
+//! Ids na interface: grupo = 64 carateres hex; canal = `<grupo>/<id do canal>`; pessoa =
+//! chave pública em hex, ou `me` para a própria conta.
+
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex as StdMutex},
+    time::{Duration, Instant},
+};
+
+use serde::Deserialize;
+use serde_json::{Value, json};
+use tasca_core::{
+    ChannelDef, ChannelKind, EventKind, GroupHandle, GroupId, Invite, Node, NodeOptions, SignedEvent, Store,
+    servidor::AccountServer,
+};
+use tauri::{AppHandle, Emitter, State, async_runtime::JoinHandle};
+use tokio::sync::Mutex;
+
+use crate::contas::{Contas, pasta_contas};
+
+type Res<T> = Result<T, String>;
+
+/// Estado da rede guardado na app.
+#[derive(Default)]
+pub struct Rede {
+    ativa: Mutex<Option<Arc<Ativa>>>,
+}
+
+/// O nó da conta desbloqueada e as ligações aos grupos.
+struct Ativa {
+    conta: [u8; 32],
+    node: Node,
+    servidor: bool,
+    ligacoes: StdMutex<HashMap<GroupId, Ligacao>>,
+    tarefas: StdMutex<Vec<JoinHandle<()>>>,
+}
+
+struct Ligacao {
+    handle: GroupHandle,
+    online: bool,
+}
+
+fn txt(e: anyhow::Error) -> String {
+    eprintln!("erro de grupos: {e:#}");
+    let s = e.to_string();
+    let mut c = s.chars();
+    match c.next() {
+        Some(p) => p.to_uppercase().chain(c).collect(),
+        None => "Erro desconhecido".into(),
+    }
+}
+
+fn hex(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+fn unhex32(s: &str) -> Option<[u8; 32]> {
+    if s.len() != 64 || !s.is_ascii() {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (i, o) in out.iter_mut().enumerate() {
+        *o = u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).ok()?;
+    }
+    Some(out)
+}
+
+fn grupo(id: &str) -> Res<GroupId> {
+    unhex32(id).map(GroupId).ok_or_else(|| "Grupo desconhecido.".into())
+}
+
+/// `<grupo>/<canal>` → (grupo, canal).
+fn canal(id: &str) -> Res<(GroupId, String)> {
+    let (g, c) = id.split_once('/').ok_or("Canal desconhecido.")?;
+    Ok((grupo(g)?, c.to_string()))
+}
+
+const CORES: [&str; 8] = ["#9B2C3F", "#2A5CAA", "#5E8C4A", "#B8791A", "#6B4C9A", "#2E7D7A", "#7A3B2E", "#4A6FA5"];
+
+fn cor(b: &[u8]) -> &'static str {
+    CORES[(b[0] as usize + b[31] as usize) % CORES.len()]
+}
+
+fn iniciais(nome: &str) -> String {
+    let s: String = nome.split_whitespace().filter_map(|w| w.chars().next()).take(2).collect();
+    s.to_uppercase()
+}
+
+impl Ativa {
+    fn eu(&self, chave: &[u8; 32]) -> bool {
+        *chave == self.conta
+    }
+
+    fn pessoa_id(&self, chave: &[u8; 32]) -> String {
+        if self.eu(chave) { "me".into() } else { hex(chave) }
+    }
+
+    fn handle(&self, g: GroupId) -> Res<GroupHandle> {
+        self.ligacoes
+            .lock()
+            .unwrap()
+            .get(&g)
+            .map(|l| l.handle.clone())
+            .ok_or_else(|| "Grupo desconhecido.".into())
+    }
+
+    fn online(&self, g: GroupId) -> bool {
+        self.ligacoes.lock().unwrap().get(&g).is_some_and(|l| l.online)
+    }
+
+    fn definir(&self, app: &AppHandle, g: GroupId, handle: GroupHandle, online: bool) {
+        let antes = self.ligacoes.lock().unwrap().insert(g, Ligacao { handle, online });
+        if antes.map(|l| l.online) != Some(online) {
+            let _ = app.emit("host_status", json!({ "groupId": hex(&g.0), "online": online }));
+        }
+    }
+
+    fn tarefa(&self, f: impl std::future::Future<Output = ()> + Send + 'static) {
+        self.tarefas.lock().unwrap().push(tauri::async_runtime::spawn(f));
+    }
+
+    async fn parar(&self) {
+        for t in self.tarefas.lock().unwrap().drain(..) {
+            t.abort();
+        }
+        let _ = self.node.clone().shutdown().await;
+    }
+
+    /// Põe um grupo a funcionar: eventos para a interface, ligação ao anfitrião e caixa.
+    fn arrancar(self: &Arc<Self>, app: &AppHandle, g: GroupId, ligado: Option<GroupHandle>) -> Res<()> {
+        let info = self.node.with_store(|s| s.group(g)).map_err(txt)?.ok_or("Grupo desconhecido.")?;
+
+        // eventos novos → interface
+        let (a, ap) = (self.clone(), app.clone());
+        let mut rx = self.node.subscribe(g);
+        self.tarefa(async move {
+            use tokio::sync::broadcast::error::RecvError;
+            loop {
+                match rx.recv().await {
+                    Ok((_, ev)) => a.emitir(&ap, g, &ev),
+                    Err(RecvError::Lagged(_)) => {
+                        let _ = ap.emit("group_changed", json!({ "groupId": hex(&g.0) }));
+                    }
+                    Err(RecvError::Closed) => break,
+                }
+            }
+        });
+
+        if info.hosted {
+            let h = self.node.open_hosted(g).map_err(txt)?;
+            self.definir(app, g, h, true);
+        } else {
+            match &ligado {
+                Some(h) => self.definir(app, g, h.clone(), true),
+                None => self.definir(app, g, self.node.open_offline(g).map_err(txt)?, false),
+            }
+            let (a, ap) = (self.clone(), app.clone());
+            self.tarefa(async move { a.manter_ligacao(&ap, g, ligado).await });
+        }
+
+        if self.servidor {
+            let a = self.clone();
+            let hosted = info.hosted;
+            self.tarefa(async move {
+                loop {
+                    let t = Instant::now();
+                    let pausa = match a.node.sync_group(g, 25).await {
+                        Ok(_) if hosted => Duration::from_secs(4),
+                        // espera longa: só volta logo se houve novidades (ou ainda sem chave)
+                        Ok(_) if t.elapsed() < Duration::from_secs(1) => Duration::from_secs(3),
+                        Ok(_) => Duration::from_millis(200),
+                        Err(e) => {
+                            eprintln!("caixa do grupo {g}: {e:#}");
+                            Duration::from_secs(20)
+                        }
+                    };
+                    tokio::time::sleep(pausa).await;
+                }
+            });
+        }
+        Ok(())
+    }
+
+    /// Membro: mantém a ligação ao PC do anfitrião, e volta a ligar quando cai.
+    async fn manter_ligacao(&self, app: &AppHandle, g: GroupId, mut ligado: Option<GroupHandle>) {
+        let mut espera = 3;
+        loop {
+            let h = match ligado.take() {
+                Some(h) => h,
+                None => match tokio::time::timeout(Duration::from_secs(30), self.node.reconnect(g)).await {
+                    Ok(Ok(h)) => h,
+                    _ => {
+                        tokio::time::sleep(Duration::from_secs(espera)).await;
+                        espera = (espera * 2).min(60);
+                        continue;
+                    }
+                },
+            };
+            espera = 3;
+            self.definir(app, g, h.clone(), true);
+            h.disconnected().await;
+            if let Ok(off) = self.node.open_offline(g) {
+                self.definir(app, g, off, false);
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    }
+
+    fn emitir(&self, app: &AppHandle, g: GroupId, ev: &SignedEvent) {
+        match &ev.body.kind {
+            EventKind::Message { channel, .. } => {
+                let channel_id = format!("{}/{channel}", hex(&g.0));
+                if self.eu(&ev.body.author) {
+                    // a minha mensagem voltou do anfitrião: está guardada no grupo
+                    let _ = app.emit("message_ack", json!({ "channelId": channel_id, "id": hex(&ev.id()) }));
+                } else {
+                    let _ = app.emit(
+                        "message",
+                        json!({ "channelId": channel_id, "groupId": hex(&g.0), "message": self.mensagem(ev) }),
+                    );
+                }
+            }
+            _ => {
+                let _ = app.emit("group_changed", json!({ "groupId": hex(&g.0) }));
+            }
+        }
+    }
+
+    fn mensagem(&self, ev: &SignedEvent) -> Value {
+        let text = match &ev.body.kind {
+            EventKind::Message { text, .. } => text.as_str(),
+            _ => "",
+        };
+        json!({
+            "id": hex(&ev.id()),
+            "ts": ev.body.timestamp_ms,
+            "from": self.pessoa_id(&ev.body.author),
+            "text": text,
+        })
+    }
+
+    fn grupo_json(&self, g: GroupId) -> Res<Value> {
+        let info = self.node.with_store(|s| s.group(g)).map_err(txt)?.ok_or("Grupo desconhecido.")?;
+        let online = info.hosted || self.online(g);
+        Ok(json!({
+            "id": hex(&g.0),
+            "name": info.name,
+            "short": iniciais(&info.name),
+            "owner": self.pessoa_id(info.owner.as_bytes()),
+            "color": cor(&g.0),
+            "host": if info.hosted {
+                json!({ "online": true, "route": "este PC", "ping": 0 })
+            } else {
+                json!({ "online": online, "route": "P2P", "ping": null, "lastSeen": "há pouco" })
+            },
+            "unread": 0,
+        }))
+    }
+
+    fn canal_json(&self, g: GroupId, c: &ChannelDef) -> Value {
+        let voz = c.kind == ChannelKind::Voice;
+        let mut v = json!({
+            "id": format!("{}/{}", hex(&g.0), c.id),
+            "kind": if voz { "voice" } else { "text" },
+            "name": c.name,
+            "topic": c.topic,
+            "cat": c.category,
+        });
+        if voz {
+            v["inVoice"] = json!([]);
+        }
+        v
+    }
+
+    /// Canais e categorias, com as categorias dos canais sempre presentes na lista.
+    fn layout(&self, g: GroupId) -> Res<(Vec<ChannelDef>, Vec<String>)> {
+        let (canais, mut cats) = self.node.with_store(|s| s.layout(g)).map_err(txt)?;
+        for c in &canais {
+            if !cats.contains(&c.category) {
+                cats.push(c.category.clone());
+            }
+        }
+        Ok((canais, cats))
+    }
+
+    /// Dono: muda a disposição de canais e publica-a para todos.
+    async fn mudar<T>(
+        &self,
+        g: GroupId,
+        f: impl FnOnce(&mut Vec<ChannelDef>, &mut Vec<String>) -> Res<T>,
+    ) -> Res<T> {
+        let h = self.handle(g)?;
+        if !h.is_hosted() {
+            return Err("Só o anfitrião pode mudar os canais.".into());
+        }
+        let (mut canais, mut cats) = self.layout(g)?;
+        let r = f(&mut canais, &mut cats)?;
+        h.set_layout(canais, cats).await.map_err(txt)?;
+        Ok(r)
+    }
+}
+
+/// O nó da conta desbloqueada (arranca-o na primeira vez, ou se a conta mudou).
+async fn ativa(app: &AppHandle, rede: &Rede, contas: &Contas) -> Res<Arc<Ativa>> {
+    let id = contas.identidade().await.ok_or("Desbloqueia a conta primeiro.")?;
+    let pk = *id.public().as_bytes();
+    let mut g = rede.ativa.lock().await;
+    if let Some(a) = g.as_ref() {
+        if a.conta == pk {
+            return Ok(a.clone());
+        }
+    }
+    if let Some(velha) = g.take() {
+        velha.parar().await;
+    }
+    let caminho = pasta_contas(app)?.join(hex(&pk)).join("grupos.db");
+    let store = Store::open(&caminho).map_err(txt)?;
+    let servidor = AccountServer::from_env();
+    let tem_servidor = servidor.is_some();
+    let node = Node::spawn(id, store, NodeOptions { servidor, ..Default::default() })
+        .await
+        .map_err(txt)?;
+    let a = Arc::new(Ativa {
+        conta: pk,
+        node,
+        servidor: tem_servidor,
+        ligacoes: Default::default(),
+        tarefas: Default::default(),
+    });
+    for info in a.node.with_store(|s| s.groups()).map_err(txt)? {
+        if let Err(e) = a.arrancar(app, info.id, None) {
+            eprintln!("grupo {}: {e}", info.id);
+        }
+    }
+    *g = Some(a.clone());
+    Ok(a)
+}
+
+// ---------------- comandos ----------------
+
+/// Pessoas dos grupos (menos a própria conta), por id.
+#[tauri::command]
+pub async fn list_group_people(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>) -> Res<Value> {
+    let a = ativa(&app, &rede, &c).await?;
+    let mut out = serde_json::Map::new();
+    let grupos = a.node.with_store(|s| s.groups()).map_err(txt)?;
+    for info in grupos {
+        let host_online = info.hosted || a.online(info.id);
+        for (pk, nome) in a.node.with_store(|s| s.members(info.id)).map_err(txt)? {
+            let k = pk.as_bytes();
+            if a.eu(k) {
+                continue;
+            }
+            let dono = pk == info.owner;
+            let id = hex(k);
+            let ja = out.get(&id).and_then(|p| p["status"].as_str()) == Some("online");
+            out.insert(
+                id.clone(),
+                json!({
+                    "id": id,
+                    "name": nome,
+                    "color": cor(k),
+                    "key": format!("ed25519:{}…{}", &hex(k)[..4], &hex(k)[60..]),
+                    "status": if ja || (dono && host_online) { "online" } else { "offline" },
+                }),
+            );
+        }
+    }
+    Ok(Value::Object(out))
+}
+
+#[tauri::command]
+pub async fn list_groups(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>) -> Res<Vec<Value>> {
+    let a = ativa(&app, &rede, &c).await?;
+    let grupos = a.node.with_store(|s| s.groups()).map_err(txt)?;
+    grupos.into_iter().map(|g| a.grupo_json(g.id)).collect()
+}
+
+#[tauri::command]
+pub async fn list_members(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>, group_id: String) -> Res<Vec<Value>> {
+    let a = ativa(&app, &rede, &c).await?;
+    let g = grupo(&group_id)?;
+    let info = a.node.with_store(|s| s.group(g)).map_err(txt)?.ok_or("Grupo desconhecido.")?;
+    let host_online = info.hosted || a.online(g);
+    let membros = a.node.with_store(|s| s.members(g)).map_err(txt)?;
+    Ok(membros
+        .into_iter()
+        .map(|(pk, nome)| {
+            let k = pk.as_bytes();
+            let dono = pk == info.owner;
+            json!({
+                "id": a.pessoa_id(k),
+                "name": nome,
+                "color": cor(k),
+                "key": format!("ed25519:{}…{}", &hex(k)[..4], &hex(k)[60..]),
+                "status": if a.eu(k) || (dono && host_online) { "online" } else { "offline" },
+                "owner": dono,
+            })
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn list_channels(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>, group_id: String) -> Res<Vec<Value>> {
+    let a = ativa(&app, &rede, &c).await?;
+    let g = grupo(&group_id)?;
+    let (canais, _) = a.layout(g)?;
+    Ok(canais.iter().map(|c| a.canal_json(g, c)).collect())
+}
+
+#[tauri::command]
+pub async fn list_categories(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>, group_id: String) -> Res<Vec<String>> {
+    let a = ativa(&app, &rede, &c).await?;
+    Ok(a.layout(grupo(&group_id)?)?.1)
+}
+
+/// Últimas mensagens de um canal (as 500 mais recentes).
+#[tauri::command]
+pub async fn list_messages(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>, channel_id: String) -> Res<Vec<Value>> {
+    if channel_id.starts_with("dm-") {
+        return Ok(vec![]); // conversas privadas ainda não estão ligadas
+    }
+    let a = ativa(&app, &rede, &c).await?;
+    let (g, ch) = canal(&channel_id)?;
+    let eventos = a.node.with_store(|s| s.events_since(g, 0)).map_err(txt)?;
+    let msgs: Vec<Value> = eventos
+        .iter()
+        .filter(|(_, ev)| matches!(&ev.body.kind, EventKind::Message { channel, .. } if *channel == ch))
+        .map(|(_, ev)| a.mensagem(ev))
+        .collect();
+    let de = msgs.len().saturating_sub(500);
+    Ok(msgs[de..].to_vec())
+}
+
+#[tauri::command]
+pub async fn send_message(
+    app: AppHandle,
+    rede: State<'_, Rede>,
+    c: State<'_, Contas>,
+    channel_id: String,
+    text: String,
+) -> Res<Value> {
+    let a = ativa(&app, &rede, &c).await?;
+    let (g, ch) = canal(&channel_id)?;
+    let h = a.handle(g)?;
+    let ligado = h.is_connected();
+    let hosted = h.is_hosted();
+    if !ligado && !a.servidor {
+        return Err("O anfitrião está offline. Tenta quando ele voltar.".into());
+    }
+    let id = tokio::time::timeout(Duration::from_secs(20), h.send_message(&ch, &text))
+        .await
+        .map_err(|_| "O envio demorou demasiado.".to_string())?
+        .map_err(txt)?;
+    Ok(json!({
+        "id": hex(&id),
+        "ts": tasca_core::event::now_ms(),
+        "from": "me",
+        "text": text,
+        // ligado a outro PC: fica pendente até o anfitrião a devolver (message_ack)
+        "pending": ligado && !hosted,
+    }))
+}
+
+#[tauri::command]
+pub async fn create_group(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>, name: String) -> Res<Value> {
+    let a = ativa(&app, &rede, &c).await?;
+    let nome = c.nome().await.unwrap_or_else(|| "Eu".into());
+    let g = a.node.create_group(&name, &nome).map_err(txt)?;
+    a.arrancar(&app, g, None)?;
+    a.grupo_json(g)
+}
+
+#[derive(Deserialize)]
+pub struct CanalUi {
+    id: Option<String>,
+    kind: String,
+    name: String,
+    #[serde(default)]
+    topic: String,
+    cat: Option<String>,
+}
+
+fn canal_de_ui(c: CanalUi) -> ChannelDef {
+    let voz = c.kind == "voice";
+    let id = c
+        .id
+        .map(|i| i.rsplit('/').next().unwrap_or(&i).chars().take(64).collect::<String>())
+        .filter(|i| !i.trim().is_empty())
+        .unwrap_or_else(novo_id);
+    ChannelDef {
+        id,
+        kind: if voz { ChannelKind::Voice } else { ChannelKind::Text },
+        name: limpar_nome(&c.name, voz),
+        topic: c.topic,
+        category: c.cat.filter(|x| !x.trim().is_empty()).unwrap_or_else(|| if voz { "Voz" } else { "Conversa" }.into()),
+    }
+}
+
+/// Traz para o núcleo um grupo que versões antigas só guardavam na interface.
+#[tauri::command]
+pub async fn import_local_group(
+    app: AppHandle,
+    rede: State<'_, Rede>,
+    c: State<'_, Contas>,
+    name: String,
+    channels: Vec<CanalUi>,
+    categories: Option<Vec<String>>,
+) -> Res<Value> {
+    let a = ativa(&app, &rede, &c).await?;
+    let nome = c.nome().await.unwrap_or_else(|| "Eu".into());
+    let g = a.node.create_group(&name, &nome).map_err(txt)?;
+    a.arrancar(&app, g, None)?;
+    let canais: Vec<ChannelDef> = channels.into_iter().map(canal_de_ui).collect();
+    if canais.iter().any(|c| c.kind == ChannelKind::Text) {
+        let cats = categories.unwrap_or_default();
+        if let Err(e) = a.mudar(g, |cs, ks| {
+            *cs = canais;
+            *ks = cats;
+            Ok(())
+        })
+        .await
+        {
+            eprintln!("canais do grupo importado: {e}");
+        }
+    }
+    a.grupo_json(g)
+}
+
+#[tauri::command]
+pub async fn join_group(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>, invite: String) -> Res<Value> {
+    let convite = Invite::decode(invite.trim())
+        .map_err(|_| "Este código não parece um convite da Tasca. Os convites começam por «tasca1».".to_string())?;
+    let a = ativa(&app, &rede, &c).await?;
+    let g = convite.group;
+    let conhecido = a.node.with_store(|s| s.group(g)).map_err(txt)?;
+    if let Some(info) = &conhecido {
+        if info.hosted || a.online(g) {
+            return a.grupo_json(g);
+        }
+    }
+    let nome = c.nome().await.unwrap_or_else(|| "Eu".into());
+    let h = tokio::time::timeout(Duration::from_secs(40), a.node.join(&convite, &nome))
+        .await
+        .map_err(|_| "Não foi possível chegar ao anfitrião. Ele tem de ter a Tasca aberta; tenta mais tarde.".to_string())?
+        .map_err(|e| {
+            eprintln!("entrar no grupo: {e:#}");
+            let s = e.to_string();
+            if s.contains("recusou") {
+                "O anfitrião recusou este convite.".to_string()
+            } else {
+                "Não foi possível chegar ao anfitrião. Ele tem de ter a Tasca aberta; tenta mais tarde.".to_string()
+            }
+        })?;
+    // espera pelo histórico (pelo menos a criação do grupo)
+    let ate = Instant::now() + Duration::from_secs(15);
+    while a.node.with_store(|s| s.group(g)).map_err(txt)?.is_none() {
+        if Instant::now() > ate {
+            return Err("O anfitrião não mandou o grupo. Tenta outra vez.".into());
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    if conhecido.is_some() && a.ligacoes.lock().unwrap().contains_key(&g) {
+        // já estava a tentar ligar: a tarefa dele volta a ligar sozinha; usa esta ligação já
+        a.definir(&app, g, h, true);
+    } else {
+        a.arrancar(&app, g, Some(h))?;
+    }
+    a.grupo_json(g)
+}
+
+#[tauri::command]
+pub async fn create_invite(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>, group_id: String) -> Res<Value> {
+    let a = ativa(&app, &rede, &c).await?;
+    let g = grupo(&group_id)?;
+    let inv = a.node.create_invite(g).await.map_err(|e| {
+        let s = txt(e);
+        if s.contains("só o anfitrião") { "Só o anfitrião pode criar convites.".to_string() } else { s }
+    })?;
+    Ok(json!({ "code": inv.encode(), "expires": null, "uses": "ilimitado" }))
+}
+
+// ---------------- canais e categorias (só o anfitrião) ----------------
+
+fn novo_id() -> String {
+    let mut b = [0u8; 6];
+    let _ = getrandom::fill(&mut b);
+    hex(&b)
+}
+
+/// Nome de canal: texto em minúsculas com hífens; voz fica como está.
+fn limpar_nome(n: &str, voz: bool) -> String {
+    let n: String = n.trim().chars().take(40).collect();
+    if voz {
+        return n;
+    }
+    let mut out = String::new();
+    for ch in n.to_lowercase().chars() {
+        if ch.is_whitespace() || ch == '-' {
+            if !out.is_empty() && !out.ends_with('-') {
+                out.push('-');
+            }
+        } else if ch.is_alphanumeric() || ch == '_' {
+            out.push(ch);
+        }
+    }
+    out.trim_end_matches('-').to_string()
+}
+
+fn nome_categoria(n: &str) -> Res<String> {
+    let n: String = n.trim().chars().take(24).collect();
+    if n.is_empty() {
+        return Err("Dá um nome à categoria.".into());
+    }
+    Ok(n)
+}
+
+#[tauri::command]
+pub async fn create_channel(
+    app: AppHandle,
+    rede: State<'_, Rede>,
+    c: State<'_, Contas>,
+    group_id: String,
+    name: String,
+    kind: String,
+    topic: Option<String>,
+    cat: Option<String>,
+) -> Res<Value> {
+    let a = ativa(&app, &rede, &c).await?;
+    let g = grupo(&group_id)?;
+    let novo = canal_de_ui(CanalUi { id: None, kind, name, topic: topic.unwrap_or_default(), cat });
+    if novo.name.is_empty() {
+        return Err("Dá um nome ao canal.".into());
+    }
+    let c2 = novo.clone();
+    a.mudar(g, move |cs, ks| {
+        if !ks.contains(&c2.category) {
+            ks.push(c2.category.clone());
+        }
+        // fica no fim da sua categoria
+        let at = cs.iter().rposition(|x| x.category == c2.category).map(|i| i + 1).unwrap_or(cs.len());
+        cs.insert(at, c2);
+        Ok(())
+    })
+    .await?;
+    Ok(a.canal_json(g, &novo))
+}
+
+#[tauri::command]
+pub async fn update_channel(
+    app: AppHandle,
+    rede: State<'_, Rede>,
+    c: State<'_, Contas>,
+    group_id: String,
+    channel_id: String,
+    name: Option<String>,
+    topic: Option<String>,
+    cat: Option<String>,
+) -> Res<Value> {
+    let a = ativa(&app, &rede, &c).await?;
+    let g = grupo(&group_id)?;
+    let (_, id) = canal(&channel_id)?;
+    let novo = a
+        .mudar(g, move |cs, ks| {
+            let ch = cs.iter_mut().find(|x| x.id == id).ok_or("Esse canal já não existe.")?;
+            if let Some(n) = name {
+                let n = limpar_nome(&n, ch.kind == ChannelKind::Voice);
+                if n.is_empty() {
+                    return Err("Dá um nome ao canal.".into());
+                }
+                ch.name = n;
+            }
+            if let Some(t) = topic {
+                ch.topic = t;
+            }
+            if let Some(k) = cat.filter(|k| !k.trim().is_empty()) {
+                ch.category = k.trim().to_string();
+                if !ks.contains(&ch.category) {
+                    ks.push(ch.category.clone());
+                }
+            }
+            Ok(ch.clone())
+        })
+        .await?;
+    Ok(a.canal_json(g, &novo))
+}
+
+#[tauri::command]
+pub async fn delete_channel(
+    app: AppHandle,
+    rede: State<'_, Rede>,
+    c: State<'_, Contas>,
+    group_id: String,
+    channel_id: String,
+) -> Res<bool> {
+    let a = ativa(&app, &rede, &c).await?;
+    let g = grupo(&group_id)?;
+    let (_, id) = canal(&channel_id)?;
+    a.mudar(g, move |cs, _| {
+        let Some(i) = cs.iter().position(|x| x.id == id) else { return Ok(()) };
+        if cs[i].kind == ChannelKind::Text && cs.iter().filter(|x| x.kind == ChannelKind::Text).count() <= 1 {
+            return Err("O grupo precisa de pelo menos um canal de texto.".into());
+        }
+        cs.remove(i);
+        Ok(())
+    })
+    .await?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn create_category(
+    app: AppHandle,
+    rede: State<'_, Rede>,
+    c: State<'_, Contas>,
+    group_id: String,
+    name: String,
+) -> Res<String> {
+    let a = ativa(&app, &rede, &c).await?;
+    let n = nome_categoria(&name)?;
+    let r = n.clone();
+    a.mudar(grupo(&group_id)?, move |_, ks| {
+        if ks.iter().any(|x| x.to_lowercase() == n.to_lowercase()) {
+            return Err("Já há uma categoria com esse nome.".into());
+        }
+        ks.push(n);
+        Ok(())
+    })
+    .await?;
+    Ok(r)
+}
+
+#[tauri::command]
+pub async fn rename_category(
+    app: AppHandle,
+    rede: State<'_, Rede>,
+    c: State<'_, Contas>,
+    group_id: String,
+    from: String,
+    to: String,
+) -> Res<String> {
+    let a = ativa(&app, &rede, &c).await?;
+    let n = nome_categoria(&to)?;
+    let r = n.clone();
+    a.mudar(grupo(&group_id)?, move |cs, ks| {
+        if n != from && ks.iter().any(|x| x.to_lowercase() == n.to_lowercase()) {
+            return Err("Já há uma categoria com esse nome.".into());
+        }
+        for k in ks.iter_mut() {
+            if *k == from {
+                *k = n.clone();
+            }
+        }
+        for ch in cs.iter_mut() {
+            if ch.category == from {
+                ch.category = n.clone();
+            }
+        }
+        Ok(())
+    })
+    .await?;
+    Ok(r)
+}
+
+/// Apaga a categoria; os canais dela passam para a categoria de cima (ou a de baixo).
+#[tauri::command]
+pub async fn delete_category(
+    app: AppHandle,
+    rede: State<'_, Rede>,
+    c: State<'_, Contas>,
+    group_id: String,
+    name: String,
+) -> Res<String> {
+    let a = ativa(&app, &rede, &c).await?;
+    a.mudar(grupo(&group_id)?, move |cs, ks| {
+        if ks.len() <= 1 {
+            return Err("O grupo precisa de pelo menos uma categoria.".into());
+        }
+        let i = ks.iter().position(|x| *x == name).ok_or("Essa categoria já não existe.")?;
+        let para = if i > 0 { ks[i - 1].clone() } else { ks[i + 1].clone() };
+        for ch in cs.iter_mut() {
+            if ch.category == name {
+                ch.category = para.clone();
+            }
+        }
+        ks.remove(i);
+        Ok(para)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn reorder_categories(
+    app: AppHandle,
+    rede: State<'_, Rede>,
+    c: State<'_, Contas>,
+    group_id: String,
+    order: Vec<String>,
+) -> Res<bool> {
+    let a = ativa(&app, &rede, &c).await?;
+    a.mudar(grupo(&group_id)?, move |_, ks| {
+        let mut novo: Vec<String> = order.iter().filter(|x| ks.contains(x)).cloned().collect();
+        novo.dedup();
+        for k in ks.iter() {
+            if !novo.contains(k) {
+                novo.push(k.clone());
+            }
+        }
+        *ks = novo;
+        Ok(())
+    })
+    .await?;
+    Ok(true)
+}
+
+#[derive(Deserialize)]
+pub struct Posicao {
+    id: String,
+    cat: Option<String>,
+}
+
+/// Nova ordem dos canais, cada um com a sua categoria (texto e voz podem misturar-se).
+#[tauri::command]
+pub async fn reorder_channels(
+    app: AppHandle,
+    rede: State<'_, Rede>,
+    c: State<'_, Contas>,
+    group_id: String,
+    order: Vec<Posicao>,
+) -> Res<bool> {
+    let a = ativa(&app, &rede, &c).await?;
+    a.mudar(grupo(&group_id)?, move |cs, ks| {
+        let mut resto = std::mem::take(cs);
+        for p in order {
+            let id = p.id.rsplit('/').next().unwrap_or(&p.id).to_string();
+            if let Some(i) = resto.iter().position(|x| x.id == id) {
+                let mut ch = resto.remove(i);
+                if let Some(k) = p.cat.filter(|k| !k.trim().is_empty()) {
+                    ch.category = k;
+                    if !ks.contains(&ch.category) {
+                        ks.push(ch.category.clone());
+                    }
+                }
+                cs.push(ch);
+            }
+        }
+        cs.extend(resto);
+        Ok(())
+    })
+    .await?;
+    Ok(true)
+}

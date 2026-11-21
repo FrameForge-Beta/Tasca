@@ -33,9 +33,13 @@ pub struct Contas {
 
 impl Contas {
     /// A conta desbloqueada, se houver. Para usar a identidade (por exemplo no `Node`).
-    #[allow(dead_code)]
     pub async fn identidade(&self) -> Option<tasca_core::Identity> {
         self.conta.lock().await.as_ref().map(|a| a.identity.clone())
+    }
+
+    /// Nome mostrado da conta desbloqueada.
+    pub async fn nome(&self) -> Option<String> {
+        self.conta.lock().await.as_ref().map(|a| a.display_name.clone())
     }
 }
 
@@ -48,7 +52,7 @@ fn base(app: &AppHandle) -> Res<PathBuf> {
     app.path().app_data_dir().map_err(|e| format!("Pasta de dados indisponível: {e}"))
 }
 
-fn pasta_contas(app: &AppHandle) -> Res<PathBuf> {
+pub(crate) fn pasta_contas(app: &AppHandle) -> Res<PathBuf> {
     Ok(base(app)?.join("contas"))
 }
 

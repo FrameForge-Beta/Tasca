@@ -163,6 +163,7 @@ fn print_event(node: &Node, group: GroupId, ev: &tasca_core::SignedEvent) {
         EventKind::GroupCreated { name, .. } => println!("* {who} criou o grupo \"{name}\""),
         EventKind::MemberJoined { .. } => println!("* {who} entrou no grupo"),
         EventKind::Message { channel, text } => println!("[#{channel}] {who}: {text}"),
+        EventKind::Layout { channels, .. } => println!("* {who} mudou os canais ({} canais)", channels.len()),
     }
 }
 

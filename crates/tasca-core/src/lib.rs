@@ -17,7 +17,7 @@ pub mod store;
 
 pub use caixa::ChaveCaixa;
 pub use account::{Account, AccountStore, RecoveryPhrase, Vault};
-pub use event::{EventKind, GroupId, SignedEvent};
+pub use event::{ChannelDef, ChannelKind, EventKind, GroupId, SignedEvent};
 pub use identity::Identity;
 pub use invite::Invite;
 pub use node::{GroupHandle, Node, NodeOptions};

@@ -4,14 +4,16 @@
 //! no GitHub. Se houver, transfere-a, instala-a e reinicia a app; se não houver (ou não
 //! houver internet), fecha o ecrã de arranque e mostra a janela principal.
 //!
-//! A interface (pasta `ui/`) chama comandos Rust com `invoke`. Já existem `app_info` e
-//! os comandos de conta (`contas.rs`); os restantes comandos listados em `ui/api.js`
-//! ainda usam dados de teste no próprio JavaScript até serem ligados ao `tasca-core`.
+//! A interface (pasta `ui/`) chama comandos Rust com `invoke`: `app_info`, os comandos de
+//! conta (`contas.rs`) e os de grupos, canais e mensagens (`grupos.rs`, ligados ao
+//! `tasca-core`). Os restantes comandos listados em `ui/api.js` (voz, plugins, cópias)
+//! ainda usam dados de teste no próprio JavaScript.
 
 // Sem janela de consola no Windows em modo release.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod contas;
+mod grupos;
 mod presenca;
 
 use std::time::Duration;
@@ -31,7 +33,7 @@ struct AppInfo {
 fn app_info(app: AppHandle) -> AppInfo {
     AppInfo {
         version: app.package_info().version.to_string(),
-        core: false,
+        core: true,
     }
 }
 
@@ -86,6 +88,7 @@ fn main() {
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         // Antes das janelas: no Windows a interface chama comandos de conta logo ao abrir.
         .manage(contas::Contas::default())
+        .manage(grupos::Rede::default())
         .invoke_handler(tauri::generate_handler![
             app_info,
             contas::account_status,
@@ -106,6 +109,25 @@ fn main() {
             contas::suggest_usernames,
             contas::set_display_name,
             contas::change_username,
+            grupos::list_group_people,
+            grupos::list_groups,
+            grupos::list_members,
+            grupos::list_channels,
+            grupos::list_categories,
+            grupos::list_messages,
+            grupos::send_message,
+            grupos::create_group,
+            grupos::import_local_group,
+            grupos::join_group,
+            grupos::create_invite,
+            grupos::create_channel,
+            grupos::update_channel,
+            grupos::delete_channel,
+            grupos::create_category,
+            grupos::rename_category,
+            grupos::delete_category,
+            grupos::reorder_categories,
+            grupos::reorder_channels,
             presenca::idle_seconds,
             presenca::set_autostart,
             presenca::get_autostart,
