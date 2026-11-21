@@ -1,0 +1,10 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Tema escuro da Tasca (madeira): fundo atrás das barras do sistema e ao abrir. -->
+    <style name="Theme.tasca_app" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="android:windowBackground">@color/madeira</item>
+        <item name="android:colorBackground">@color/madeira</item>
+        <item name="colorPrimary">@color/vinho</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">false</item>
+    </style>
+</resources>

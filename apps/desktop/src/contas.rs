@@ -136,14 +136,39 @@ fn instalar(app: &AppHandle) -> Res<String> {
 
 // ---------------- lembrar a conta ----------------
 
-fn chaveiro(id: &str) -> Option<keyring::Entry> {
+/// No PC: o cofre de credenciais do sistema (Windows, macOS, Linux).
+#[cfg(desktop)]
+fn chaveiro(_app: &AppHandle, id: &str) -> Option<keyring::Entry> {
     keyring::Entry::new("pt.tasca.desktop", id).ok()
+}
+
+/// No Android: um ficheiro na pasta privada da app (só a Tasca o pode ler;
+/// o Android apaga-o ao desinstalar).
+#[cfg(mobile)]
+fn chaveiro(app: &AppHandle, id: &str) -> Option<ChaveFicheiro> {
+    Some(ChaveFicheiro(pasta_contas(app).ok()?.join(id).join("lembrar")))
+}
+
+#[cfg(mobile)]
+struct ChaveFicheiro(PathBuf);
+
+#[cfg(mobile)]
+impl ChaveFicheiro {
+    fn set_password(&self, p: &str) -> std::io::Result<()> {
+        std::fs::write(&self.0, p)
+    }
+    fn get_password(&self) -> std::io::Result<String> {
+        std::fs::read_to_string(&self.0)
+    }
+    fn delete_credential(&self) -> std::io::Result<()> {
+        std::fs::remove_file(&self.0)
+    }
 }
 
 /// Guarda (ou esquece) as palavras da conta no cofre de credenciais do sistema.
 fn lembrar(app: &AppHandle, conta: &Account, sim: bool) {
     let Some(id) = ativa(app) else { return };
-    let Some(e) = chaveiro(&id) else { return };
+    let Some(e) = chaveiro(app, &id) else { return };
     if sim {
         match conta.recovery_phrase() {
             Ok(f) => {
@@ -158,14 +183,14 @@ fn lembrar(app: &AppHandle, conta: &Account, sim: bool) {
     }
 }
 
-fn lembrada(id: &str) -> bool {
-    chaveiro(id).is_some_and(|e| e.get_password().is_ok())
+fn lembrada(app: &AppHandle, id: &str) -> bool {
+    chaveiro(app, id).is_some_and(|e| e.get_password().is_ok())
 }
 
 /// Desbloqueia sozinha a conta escolhida, se estiver lembrada.
 fn abrir_lembrada(app: &AppHandle, vault: &tasca_core::Vault) -> Option<Account> {
     let id = ativa(app)?;
-    let frase = zeroize::Zeroizing::new(chaveiro(&id)?.get_password().ok()?);
+    let frase = zeroize::Zeroizing::new(chaveiro(app, &id)?.get_password().ok()?);
     let conta = Account::recover(&frase, &vault.display_name).ok()?;
     // só serve se as palavras forem mesmo desta conta
     (vault.public_key().ok()? == conta.identity.public()).then_some(conta)
@@ -226,7 +251,7 @@ pub async fn account_status(app: AppHandle, c: State<'_, Contas>) -> Res<Estado>
         google,
         server: AccountServer::from_env().is_some(),
         username: ler_utilizador(&app),
-        remembered: ativa(&app).is_some_and(|id| lembrada(&id)),
+        remembered: ativa(&app).is_some_and(|id| lembrada(&app, &id)),
     })
 }
 
@@ -438,10 +463,15 @@ pub async fn save_phrase_desktop(app: AppHandle, phrase: String, display_name: S
     if palavras.len() != 12 {
         return Err("Não há 12 palavras para guardar.".into());
     }
+    #[cfg(desktop)]
     let dir = app
         .path()
         .desktop_dir()
         .map_err(|e| format!("Não encontrei o ambiente de trabalho: {e}"))?;
+    // No telemóvel não há ambiente de trabalho (o botão está escondido; usa-se "Copiar").
+    #[cfg(mobile)]
+    #[allow(unreachable_code)]
+    let dir: PathBuf = return Err("No telemóvel usa o botão Copiar.".into());
     let mut texto = String::from("Tasca: palavras de recuperação\r\n");
     if !display_name.trim().is_empty() {
         texto += &format!("Conta: {}\r\n", display_name.trim());
@@ -495,7 +525,7 @@ pub async fn list_accounts(app: AppHandle) -> Res<Vec<ContaGuardada>> {
         out.push(ContaGuardada {
             display_name: v.display_name.clone(),
             username: utilizador_em(&e.path()),
-            remembered: lembrada(&id),
+            remembered: lembrada(&app, &id),
             active: atual.as_deref() == Some(id.as_str()),
             id,
         });
@@ -525,7 +555,7 @@ pub async fn select_account(app: AppHandle, c: State<'_, Contas>, id: Option<Str
 /// A conta continua guardada neste PC.
 #[tauri::command]
 pub async fn sign_out(app: AppHandle, c: State<'_, Contas>) -> Res<bool> {
-    if let Some(e) = ativa(&app).and_then(|id| chaveiro(&id)) {
+    if let Some(e) = ativa(&app).and_then(|id| chaveiro(&app, &id)) {
         let _ = e.delete_credential();
     }
     *c.conta.lock().await = None;

@@ -1,0 +1,11 @@
+{
+  "name": "tasca-app",
+  "private": true,
+  "description": "Só para a CLI do Tauri: a build Android chama `npm run tauri`.",
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

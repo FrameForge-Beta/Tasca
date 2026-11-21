@@ -1,28 +1,38 @@
 [package]
 name = "tasca-app"
-description = "Aplicação desktop da Tasca (Tauri)"
+description = "Aplicação da Tasca (Tauri): Windows, Linux, macOS e Android"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+
+# Biblioteca para o Android (a app Android carrega-a como libtasca_app_lib.so);
+# o executável de desktop (src/main.rs) só chama `tasca_app_lib::run()`.
+[lib]
+name = "tasca_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
-tauri-plugin-updater = "2"
 tauri-plugin-opener = "2"
-tauri-plugin-autostart = "2"
 tasca-core = { path = "../../crates/tasca-core" }
 tasca-voz = { path = "../../crates/tasca-voz" }
 anyhow = "1"
 bytes = "1"
 zeroize = "1"
 getrandom = "0.4"
-keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["time", "sync"] }
+
+# Só no PC: atualização silenciosa, abrir com o sistema e cofre de credenciais do sistema.
+# No Android a loja/APK trata das versões e as palavras lembradas ficam na pasta privada da app.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
+tauri-plugin-autostart = "2"
+keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.60", features = ["Win32_System_SystemInformation", "Win32_UI_Input_KeyboardAndMouse"] }

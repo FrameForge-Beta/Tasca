@@ -1375,3 +1375,28 @@ details.row.adv .btn { justify-self: start; }
 .ctx-range .ctx-txt { display: flex; justify-content: space-between; font-size: 14px; }
 .ctx-range small { color: var(--texto-3); font-variant-numeric: tabular-nums; }
 .ctx-range input { width: 100%; accent-color: var(--vinho); }
+
+/* ============================================================
+   Telemóvel (app Android): toque e ecrã pequeno.
+   O layout de ecrã estreito (max-width: 720px) já faz o resto.
+   ============================================================ */
+.mobile .only-desktop, .mobile [data-act="share"] { display: none !important; }
+.mobile body { -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+.mobile button, .mobile .rail-btn, .mobile [data-chan], .mobile [data-voice] { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+/* alvos de toque maiores */
+.mobile .icon-btn { min-width: 40px; min-height: 40px; }
+.mobile .channels [data-chan], .mobile .channels [data-voice] { min-height: 40px; }
+.mobile .ctx-item { min-height: 44px; }
+/* o Chromium não faz zoom ao focar campos com 16px ou mais */
+.mobile input, .mobile textarea, .mobile select { font-size: max(16px, 1em); }
+/* sem rato: a hora das mensagens fica sempre visível em vez de aparecer ao passar */
+.mobile .msg .gutter { opacity: .7; }
+/* janelas (modais) encostadas a baixo, mais perto do polegar */
+@media (max-width: 720px) {
+  .mobile .scrim { padding: 12px; align-items: end; }
+}
+/* gaveta de grupos e canais: desliza da esquerda */
+@media (max-width: 720px) {
+  .mobile .app.show-nav .rail, .mobile .app.show-nav .sidebar { animation: gaveta .18s ease-out; }
+}
+@keyframes gaveta { from { transform: translateX(-24px); opacity: .4; } }

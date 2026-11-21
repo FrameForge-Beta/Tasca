@@ -88,6 +88,8 @@
   .btn-download:hover { background: var(--vinho-claro); transform: translateY(-2px); }
   .btn-download svg { width: 26px; height: 26px; flex: none; }
   .btn-download small { display: block; font-weight: 500; font-size: 13px; opacity: .8; margin-top: 1px; }
+  .btn-android { background: var(--caixa); color: var(--texto); box-shadow: inset 0 0 0 1px var(--linha); }
+  .btn-android:hover { background: var(--linha); }
   .btn-secundario { color: var(--suave); text-decoration: none; font-weight: 500; font-size: 15px; padding: 12px 6px; }
   .btn-secundario:hover { color: var(--texto); text-decoration: underline; }
   .nota { margin-top: 18px; font-size: 14px; color: var(--apagado); }
@@ -189,13 +191,17 @@
   <div class="heroi">
     <div class="contentor">
       <div>
-        <span class="selo"><span class="ponto"></span><span class="versao-texto">Disponível para Windows</span></span>
+        <span class="selo"><span class="ponto"></span><span class="versao-texto">Disponível para Windows e Android</span></span>
         <h1>O teu grupo,<br>na <em>tua</em> tasca.</h1>
         <p class="lead">Conversas, chamadas de voz e vídeo e partilha de ficheiros, ponto a ponto e encriptado. Sem servidores de terceiros a guardar as tuas coisas.</p>
         <div class="descarregar">
           <a class="btn-download link-download" href="https://github.com/RubenFernandes2004/Tasca/releases/latest">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.5 10.5 4.4v7.2H3V5.5Zm0 13 7.5 1.1v-7.1H3v6Zm8.4 1.2L21 21v-8.5h-9.6v7.2Zm0-15.4v7.3H21V3l-9.6 1.3Z"/></svg>
             <span>Descarregar para Windows<small class="detalhe-download">Windows 10 e 11, 64 bits</small></span>
+          </a>
+          <a class="btn-download btn-android link-android" href="https://github.com/RubenFernandes2004/Tasca/releases/latest/download/Tasca.apk">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.6 9.48l1.84-3.18a.38.38 0 0 0-.66-.38l-1.86 3.22A11.4 11.4 0 0 0 12 8.1c-1.77 0-3.42.39-4.92 1.04L5.22 5.92a.38.38 0 0 0-.66.38L6.4 9.48A10.8 10.8 0 0 0 1 18h22a10.8 10.8 0 0 0-5.4-8.52ZM7 15.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5Zm10 0a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5Z"/></svg>
+            <span>Descarregar para Android<small class="detalhe-android">APK, Android 8 ou mais recente</small></span>
           </a>
           <a class="btn-secundario" href="https://github.com/RubenFernandes2004/Tasca/releases">Todas as versões</a>
         </div>
@@ -307,9 +313,14 @@
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.5 10.5 4.4v7.2H3V5.5Zm0 13 7.5 1.1v-7.1H3v6Zm8.4 1.2L21 21v-8.5h-9.6v7.2Zm0-15.4v7.3H21V3l-9.6 1.3Z"/></svg>
           <span>Descarregar para Windows<small class="detalhe-download">Windows 10 e 11, 64 bits</small></span>
         </a>
+        <a class="btn-download btn-android link-android" href="https://github.com/RubenFernandes2004/Tasca/releases/latest/download/Tasca.apk">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.6 9.48l1.84-3.18a.38.38 0 0 0-.66-.38l-1.86 3.22A11.4 11.4 0 0 0 12 8.1c-1.77 0-3.42.39-4.92 1.04L5.22 5.92a.38.38 0 0 0-.66.38L6.4 9.48A10.8 10.8 0 0 0 1 18h22a10.8 10.8 0 0 0-5.4-8.52ZM7 15.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5Zm10 0a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5Z"/></svg>
+          <span>Descarregar para Android<small class="detalhe-android">APK, Android 8 ou mais recente</small></span>
+        </a>
       </div>
       <div class="plataformas">
         <span class="sim">✓ Windows</span>
+        <span class="sim">✓ Android</span>
         <span>Linux, em breve</span>
         <span>macOS, em breve</span>
       </div>
@@ -329,6 +340,11 @@
   const topo = document.getElementById("topo");
   addEventListener("scroll", () => topo.classList.toggle("rolou", scrollY > 8), { passive: true });
 
+  // No telemóvel Android, o botão do Android vem primeiro.
+  if (/Android/i.test(navigator.userAgent)) {
+    document.querySelectorAll(".link-android").forEach((a) => a.parentNode.prepend(a));
+  }
+
   // Liga os botões diretamente ao instalador da versão mais recente.
   // Se a API do GitHub falhar, os botões continuam a abrir a página da última versão.
   fetch("https://api.github.com/repos/RubenFernandes2004/Tasca/releases/latest", {
@@ -336,6 +352,13 @@
   })
     .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
     .then((versao) => {
+      const apk = (versao.assets || []).find((a) => a.name === "Tasca.apk");
+      if (apk) {
+        const mbA = (apk.size / 1024 / 1024).toFixed(1).replace(".", ",");
+        document.querySelectorAll(".detalhe-android").forEach((s) => {
+          s.textContent = `${versao.tag_name || ""} · ${mbA} MB · Android 8 ou mais recente`;
+        });
+      }
       const exe = (versao.assets || []).find((a) => /-setup\.exe$/i.test(a.name));
       if (!exe) return;
       const mb = (exe.size / 1024 / 1024).toFixed(1).replace(".", ",");
@@ -348,7 +371,7 @@
         s.textContent = `${nome} · ${mb} MB · Windows 10 e 11`;
       });
       document.querySelectorAll(".versao-texto").forEach((s) => {
-        s.textContent = `Versão ${nome.replace(/^v/, "")} disponível para Windows`;
+        s.textContent = `Versão ${nome.replace(/^v/, "")} disponível para Windows${apk ? " e Android" : ""}`;
       });
     })
     .catch(() => {});
