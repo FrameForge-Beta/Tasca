@@ -141,7 +141,7 @@ impl ChaveCaixa {
     }
 
     /// Formato: versão (1) | nonce (24) | cifra.
-    fn seal_bytes(&self, plain: &[u8]) -> Result<Vec<u8>> {
+    pub(crate) fn seal_bytes(&self, plain: &[u8]) -> Result<Vec<u8>> {
         let plain = Zeroizing::new(plain.to_vec());
         let mut nonce = [0u8; 24];
         getrandom::fill(&mut nonce).map_err(|e| anyhow!("gerador aleatório: {e}"))?;
@@ -158,7 +158,7 @@ impl ChaveCaixa {
         Ok(out)
     }
 
-    fn open_bytes(&self, bloco: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
+    pub(crate) fn open_bytes(&self, bloco: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
         ensure!(bloco.len() > 25 && bloco[0] == VERSAO, "bloco desconhecido");
         let nonce: [u8; 24] = bloco[1..25].try_into().expect("24 bytes");
         let id = self.id();

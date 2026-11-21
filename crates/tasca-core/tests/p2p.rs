@@ -203,3 +203,41 @@ async fn presenca_sala_de_voz_e_perfil() {
         .unwrap()
         .unwrap();
 }
+
+#[tokio::test]
+async fn amigos_trocam_estado_e_perfil() {
+    use tasca_core::amigos::{Estado, Perfil};
+    let ana = node().await;
+    let rui = node().await;
+    let ka = *ana.identity().public().as_bytes();
+    let kr = *rui.identity().public().as_bytes();
+    let perfil = |n: &str| Perfil { nome: n.into(), cor: "#9B2C3F".into(), bio: format!("sou {n}"), ..Default::default() };
+    ana.amigos().definir_eu(Estado { estado: "online".into(), mensagem: "a programar".into() }, perfil("Ana"));
+    rui.amigos().definir_eu(Estado { estado: "dnd".into(), mensagem: String::new() }, perfil("Rui"));
+
+    // Ainda não são amigos: o Rui não responde.
+    assert_eq!(ana.perguntar_amigo(rui.addr()).await.unwrap(), None);
+
+    ana.amigos().definir_lista([kr]);
+    rui.amigos().definir_lista([ka]);
+    let mut novidades_rui = rui.amigos().subscrever();
+    let mut novidades_ana = ana.amigos().subscrever();
+    let e = ana.perguntar_amigo(rui.addr()).await.unwrap().expect("online");
+    assert_eq!(e.estado, "dnd");
+    let n = timeout(Duration::from_secs(5), novidades_ana.recv()).await.unwrap().unwrap();
+    assert_eq!(n.perfil.unwrap().bio, "sou Rui");
+    // O Rui fica a saber que a Ana está online e recebe o perfil dela.
+    let n = timeout(Duration::from_secs(5), novidades_rui.recv()).await.unwrap().unwrap();
+    assert_eq!(n.quem, ka);
+    assert_eq!(n.estado.unwrap().mensagem, "a programar");
+    assert_eq!(n.perfil.unwrap().nome, "Ana");
+
+    // Segunda vez: o perfil não mudou, não volta a ir.
+    ana.perguntar_amigo(rui.addr()).await.unwrap();
+    let n = timeout(Duration::from_secs(5), novidades_ana.recv()).await.unwrap().unwrap();
+    assert!(n.perfil.is_none());
+
+    // Invisível: parece offline.
+    rui.amigos().definir_eu(Estado { estado: "offline".into(), mensagem: String::new() }, perfil("Rui"));
+    assert_eq!(ana.perguntar_amigo(rui.addr()).await.unwrap(), None);
+}

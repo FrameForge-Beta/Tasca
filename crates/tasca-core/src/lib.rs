@@ -4,6 +4,7 @@
 //! ao anfitrião através do iroh e guardam uma cópia local do histórico.
 
 pub mod account;
+pub mod amigos;
 pub mod caixa;
 pub mod event;
 #[cfg(feature = "google")]
@@ -23,6 +24,7 @@ pub use identity::Identity;
 pub use invite::Invite;
 pub use node::{GroupHandle, Node, NodeOptions};
 pub use store::Store;
+pub use iroh::PublicKey;
 pub use voz::{Chamada, Participante, VOZ_ALPN};
 
 /// Identificador do protocolo da Tasca na negociação QUIC (ALPN).

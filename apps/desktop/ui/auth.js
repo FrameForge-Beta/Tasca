@@ -87,7 +87,7 @@
         <p class="auth-lede">${st.server ? "Não precisas de email. Com o nome de utilizador entras noutro PC." : "Só fica neste PC. Não precisas de email."}</p>
         <form id="f-create" class="auth-form" novalidate>
           <div class="field"><label for="c-name">Nome</label><input class="input" id="c-name" maxlength="32" autocomplete="nickname" placeholder="Como te vão ver nos grupos"></div>
-          ${st.server ? `<div class="field"><label for="c-user">Nome de utilizador</label><div class="user-in"><span aria-hidden="true">@</span><input class="input" id="c-user" maxlength="24" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="letras, números, _ e ."></div><small class="hint" id="c-user-st">É assim que te encontram, e com ele entras noutro PC.</small><div class="sugg" id="c-sugg" hidden></div></div>` : ""}
+          ${st.server ? `<div class="field"><label for="c-user">O teu ID (nome de utilizador)</label><div class="user-in"><span aria-hidden="true">@</span><input class="input" id="c-user" maxlength="24" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="letras, números, _ e ."></div><small class="hint" id="c-user-st">Único e em minúsculas, como @tiago.f. É com ele que te adicionam como amigo e que entras noutro PC. O nome acima pode repetir-se; o ID não.</small><div class="sugg" id="c-sugg" hidden></div></div>` : ""}
           ${pwField("c-pw", "Palavra-passe", "new-password")}
           <div class="meter-row"><div class="meter"><i id="c-meter"></i></div><small id="c-lv">Pelo menos 8 caracteres</small></div>
           ${pwField("c-pw2", "Repete a palavra-passe", "new-password")}

@@ -368,7 +368,7 @@ fn utilizador_em(dir: &Path) -> Option<String> {
     (!s.is_empty()).then(|| s.to_string())
 }
 
-fn ler_utilizador(app: &AppHandle) -> Option<String> {
+pub(crate) fn ler_utilizador(app: &AppHandle) -> Option<String> {
     let s = std::fs::read_to_string(ficheiro_utilizador(app)?).ok()?;
     let s = s.trim();
     (!s.is_empty()).then(|| s.to_string())

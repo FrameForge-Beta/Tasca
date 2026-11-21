@@ -26,6 +26,14 @@ pub struct Profile {
     pub photo: Option<String>,
 }
 
+/// Cartão de perfil de um membro: @nome, biografia e banner.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ProfileCard {
+    pub username: Option<String>,
+    pub bio: String,
+    pub banner: Option<String>,
+}
+
 /// Canais e categorias de um grupo, por ordem.
 pub type Layout = (Vec<ChannelDef>, Vec<String>);
 
@@ -152,6 +160,14 @@ impl Store {
                  color    TEXT NOT NULL,
                  photo    TEXT,
                  PRIMARY KEY (group_id, pubkey)
+             );
+             CREATE TABLE IF NOT EXISTS profile_cards (
+                 group_id BLOB NOT NULL,
+                 pubkey   BLOB NOT NULL,
+                 username TEXT,
+                 bio      TEXT NOT NULL,
+                 banner   TEXT,
+                 PRIMARY KEY (group_id, pubkey)
              );",
         )?;
         Ok(Self { conn })
@@ -229,6 +245,17 @@ impl Store {
                 if let Some(p) = photo {
                     ensure!(p.starts_with("data:image/"), "a foto tem de ser uma imagem");
                     ensure!(p.len() <= MAX_PHOTO_CHARS, "foto demasiado grande");
+                }
+            }
+            EventKind::ProfileCard { username, bio, banner } => {
+                ensure!(member, "só membros podem ter perfil no grupo");
+                if let Some(u) = username {
+                    ensure!(crate::servidor::normalize_username(u).ok().as_deref() == Some(u.as_str()), "nome de utilizador inválido");
+                }
+                ensure!(bio.chars().count() <= crate::amigos::MAX_BIO, "biografia demasiado longa");
+                if let Some(b) = banner {
+                    ensure!(b.starts_with("data:image/") || b.starts_with('#'), "o banner tem de ser uma cor ou imagem");
+                    ensure!(b.len() <= crate::amigos::MAX_BANNER, "banner demasiado grande");
                 }
             }
         }
@@ -413,6 +440,39 @@ impl Store {
         Ok(out)
     }
 
+    /// Cartões de perfil publicados no grupo, por chave.
+    pub fn profile_cards(&self, group: GroupId) -> Result<std::collections::HashMap<[u8; 32], ProfileCard>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT pubkey, username, bio, banner FROM profile_cards WHERE group_id = ?1")?;
+        let rows = stmt.query_map(params![group.0], |r| {
+            Ok((
+                r.get::<_, Vec<u8>>(0)?,
+                ProfileCard { username: r.get(1)?, bio: r.get(2)?, banner: r.get(3)? },
+            ))
+        })?;
+        let mut out = std::collections::HashMap::new();
+        for r in rows {
+            let (k, c) = r?;
+            if let Ok(k) = <[u8; 32]>::try_from(k.as_slice()) {
+                out.insert(k, c);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Quando `who` entrou no grupo (ms), pelo evento de entrada (ou de criação, no dono).
+    pub fn member_since(&self, group: GroupId, who: &[u8; 32]) -> Result<Option<u64>> {
+        for (_, ev) in self.events_since(group, 0)? {
+            if ev.body.author == *who
+                && matches!(ev.body.kind, EventKind::MemberJoined { .. } | EventKind::GroupCreated { .. })
+            {
+                return Ok(Some(ev.body.timestamp_ms));
+            }
+        }
+        Ok(None)
+    }
+
     /// Canais e categorias do grupo. Sem nenhum `Layout` publicado, a disposição de origem.
     pub fn layout(&self, group: GroupId) -> Result<Layout> {
         let data: Option<Vec<u8>> = self
@@ -504,6 +564,12 @@ fn apply(conn: &Connection, group: GroupId, ev: &SignedEvent) -> Result<()> {
             conn.execute(
                 "UPDATE members SET display_name = ?3 WHERE group_id = ?1 AND pubkey = ?2",
                 params![group.0, ev.body.author, name.trim()],
+            )?;
+        }
+        EventKind::ProfileCard { username, bio, banner } => {
+            conn.execute(
+                "INSERT OR REPLACE INTO profile_cards (group_id, pubkey, username, bio, banner) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![group.0, ev.body.author, username, bio, banner],
             )?;
         }
     }

@@ -48,6 +48,8 @@ pub(crate) struct Inner {
     presence: Mutex<HashMap<GroupId, watch::Sender<Presence>>>,
     /// Anfitrião: ligações abertas por (grupo, membro), para saber quando alguém sai mesmo.
     conns: Mutex<HashMap<(GroupId, [u8; 32]), usize>>,
+    /// Lista de amigos, o meu estado e os perfis deles.
+    amigos: Arc<crate::amigos::Amigos>,
 }
 
 impl Inner {
@@ -127,6 +129,7 @@ impl Node {
             feeds: Default::default(),
             presence: Default::default(),
             conns: Default::default(),
+            amigos: Default::default(),
         });
         let voz = Arc::new(crate::voz::Hub::new(Arc::downgrade(&inner)));
         let router = Router::builder(endpoint)
@@ -136,6 +139,7 @@ impl Node {
                     inner: inner.clone(),
                 },
             )
+            .accept(crate::amigos::ALPN, crate::amigos::Protocolo(inner.amigos.clone()))
             .accept(
                 crate::voz::VOZ_ALPN,
                 crate::voz::HostVoz { inner: Arc::downgrade(&inner), hub: voz.clone() },
@@ -147,6 +151,22 @@ impl Node {
             local_only: opts.local_only,
             voz,
         })
+    }
+
+    /// Amigos: lista, o meu estado e o que sei deles.
+    pub fn amigos(&self) -> &crate::amigos::Amigos {
+        &self.inner.amigos
+    }
+
+    /// Pergunta ao PC de um amigo como está (e troca perfis). `None` = offline ou invisível.
+    /// Aceita a chave pública do amigo (o iroh descobre onde está) ou um endereço completo.
+    pub async fn perguntar_amigo(&self, quem: impl Into<iroh::EndpointAddr>) -> Result<Option<crate::amigos::Estado>> {
+        self.inner.amigos.perguntar(self.router.endpoint(), quem.into()).await
+    }
+
+    /// Endereço deste nó (para testes e ligações na rede local).
+    pub fn addr(&self) -> iroh::EndpointAddr {
+        self.router.endpoint().addr()
     }
 
     pub fn identity(&self) -> &Identity {
@@ -468,6 +488,13 @@ impl GroupHandle {
             photo,
         })
         .await?;
+        Ok(())
+    }
+
+    /// Publica o teu cartão de perfil neste grupo (@nome, biografia e banner).
+    pub async fn set_profile_card(&self, card: crate::store::ProfileCard) -> Result<()> {
+        self.publish(EventKind::ProfileCard { username: card.username, bio: card.bio, banner: card.banner })
+            .await?;
         Ok(())
     }
 

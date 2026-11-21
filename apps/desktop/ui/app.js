@@ -106,6 +106,8 @@
     typing: null, backupPct: null,
   };
   const group = () => S.groups.find((g) => g.id === S.groupId);
+  // pessoa por id, mesmo que ainda não se saiba nada dela
+  const who = (id) => S.people[id] || { id, name: "Alguém", color: "#4A4542", status: "offline" };
   const channel = () => S.channels.find((c) => c.id === S.channelId);
 
   // ---------------- permissões ----------------
@@ -181,6 +183,8 @@
   }
 
   function renderRail() {
+    const pend = window.tascaAmigos ? window.tascaAmigos.pendingCount() : 0;
+    const dmUnread = S.dms.reduce((a, d) => a + (d.unread || 0), 0) + pend;
     const gs = S.groups.map((g) => {
       const on = !S.home && S.groupId === g.id && (S.view === "chat" || S.view === "voice");
       const dot = `<i class="host-dot ${g.host.online ? "online" : ""}"></i>`;
@@ -188,7 +192,7 @@
       return `<button class="rail-btn ${on ? "on" : ""} ${g.unread ? "unread" : ""}" data-group="${g.id}" data-tip="${esc(g.name)}${g.host.online ? "" : " (anfitrião offline)"}" aria-label="${esc(g.name)}" style="--g:${g.color || "var(--vinho)"}">${esc(g.short)}${badge || (g.owner === "me" ? "" : dot)}</button>`;
     }).join("");
     return `
-      <button class="rail-btn logo ${S.home && S.view === "chat" ? "on" : ""}" data-act="home" data-tip="Mensagens privadas" aria-label="Mensagens privadas">${LOGO}${S.dms.some((d) => d.unread) && !S.home ? `<span class="badge">${S.dms.reduce((a, d) => a + d.unread, 0)}</span>` : ""}</button>
+      <button class="rail-btn logo ${S.home && (S.view === "chat" || S.view === "friends") ? "on" : ""}" data-act="home" data-tip="Amigos e mensagens privadas" aria-label="Amigos e mensagens privadas">${LOGO}${dmUnread && !(S.home && !pend) ? `<span class="badge">${dmUnread}</span>` : ""}</button>
       <div class="rail-sep"></div>
       ${gs}
       <button class="rail-btn add" data-act="new-group" data-tip="Criar ou entrar num grupo" aria-label="Criar ou entrar num grupo">${I.plus}</button>`;
@@ -233,9 +237,9 @@
 
   function renderDmSidebar() {
     const q = S.dmQuery.toLowerCase();
-    const list = S.dms.filter((d) => !q || S.people[d.with].name.toLowerCase().includes(q));
+    const list = S.dms.filter((d) => !q || who(d.with).name.toLowerCase().includes(q));
     const rows = list.map((d) => {
-      const p = S.people[d.with];
+      const p = who(d.with);
       const on = d.id === S.channelId && S.view === "chat";
       const last = d.last ? (d.last.from === "me" ? "Tu: " : "") + d.last.text : "";
       return `<button class="dm ${on ? "on" : ""} ${d.unread && !on ? "unread" : ""}" data-dm="${d.id}">${avatar(p, "s", true)}
@@ -246,6 +250,7 @@
       <div class="group-head"><span class="name">Mensagens privadas</span>
         <button class="icon-btn" data-act="new-dm" aria-label="Nova conversa" title="Nova conversa">${I.plus}</button></div>
       <div class="dm-search search"><label class="sr" for="dm-q">Procurar conversa</label>${I.search}<input id="dm-q" placeholder="Procurar pessoa" value="${esc(S.dmQuery)}"></div>
+      ${window.tascaAmigos ? window.tascaAmigos.sidebarButton() : ""}
       <div class="channels dms">${rows || `<p class="empty">${q ? "Ninguém com esse nome." : "Ainda não tens conversas."}</p>`}</div>
       ${renderMe()}`;
   }
@@ -311,7 +316,7 @@
     const away = S.myStatus === "online" && (await idleSeconds()) >= IDLE_AWAY;
     if (away !== !!S.autoAway) {
       S.autoAway = away;
-      api.set_presence({ status: myStatus() }).catch(() => {});
+      api.set_presence({ status: myStatus(), text: S.customStatus || "" }).catch(() => {});
       if (!document.querySelector("#custom-status:focus")) render();
     }
   }, 15000);
@@ -322,10 +327,11 @@
     const label = STATUS.find((x) => x[0] === st)[1];
     const speaking = S.voice && S.speaking.includes("me") && !S.muted;
     const pop = S.statusOpen ? `<div class="status-pop" role="menu">
-        <div class="status-pop-head">${avatar(me)}<div><b>${esc(me.name)}</b><small class="${me.username ? "" : "mono"}">${me.username ? "@" + esc(me.username) : esc(shortKey(me.key))}</small></div></div>
+        <div class="status-pop-head">${avatar(me)}<div><b>${esc(me.name)}</b><small>${me.username ? "@" + esc(me.username) : "sem ID: escolhe um em Editar perfil"}</small></div></div>
         <label class="status-custom" for="custom-status"><span>Mensagem de estado</span><input id="custom-status" data-sugg="estado" maxlength="60" placeholder="Ex.: a jogar Mario Kart" value="${esc(S.customStatus || "")}"></label>
         ${STATUS.map(([k, l, d]) => `<button role="menuitemradio" aria-checked="${st === k}" class="${st === k ? "on" : ""}" data-status="${k}"><i class="st-dot ${k}">${FLOR}</i><span><b>${l}</b><small>${d}</small></span></button>`).join("")}
-        <button data-act="copy-key" class="status-copy">${I.lock}<span><b>${me.username ? "Copiar o meu nome" : "Copiar a minha chave"}</b><small>Para alguém te adicionar ou verificar quem és.</small></span></button>
+        <button data-act="${me.username ? "copy-key" : "edit-profile"}" class="status-copy">${I.lock}<span><b>${me.username ? "Copiar o meu ID (@" + esc(me.username) + ")" : "Escolher o meu ID"}</b><small>É com ele que te adicionam como amigo.</small></span></button>
+        <button data-act="my-card" class="status-copy">${I.users}<span><b>Ver o meu perfil</b><small>Como os outros te veem.</small></span></button>
         <div class="status-acct">
           <button data-act="switch-account">${I.swap}<span><b>Trocar de conta</b></span></button>
           <button data-act="sign-out" class="danger">${I.logout}<span><b>Terminar sessão</b></span></button>
@@ -348,6 +354,7 @@
   function renderMain() {
     if (S.view === "settings") return renderSettings();
     if (S.view === "voice") return renderVoice();
+    if (S.view === "friends" && window.tascaAmigos) return window.tascaAmigos.renderFriends();
     return renderChat();
   }
 
@@ -366,12 +373,12 @@
 
   function renderChat() {
     const dm = S.home ? S.dms.find((d) => d.id === S.channelId) : null;
-    const c = dm ? { id: dm.id, name: S.people[dm.with].name } : channel();
+    const c = dm ? { id: dm.id, name: who(dm.with).name } : channel();
     const g = dm ? { owner: null, host: { online: true }, name: "" } : group();
     if (!c) return renderEmpty();
     let lastDay = null, lastFrom = null, lastAt = null;
     const rows = S.messages.map((m) => {
-      const p = S.people[m.from];
+      const p = who(m.from);
       let out = "";
       if (m.day !== lastDay) { out += `<div class="day">${esc(m.day)}</div>`; lastDay = m.day; lastFrom = null; }
       const first = m.from !== lastFrom || m.file || minutes(m.at) - minutes(lastAt) > 7;
@@ -384,25 +391,25 @@
       const fail = m.failed ? `<div class="msg-fail"><small>Não foi enviada. Volta a tentar.</small><button class="retry" data-retry="${esc(m.id)}" aria-label="Tentar enviar outra vez" title="Tentar enviar outra vez">${I.retry}</button></div>` : "";
       if (first) {
         const tag = p.bot ? '<span class="tag bot">plugin</span>' : g.owner === p.id ? '<span class="tag">anfitrião</span>' : "";
-        out += `<div class="${cls}">${avatar(p)}<div><div class="bubble"><div class="meta"><span class="author" style="--a:${p.color}">${esc(p.name)}</span>${tag}<span class="time">${esc(m.at)}</span></div><div class="body">${fmt(m.text)}${state}</div>${file}</div>${reacts}${fail}</div></div>`;
+        out += `<div class="${cls}"><button type="button" class="msg-av" data-person="${esc(p.id)}" aria-label="Perfil de ${esc(p.name)}">${avatar(p)}</button><div><div class="bubble"><div class="meta"><button type="button" class="author" data-person="${esc(p.id)}" style="--a:${p.color}">${esc(p.name)}</button>${tag}<span class="time">${esc(m.at)}</span></div><div class="body">${fmt(m.text)}${state}</div>${file}</div>${reacts}${fail}</div></div>`;
       } else {
         out += `<div class="${cls}"><span class="gutter">${esc(m.at)}</span><div><div class="bubble"><div class="body">${fmt(m.text)}${state}</div>${file}</div>${reacts}${fail}</div></div>`;
       }
       return out;
     }).join("");
     if (dm) {
-      const p = S.people[dm.with];
-      const st = { online: "online", away: "ausente", offline: "offline" }[p.status];
+      const p = who(dm.with);
+      const st = { online: "online", away: "ausente", dnd: "não incomodar", offline: "offline" }[p.status] || "offline";
       return `
       <div class="main-head">${menuBtn()}
-        <span class="title">${avatar(p, "s", true)}${esc(p.name)}</span>
-        <span class="topic">${st} · ligação direta entre os vossos PCs</span>
+        <button type="button" class="title dm-who" data-person="${esc(p.id || dm.with)}">${avatar(p, "s", true)}${esc(p.name)}</button>
+        <span class="topic">${p.statusText ? esc(p.statusText) : st}${p.username ? " · @" + esc(p.username) : ""}</span>
         <button class="icon-btn" data-act="dm-call" aria-label="Ligar a ${esc(p.name)}" title="Chamada de voz">${I.phone}</button>
         <button class="icon-btn" data-act="dm-video" aria-label="Videochamada com ${esc(p.name)}" title="Videochamada">${I.cam}</button>
       </div>
       <div class="messages ${S.settings.msgStyle === "list" ? "" : "bubbles"}" role="log" aria-live="polite">
         <div class="spacer"></div>
-        <div class="welcome">${avatar(p).replace('class="av ', 'class="av big ')}<h2>${esc(p.name)}</h2><p>Esta conversa vai diretamente do teu PC para o de ${esc(p.name)}, cifrada. Se ${p.status === "offline" ? "estiver offline" : "um de vocês estiver offline"}, a mensagem fica guardada e é entregue quando os dois estiverem ligados.</p></div>
+        <div class="welcome">${avatar(p).replace('class="av ', 'class="av big ')}<h2>${esc(p.name)}</h2><p>Esta conversa é só entre ti e ${esc(p.name)}, cifrada de ponta a ponta: o servidor da Tasca guarda-a para chegar mesmo com um de vocês offline, mas não a consegue ler.</p></div>
         ${rows}
       </div>
       <div class="composer">
@@ -663,7 +670,8 @@
     return `<div class="section"><div class="box">
       <div class="row">${avatar(me).replace('class="av ', 'class="av xl ')}
         <div class="txt"><b style="font-size:18px">${esc(me.name)}</b><small>${me.username ? "@" + esc(me.username) : "Ainda sem nome de utilizador"}</small></div><button class="btn" data-act="edit-profile">Editar perfil</button></div>
-      <div class="row"><div class="txt"><b>A tua identidade</b><small>A tua chave pública. A privada fica cifrada neste PC e só tu a abres.</small><div class="mono" style="margin-top:6px;color:var(--texto-2);word-break:break-all">${esc(me.key)}</div></div><button class="btn" data-act="copy-pubkey">Copiar</button></div>
+      <div class="row"><div class="txt"><b>O teu ID</b><small>${me.username ? "É único e é com ele que te adicionam como amigo. O nome que aparece pode repetir-se; este não." : "Ainda não tens. Escolhe um em Editar perfil para te poderem adicionar."}</small>${me.username ? `<div style="margin-top:6px;font-weight:700;font-size:16px">@${esc(me.username)}</div>` : ""}</div>${me.username ? `<button class="btn" data-act="copy-key">Copiar</button>` : `<button class="btn primary" data-act="edit-profile">Escolher</button>`}</div>
+      <details class="row adv"><summary class="txt"><b>Chave de segurança</b><small>Só para quem quer confirmar a identidade à mão. A privada fica cifrada neste PC.</small></summary><div class="mono" style="color:var(--texto-2);word-break:break-all;font-size:12px">${esc(me.key)}</div><button class="btn ghost" data-act="copy-pubkey">Copiar chave</button></details>
       <div class="row"><div class="txt"><b>Cópia no Google Drive</b><small>A tua conta cifrada fica numa pasta privada da Tasca no teu Drive, para a recuperares noutro PC só com a palavra-passe.</small></div><button class="btn" data-act="google-backup">Ligar Google</button></div>
       <div class="row"><div class="txt"><b>Bloquear a Tasca</b><small>Fecha a sessão neste PC. Para voltar a entrar precisas da palavra-passe.</small></div><button class="btn danger" data-act="lock">Bloquear</button></div>
       <div class="row"><div class="txt"><b>Exportar identidade</b><small>Guarda a chave num ficheiro cifrado para usar a mesma conta noutro PC. Sem ela, perdes o acesso aos grupos.</small></div><button class="btn">Exportar…</button></div>
@@ -735,17 +743,24 @@
   const COLORS = ["#9B2C3F", "#C0563A", "#B8791A", "#5E8C4A", "#2E7D7A", "#2A5CAA", "#4A6FA5", "#6B4C9A", "#7A3B2E", "#4A4542"];
   function openProfile() {
     const me = S.me;
-    let color = me.color, photo = me.photo || null;
+    let color = me.color, photo = me.photo || null, banner = me.banner || null;
     modal(`<h2>Editar perfil</h2>
-      <div class="profile-prev"><button type="button" class="pf-photo" id="pf-photo" title="Mudar a foto" aria-label="Mudar a foto">${avatar({ ...me, photo }).replace('class="av ', 'id="pf-av" class="av xl ')}<span class="pf-cam">${I.cam}</span></button>
+      <div class="pf-banner" id="pf-banner" style="${bannerStyle(banner, color)}"></div>
+      <div class="profile-prev with-banner"><button type="button" class="pf-photo" id="pf-photo" title="Mudar a foto" aria-label="Mudar a foto">${avatar({ ...me, photo }).replace('class="av ', 'id="pf-av" class="av xl ')}<span class="pf-cam">${I.cam}</span></button>
         <div><b id="pf-name-prev">${esc(me.name)}</b><small>${me.username ? "@" + esc(me.username) : ""}</small>
           <span class="pf-photo-btns"><button type="button" class="linkish" id="pf-pick">${photo ? "Mudar a foto" : "Escolher foto"}</button><button type="button" class="linkish" id="pf-rm" ${photo ? "" : "hidden"}>Tirar</button></span></div>
         <input type="file" id="pf-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden></div>
       <div class="field"><label for="pf-name">Nome</label><input class="input" id="pf-name" maxlength="32" value="${esc(me.name)}"><small style="color:var(--texto-3)">É o nome que os outros veem. Podes usar espaços e acentos.</small></div>
       <div class="field"><label>Cor</label><div class="swatches" role="radiogroup" aria-label="Cor">${COLORS.map((c) => `<button type="button" role="radio" aria-checked="${c === color}" class="${c === color ? "on" : ""}" data-color="${c}" style="background:${c}" aria-label="Cor ${c}"></button>`).join("")}</div></div>
-      <div class="field"><label for="pf-user">Nome de utilizador</label>
+      <div class="field"><label>Banner</label><div class="swatches" role="radiogroup" aria-label="Banner">
+          <button type="button" role="radio" class="${!banner ? "on" : ""} sw-auto" data-banner="" aria-label="Azulejo da tua cor" title="Azulejo da tua cor"></button>
+          ${COLORS.map((c) => `<button type="button" role="radio" class="${c === banner ? "on" : ""}" data-banner="${c}" style="background:${c}" aria-label="Banner ${c}"></button>`).join("")}</div>
+        <span class="pf-photo-btns"><button type="button" class="linkish" id="pf-bpick">Usar uma imagem</button><button type="button" class="linkish" id="pf-brm" ${banner && banner.startsWith("data:") ? "" : "hidden"}>Tirar imagem</button></span>
+        <input type="file" id="pf-bfile" accept="image/png,image/jpeg,image/webp,image/gif" hidden></div>
+      <div class="field"><label for="pf-bio">Sobre mim</label><textarea class="input" id="pf-bio" rows="3" maxlength="190" placeholder="Conta qualquer coisa sobre ti">${esc(me.bio || "")}</textarea><small class="hint" id="pf-bio-n">${(me.bio || "").length}/190</small></div>
+      <div class="field"><label for="pf-user">ID (nome de utilizador)</label>
         <div class="user-in"><span>@</span><input class="input" id="pf-user" maxlength="24" autocomplete="off" spellcheck="false" value="${esc(me.username || "")}" placeholder="o.teu.nome"></div>
-        <small class="hint" id="pf-user-st">${me.username ? "É com ele que te encontram e que entras noutro PC." : "Ainda não tens. Escolhe um para te encontrarem e entrares noutro PC."}</small></div>
+        <small class="hint" id="pf-user-st">${me.username ? "Único, só minúsculas. É com ele que te adicionam e que entras noutro PC." : "Ainda não tens. Escolhe um nome único (minúsculas, números, _ e .) para te adicionarem."}</small></div>
       <div class="field" id="pf-pw-f" hidden><label for="pf-pw">Palavra-passe</label><input class="input" id="pf-pw" type="password" autocomplete="current-password"><small style="color:var(--texto-3)">Para mudar o nome de utilizador precisamos da tua palavra-passe.</small></div>
       <p id="pf-err" style="color:var(--perigo)" hidden></p>
       <div class="actions"><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="pf-save">Guardar</button></div>`,
@@ -760,6 +775,19 @@
         $("#pf-rm", el).hidden = !photo; $("#pf-pick", el).textContent = photo ? "Mudar a foto" : "Escolher foto";
       };
       nameIn.oninput = () => { $("#pf-name-prev", el).textContent = nameIn.value || " "; drawAv(); };
+      const drawBanner = () => {
+        $("#pf-banner", el).setAttribute("style", bannerStyle(banner, color));
+        $("#pf-brm", el).hidden = !(banner && banner.startsWith("data:"));
+        el.querySelectorAll("[data-banner]").forEach((x) => x.classList.toggle("on", (x.dataset.banner || null) === banner));
+      };
+      $("#pf-bio", el).oninput = (e) => { $("#pf-bio-n", el).textContent = e.target.value.length + "/190"; };
+      $("#pf-bpick", el).onclick = () => $("#pf-bfile", el).click();
+      $("#pf-brm", el).onclick = () => { banner = null; drawBanner(); };
+      $("#pf-bfile", el).onchange = async (e) => {
+        const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+        try { banner = await bannerPhoto(f); drawBanner(); }
+        catch { err.textContent = "Não consegui abrir essa imagem. Tenta um PNG ou JPG."; err.hidden = false; }
+      };
       const pick = () => $("#pf-file", el).click();
       $("#pf-photo", el).onclick = pick; $("#pf-pick", el).onclick = pick;
       $("#pf-rm", el).onclick = () => { photo = null; drawAv(); };
@@ -769,8 +797,10 @@
         catch { err.textContent = "Não consegui abrir essa imagem. Tenta um PNG ou JPG."; err.hidden = false; }
       };
       el.addEventListener("click", (e) => {
+        const bb = e.target.closest("[data-banner]");
+        if (bb) { banner = bb.dataset.banner || null; drawBanner(); return; }
         const b = e.target.closest("[data-color]"); if (!b) return;
-        color = b.dataset.color; drawAv();
+        color = b.dataset.color; drawAv(); drawBanner();
         el.querySelectorAll("[data-color]").forEach((x) => { x.classList.toggle("on", x === b); x.setAttribute("aria-checked", x === b); });
       });
       userIn.oninput = () => {
@@ -796,19 +826,52 @@
         btn.disabled = true; btn.textContent = "A guardar…";
         try {
           if (name !== me.name) me.name = await api.set_display_name({ name });
-          if (color !== me.color || photo !== (me.photo || null)) { await api.set_profile({ color, photo }); me.color = color; me.photo = photo; }
+          const bio = $("#pf-bio", el).value.trim().slice(0, 190);
+          if (color !== me.color || photo !== (me.photo || null) || bio !== (me.bio || "") || banner !== (me.banner || null)) {
+            await api.set_profile({ color, photo, bio, banner }); Object.assign(me, { color, photo, bio, banner });
+          }
           if (userChanged) {
             const pw = $("#pf-pw", el).value;
             me.username = me.username ? await api.change_username({ newUsername: u, password: pw }) : await api.server_register({ username: u, password: pw });
           }
-          Object.assign(S.people.me || {}, { name: me.name, color: me.color, username: me.username, photo: me.photo });
-          for (const list of Object.values(S.allMembers || {})) for (const m of list) if (m.id === "me") Object.assign(m, { name: me.name, color: me.color, photo: me.photo });
+          Object.assign(S.people.me || {}, { name: me.name, color: me.color, username: me.username, photo: me.photo, bio: me.bio, banner: me.banner });
+          for (const list of Object.values(S.allMembers || {})) for (const m of list) if (m.id === "me") Object.assign(m, { name: me.name, color: me.color, photo: me.photo, bio: me.bio, banner: me.banner, username: me.username });
           close(); render(); toast("Perfil guardado.");
         } catch (x) { err.textContent = String(x.message || x); err.hidden = false; btn.disabled = false; btn.textContent = "Guardar"; }
       };
     });
   }
 
+  // Banner: cor (#RRGGBB), imagem (data:) ou, sem nada, o azulejo na cor do perfil.
+  function bannerStyle(banner, color) {
+    if (banner && banner.startsWith("data:")) return `background:#000 url("${banner.replace(/"/g, "")}") center / cover`;
+    if (banner && /^#[0-9a-f]{6}$/i.test(banner)) return `background:${banner}`;
+    return `--c:${/^#[0-9a-f]{6}$/i.test(color || "") ? color : "#9B2C3F"}`;
+  }
+  // Corta ao centro em 5:2 e reduz até caber (o banner vai nos eventos do grupo, ~60 KB no máximo).
+  function bannerPhoto(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const W = img.naturalWidth, H = img.naturalHeight, ratio = 5 / 2;
+        let w = W, h = W / ratio; if (h > H) { h = H; w = H * ratio; }
+        let out = 600, q = 0.82, d = "";
+        for (let i = 0; i < 6; i++) {
+          const c = document.createElement("canvas"); c.width = out; c.height = Math.round(out / ratio);
+          c.getContext("2d").drawImage(img, (W - w) / 2, (H - h) / 2, w, h, 0, 0, c.width, c.height);
+          d = c.toDataURL("image/webp", q);
+          if (!d.startsWith("data:image/webp")) d = c.toDataURL("image/jpeg", q);
+          if (d.length <= 58000) break;
+          q -= 0.12; if (i >= 2) out = Math.round(out * 0.8);
+        }
+        URL.revokeObjectURL(url);
+        d.length <= 60000 ? resolve(d) : reject(new Error("imagem pesada"));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("imagem inválida")); };
+      img.src = url;
+    });
+  }
   // Corta ao centro em quadrado e reduz para 256 px (fica leve para guardar e enviar).
   function squarePhoto(file) {
     return new Promise((resolve, reject) => {
@@ -1214,7 +1277,7 @@
     document.querySelectorAll(".scrim").forEach((x) => x.remove());
     modal(`<h2>Transferir ${esc(g.name)}</h2>
       <p>O grupo passa a viver no PC da pessoa que escolheres. Assinas a transferência, ela aceita, os dados vão cifrados e só depois de confirmados é que deixas de ser anfitrião.</p>
-      <div class="field"><label for="to-who">Novo anfitrião</label><select class="input" id="to-who">${others.map((m) => `<option value="${m.id}">${esc(m.name)} · ${esc(m.key)}</option>`).join("") || "<option disabled>Não há outros membros</option>"}</select></div>
+      <div class="field"><label for="to-who">Novo anfitrião</label><select class="input" id="to-who">${others.map((m) => `<option value="${m.id}">${esc(m.name)}${m.username ? " · @" + esc(m.username) : ""}</option>`).join("") || "<option disabled>Não há outros membros</option>"}</select></div>
       <div class="actions"><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="do-transfer" ${others.length ? "" : "disabled"}>Pedir transferência</button></div>`,
     (el, close) => {
       $("#do-transfer", el).onclick = async () => {
@@ -1375,15 +1438,15 @@
     if (d.editCat) return openCategoryEditor(d.editCat);
     if (d.setTab) { S.settingsTab = d.setTab; return render(); }
     if (d.themeSet) { await patch({ theme: d.themeSet }); applyTheme(); return render(); }
-    if (d.status) { S.myStatus = d.status; S.autoAway = false; S.statusOpen = false; api.set_presence({ status: d.status }).catch(() => {}); render(); return toast("Estado: " + STATUS.find((x) => x[0] === d.status)[1] + "."); }
+    if (d.status) { S.myStatus = d.status; S.autoAway = false; S.statusOpen = false; api.set_presence({ status: d.status, text: S.customStatus || "" }).catch(() => {}); render(); return toast("Estado: " + STATUS.find((x) => x[0] === d.status)[1] + "."); }
     if (d.msgStyle) { await patch({ msgStyle: d.msgStyle }); return render(); }
     if (d.relay) { await patch({ relay: d.relay }); return render(); }
     if (d.dest) { await patch({ backup: { dest: d.dest } }); return render(); }
     if (d.every) { await patch({ backup: { every: d.every } }); return render(); }
     switch (d.act) {
       case "home": {
-        if (!S.dms.length) { S.home = true; S.view = "chat"; S.channelId = null; S.messages = []; S.navOpen = false; return render(); }
-        const saved = store.get("dm", null); return openDm(S.dms.some((d) => d.id === saved) ? saved : S.dms[0].id);
+        // como no balcão: começa pelos amigos; as conversas ficam na barra ao lado
+        S.home = true; S.view = window.tascaAmigos ? "friends" : "chat"; S.channelId = null; S.messages = []; S.navOpen = false; return render();
       }
       case "dm-call": case "dm-video": return toast("Chamadas privadas: em breve. Vão diretamente entre os dois PCs.");
       case "new-dm": return toast("Escolhe alguém da lista de membros de um grupo para começar a conversar.");
@@ -1428,7 +1491,8 @@
         else { S.showMembers = !S.showMembers; store.set("members", S.showMembers); }
         return render();
       case "nav": S.navOpen = !S.navOpen; return render();
-      case "copy-key": return S.me.username ? copy("@" + S.me.username, null, "Nome copiado.") : copy(S.me.key, null, "Chave copiada.");
+      case "copy-key": return S.me.username ? copy("@" + S.me.username, null, "ID copiado.") : openProfile();
+      case "my-card": S.statusOpen = false; render(); return window.tascaAmigos && window.tascaAmigos.openFullProfile("me");
       case "switch-account": S.statusOpen = false; if (S.voice) await leaveVoice(); await api.select_account({ id: null }); return location.reload();
       case "sign-out": S.statusOpen = false; if (S.voice) await leaveVoice(); await api.sign_out(); return location.reload();
       case "attach": return toast("No Tauri abre o seletor de ficheiros. O ficheiro vai direto para os PCs dos membros.");
@@ -1645,7 +1709,12 @@
       const p = await api.set_plugin_enabled({ id: t.dataset.pluginToggle, enabled: t.checked });
       Object.assign(S.plugins.find((x) => x.id === p.id), p); render(); return;
     }
-    if (t.id === "custom-status") { if (window.tascaSugg) tascaSugg.remember("estado", t.value); return; }
+    if (t.id === "custom-status") {
+      if (window.tascaSugg) tascaSugg.remember("estado", t.value);
+      store.set("custom-status", t.value);
+      api.set_presence({ status: myStatus(), text: t.value }).catch(() => {});
+      return;
+    }
     if (t.id === "sideload" && t.files[0]) { toast(`«${t.files[0].name}» carregado. Revê as permissões antes de ativar.`); return; }
     if (t.dataset.setting && t.type === "checkbox" && t.dataset.setting.startsWith("perms.")) {
       await patch(pathPatch(t.dataset.setting, t.checked)); return applyPerm(t.dataset.setting.slice(6), t.checked);
@@ -1796,6 +1865,10 @@
     const pg2 = $(".page"); if (pg2) pg2.scrollTop = st;
   }
 
+  // Para os outros ficheiros da interface (amigos.js) e, mais tarde, para os plugins.
+  window.tascaApp = { bannerStyle, patch, S, I, FLOR, LOGO, $, esc, initials, avatar, toast, copy, modal, render, rerenderKeepInput, openDm, openGroup, openProfile, openTransfer, group, store, squarePhoto, myStatus, STATUS };
+  window.tascaToast = toast;
+
   // ---------------- arranque ----------------
   // Se algo falhar ao arrancar, mostra o erro em vez de deixar a janela vazia.
   function startFailed(e) {
@@ -1822,6 +1895,8 @@
     S.groups = await api.list_groups();
     S.plugins = await api.list_plugins();
     S.dms = await api.list_dms();
+    S.customStatus = store.get("custom-status", "");
+    if (window.tascaAmigos) await window.tascaAmigos.start();
     S.settings = await api.get_settings();
     S.allChannels = {}; S.allMembers = {}; S.cats = {};
     for (const g of S.groups) {

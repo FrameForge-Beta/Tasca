@@ -41,7 +41,7 @@ pub struct Rede {
 
 /// O nó da conta desbloqueada e as ligações aos grupos.
 pub(crate) struct Ativa {
-    conta: [u8; 32],
+    pub(crate) conta: [u8; 32],
     pub(crate) node: Node,
     servidor: bool,
     ligacoes: StdMutex<HashMap<GroupId, Ligacao>>,
@@ -53,7 +53,7 @@ struct Ligacao {
     online: bool,
 }
 
-fn txt(e: anyhow::Error) -> String {
+pub(crate) fn txt(e: anyhow::Error) -> String {
     eprintln!("erro de grupos: {e:#}");
     let s = e.to_string();
     let mut c = s.chars();
@@ -90,7 +90,7 @@ pub(crate) fn canal(id: &str) -> Res<(GroupId, String)> {
 
 const CORES: [&str; 8] = ["#9B2C3F", "#2A5CAA", "#5E8C4A", "#B8791A", "#6B4C9A", "#2E7D7A", "#7A3B2E", "#4A6FA5"];
 
-fn cor(b: &[u8]) -> &'static str {
+pub(crate) fn cor(b: &[u8]) -> &'static str {
     CORES[(b[0] as usize + b[31] as usize) % CORES.len()]
 }
 
@@ -267,8 +267,18 @@ impl Ativa {
     }
 
     /// Uma pessoa para a interface, com o perfil que publicou no grupo.
-    fn pessoa_json(&self, k: &[u8; 32], nome: &str, perfil: Option<&tasca_core::store::Profile>, online: bool) -> Value {
+    fn pessoa_json(
+        &self,
+        k: &[u8; 32],
+        nome: &str,
+        perfil: Option<&tasca_core::store::Profile>,
+        cartao: Option<&tasca_core::store::ProfileCard>,
+        online: bool,
+    ) -> Value {
         json!({
+            "username": cartao.and_then(|c| c.username.clone()),
+            "bio": cartao.map(|c| c.bio.as_str()).unwrap_or(""),
+            "banner": cartao.and_then(|c| c.banner.clone()),
             "id": self.pessoa_id(k),
             "name": nome,
             "color": perfil.map(|p| p.color.as_str()).filter(|c| !c.is_empty()).unwrap_or(cor(k)),
@@ -386,6 +396,7 @@ pub async fn list_group_people(app: AppHandle, rede: State<'_, Rede>, c: State<'
     for info in grupos {
         let pres = a.presenca(info.id);
         let perfis = a.node.with_store(|s| s.profiles(info.id)).map_err(txt)?;
+        let cartoes = a.node.with_store(|s| s.profile_cards(info.id)).map_err(txt)?;
         for (pk, nome) in a.node.with_store(|s| s.members(info.id)).map_err(txt)? {
             let k = pk.as_bytes();
             if a.eu(k) {
@@ -393,11 +404,18 @@ pub async fn list_group_people(app: AppHandle, rede: State<'_, Rede>, c: State<'
             }
             let id = hex(k);
             let ja = out.get(&id).and_then(|p| p["status"].as_str()) == Some("online");
-            let mut p = a.pessoa_json(k, &nome, perfis.get(k), ja || pres.contains_key(k));
-            // outro grupo já tinha foto e este não: fica com a que há
-            if p["photo"].is_null() {
-                if let Some(f) = out.get(&id).map(|o| o["photo"].clone()) {
-                    p["photo"] = f;
+            let mut p = a.pessoa_json(k, &nome, perfis.get(k), cartoes.get(k), ja || pres.contains_key(k));
+            // outro grupo já tinha foto (ou cartão) e este não: fica com o que há
+            for campo in ["photo", "username", "banner"] {
+                if p[campo].is_null() {
+                    if let Some(f) = out.get(&id).map(|o| o[campo].clone()) {
+                        p[campo] = f;
+                    }
+                }
+            }
+            if p["bio"] == "" {
+                if let Some(f) = out.get(&id).map(|o| o["bio"].clone()) {
+                    p["bio"] = f;
                 }
             }
             out.insert(id, p);
@@ -420,13 +438,15 @@ pub async fn list_members(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Co
     let info = a.node.with_store(|s| s.group(g)).map_err(txt)?.ok_or("Grupo desconhecido.")?;
     let pres = a.presenca(g);
     let perfis = a.node.with_store(|s| s.profiles(g)).map_err(txt)?;
+    let cartoes = a.node.with_store(|s| s.profile_cards(g)).map_err(txt)?;
     let membros = a.node.with_store(|s| s.members(g)).map_err(txt)?;
     Ok(membros
         .into_iter()
         .map(|(pk, nome)| {
             let k = pk.as_bytes();
-            let mut p = a.pessoa_json(k, &nome, perfis.get(k), pres.contains_key(k));
+            let mut p = a.pessoa_json(k, &nome, perfis.get(k), cartoes.get(k), pres.contains_key(k));
             p["owner"] = json!(pk == info.owner);
+            p["since"] = json!(a.node.with_store(|s| s.member_since(g, k)).ok().flatten());
             p
         })
         .collect())
@@ -908,11 +928,31 @@ pub async fn publish_profile(
     c: State<'_, Contas>,
     color: String,
     photo: Option<String>,
+    bio: Option<String>,
+    banner: Option<String>,
 ) -> Res<bool> {
     let a = ativa(&app, &rede, &c).await?;
     let nome = c.nome().await.unwrap_or_else(|| "Eu".into());
     let photo = photo.filter(|p| p.starts_with("data:image/") && p.len() <= tasca_core::store::MAX_PHOTO_CHARS);
     let novo = tasca_core::store::Profile { color: color.chars().take(32).collect(), photo };
+    let cartao = tasca_core::store::ProfileCard {
+        username: crate::contas::ler_utilizador(&app),
+        bio: bio.unwrap_or_default().trim().chars().take(tasca_core::amigos::MAX_BIO).collect(),
+        banner: banner.filter(|b| {
+            b.len() <= tasca_core::amigos::MAX_BANNER && (b.starts_with("data:image/") || b.starts_with('#'))
+        }),
+    };
+    crate::amigos::definir_meu_perfil(
+        &a.node,
+        tasca_core::amigos::Perfil {
+            nome: nome.clone(),
+            utilizador: cartao.username.clone(),
+            cor: novo.color.clone(),
+            foto: novo.photo.clone(),
+            banner: cartao.banner.clone(),
+            bio: cartao.bio.clone(),
+        },
+    );
     for info in a.node.with_store(|s| s.groups()).map_err(txt)? {
         let g = info.id;
         let (perfil, nome_grupo) = a.node.with_store(|s| {
@@ -920,15 +960,26 @@ pub async fn publish_profile(
             let n = s.members(g).ok().and_then(|m| m.into_iter().find(|(k, _)| *k.as_bytes() == a.conta).map(|(_, n)| n));
             (p, n)
         });
-        if perfil.as_ref() == Some(&novo) && nome_grupo.as_deref() == Some(nome.as_str()) {
+        let cartao_grupo = a.node.with_store(|s| s.profile_cards(g).ok().and_then(|mut m| m.remove(&a.conta)));
+        let perfil_igual = perfil.as_ref() == Some(&novo) && nome_grupo.as_deref() == Some(nome.as_str());
+        let vazio = cartao == tasca_core::store::ProfileCard::default();
+        let cartao_igual = cartao_grupo.as_ref() == Some(&cartao) || (cartao_grupo.is_none() && vazio);
+        if perfil_igual && cartao_igual {
             continue;
         }
         let Ok(h) = a.handle(g) else { continue };
         if !h.is_connected() && !a.servidor {
             continue; // volta a tentar na próxima vez que a interface pedir
         }
-        if let Err(e) = h.set_profile(&nome, &novo.color, novo.photo.clone()).await {
-            eprintln!("perfil no grupo {g}: {e:#}");
+        if !perfil_igual {
+            if let Err(e) = h.set_profile(&nome, &novo.color, novo.photo.clone()).await {
+                eprintln!("perfil no grupo {g}: {e:#}");
+            }
+        }
+        if !cartao_igual {
+            if let Err(e) = h.set_profile_card(cartao.clone()).await {
+                eprintln!("cartão de perfil no grupo {g}: {e:#}");
+            }
         }
     }
     Ok(true)
