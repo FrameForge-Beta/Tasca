@@ -646,6 +646,13 @@
     emit("voice_activity", { speaking: speakers });
   }, 900);
 
+  const NICKED = ["list_people", "list_members", "list_friends"];
+  function nicks(r) {
+    const n = settings.userNicks || {};
+    const one = (p) => { if (p && p.id && n[p.id]) { p.realName = p.realName || p.name; p.name = n[p.id]; } return p; };
+    if (Array.isArray(r)) r.forEach(one); else if (r && typeof r === "object") Object.values(r).forEach(one);
+    return r;
+  }
   window.api = new Proxy({}, {
     get(_, name) {
       if (name === "on") {
@@ -655,14 +662,19 @@
         };
       }
       if (name === "isMock") return !tauri;
+      // apelidos (só teus) por cima do nome que a pessoa escolheu
+      if (NICKED.includes(name)) return (args = {}) => call(name, args).then(nicks);
       // Comandos que o Rust ainda não tem caem para os dados de teste.
-      if (tauri && real[name]) return (args = {}) => real[name](args);
-      return (args = {}) => (tauri
+      return (args = {}) => call(name, args);
+    },
+  });
+  function call(name, args) {
+      if (tauri && real[name]) return real[name](args);
+      return (tauri
         ? tauri.invoke(String(name), args).catch((e) => {
             if (/not found|unknown command/i.test(String(e)) && mock[name]) return mock[name](args);
             throw e;
           })
         : mock[name](args));
-    },
-  });
+  }
 })();
