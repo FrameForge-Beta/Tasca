@@ -1159,3 +1159,11 @@ body.has-titlebar .app.call { padding: 0; }
 .pf-photo .pf-cam svg { width: 22px; height: 22px; }
 .pf-photo:hover .pf-cam, .pf-photo:focus-visible .pf-cam { opacity: 1; }
 .pf-photo-btns { display: flex; gap: 12px; margin-top: 4px; font-size: 13px; }
+
+/* painel de baixo: o realce do nome não encosta aos botões (mais alto, mesma largura) */
+.dock .me { height: auto; min-height: 60px; padding: 6px 4px; gap: 4px; }
+.dock .me-who { padding: 6px 7px 6px 5px; gap: 7px; }
+.dock .me-who .who b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.25; }
+.dock .me-btns { gap: 0; }
+.dock .me-btns .icon-btn { width: 27px; height: 36px; }
+.dock .me-who .who b { font-size: 13.5px; }
