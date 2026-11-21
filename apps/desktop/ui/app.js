@@ -1965,9 +1965,27 @@
   function offerUpdate(latest) {
     if (document.getElementById("upd-go")) return;
     modal(`<h2>Há uma versão nova</h2>
-      <p>Tens a ${esc(appVersion)} e já saiu a ${esc(latest)}. Carrega em Atualizar: o APK descarrega e depois tocas nele para instalar por cima. As contas e as conversas ficam.</p>
+      <p>Tens a ${esc(appVersion)} e já saiu a ${esc(latest)}. Carrega em Atualizar e depois em «Instalar» quando o Android perguntar. As contas e as conversas ficam.</p>
       <div class="actions"><button class="btn" data-close>Agora não</button><button class="btn primary" id="upd-go">Atualizar</button></div>`, (m, close) => {
       m.querySelector("#upd-go").onclick = () => {
+        // a app descarrega e abre o instalador; sem isso (versões antigas), vai pelo browser
+        if (window.TascaAndroid && window.TascaAndroid.atualizar) {
+          const b = m.querySelector("#upd-go");
+          b.disabled = true; b.textContent = "A transferir…";
+          window.tascaAtualizacao = ({ estado, pct, erro }) => {
+            if (estado === "a_transferir") b.textContent = `A transferir… ${pct}%`;
+            else if (estado === "a_instalar") { b.textContent = "A abrir o instalador…"; setTimeout(close, 1500); }
+            else if (estado === "permissao") {
+              b.disabled = false; b.textContent = "Atualizar";
+              toast("Autoriza a Tasca a instalar apps e carrega outra vez em Atualizar.");
+            } else if (estado === "erro") {
+              b.disabled = false; b.textContent = "Tentar outra vez";
+              toast("A transferência falhou: " + (erro || "erro desconhecido"));
+            }
+          };
+          window.TascaAndroid.atualizar();
+          return;
+        }
         window.__TAURI__.core.invoke("abrir_atualizacao").catch((e) => toast(String(e)));
         close();
       };
