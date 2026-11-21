@@ -90,6 +90,16 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         // Antes das janelas: no Windows a interface chama comandos de conta logo ao abrir.
+        // Microfone, câmara, avisos e área de transferência: quem decide é o ecrã de
+        // permissões da própria Tasca (Definições > Privacidade e permissões), por isso o
+        // WebView não volta a perguntar.
+        .on_permission_request(|_, kind| {
+            use tauri::webview::{PermissionKind as K, PermissionResponse as R};
+            match kind {
+                K::Microphone | K::Camera | K::Notifications | K::ClipboardRead => R::Allow,
+                _ => R::Default,
+            }
+        })
         .manage(contas::Contas::default())
         .manage(grupos::Rede::default())
         .manage(amigos::Amigos::default())
