@@ -349,6 +349,13 @@ impl Ativa {
     }
 }
 
+/// Fecha o nó (ao sair da app): avisa os outros PCs de que as ligações acabaram.
+pub(crate) async fn desligar(rede: &Rede) {
+    if let Some(a) = rede.ativa.lock().await.take() {
+        a.parar().await;
+    }
+}
+
 /// O nó da conta desbloqueada (arranca-o na primeira vez, ou se a conta mudou).
 pub(crate) async fn ativa(app: &AppHandle, rede: &Rede, contas: &Contas) -> Res<Arc<Ativa>> {
     let id = contas.identidade().await.ok_or("Desbloqueia a conta primeiro.")?;

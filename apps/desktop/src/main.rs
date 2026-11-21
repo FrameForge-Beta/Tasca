@@ -139,6 +139,9 @@ fn main() {
             voz::set_voice_options,
             voz::set_user_volume,
             voz::voice_frame,
+            voz::set_video_state,
+            voz::video_subscribe,
+            voz::video_send,
             grupos::publish_profile,
             amigos::list_friends,
             amigos::send_friend_request,
@@ -185,6 +188,20 @@ fn main() {
             });
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("erro ao arrancar a Tasca");
+        .build(tauri::generate_context!())
+        .expect("erro ao arrancar a Tasca")
+        .run(|app, ev| {
+            // Ao fechar: sai da chamada e fecha as ligações P2P com cuidado, para os outros
+            // verem logo que saíste (sem isto, só davam por isso quando a ligação expirasse).
+            if let tauri::RunEvent::Exit = ev {
+                let app = app.clone();
+                tauri::async_runtime::block_on(async move {
+                    let _ = tokio::time::timeout(Duration::from_secs(3), async {
+                        voz::sair_tudo(&app.state::<voz::Voz>()).await;
+                        grupos::desligar(&app.state::<grupos::Rede>()).await;
+                    })
+                    .await;
+                });
+            }
+        });
 }

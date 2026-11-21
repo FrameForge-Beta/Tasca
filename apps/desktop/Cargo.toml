@@ -16,6 +16,7 @@ tauri-plugin-autostart = "2"
 tasca-core = { path = "../../crates/tasca-core" }
 tasca-voz = { path = "../../crates/tasca-voz" }
 anyhow = "1"
+bytes = "1"
 zeroize = "1"
 getrandom = "0.4"
 keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }
