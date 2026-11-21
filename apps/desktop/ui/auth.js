@@ -104,7 +104,7 @@
         <p class="auth-lede">Escreve-as num papel e guarda-o num sítio seguro. Servem para recuperar a conta noutro PC ou se te esqueceres da palavra-passe. Quem as tiver, tem a tua conta.</p>
         ${st.serverErr ? `<p class="auth-note">A conta foi criada neste PC, mas não ficou no servidor: ${esc(st.serverErr)}</p>` : ""}
         <ol class="words">${st.phrase.split(" ").map((w) => `<li><span>${esc(w)}</span></li>`).join("")}</ol>
-        <div class="auth-row"><button class="btn ghost" id="w-txt">Guardar .txt no ambiente de trabalho</button><button class="btn ghost" id="w-copy">Copiar</button></div>
+        <div class="auth-row"><button class="btn ghost only-desktop" id="w-txt">Guardar .txt no ambiente de trabalho</button><button class="btn ghost" id="w-copy">Copiar</button></div>
         <p class="auth-note" id="w-txt-ok" hidden></p>
         <label class="check"><input type="checkbox" id="w-ok"><span>Já as guardei num sítio seguro</span></label>
         <button class="btn primary big" id="w-next" disabled>Continuar</button>`);
@@ -131,7 +131,7 @@
         ["camera", "Câmara", "Para videochamadas.", true],
         ["notifications", "Notificações", "Avisos de mensagens e menções.", true],
         ["autostart", "Abrir com o Windows", "Para os grupos que alojas estarem sempre disponíveis.", false],
-      ];
+      ].filter(([k]) => !(window.TASCA_MOBILE && k === "autostart"));
       shell(`
         <h1>Antes de começar</h1>
         <p class="auth-lede">Escolhe o que a Tasca pode usar neste PC. Podes mudar tudo depois em Definições > Privacidade e permissões.</p>
@@ -298,7 +298,7 @@
       if (b.id === "p-read") { e.preventDefault(); const bx = root.querySelector("#p-terms-box"); bx.hidden = !bx.hidden; return; }
       if (b.id === "p-next") {
         const on = (k) => root.querySelector("#p-" + k).checked;
-        const perms = { mic: on("mic"), camera: on("camera"), notifications: on("notifications"), autostart: on("autostart") };
+        const perms = { mic: on("mic"), camera: on("camera"), notifications: on("notifications"), autostart: !window.TASCA_MOBILE && on("autostart") };
         b.disabled = true; b.textContent = "A preparar…";
         // Pede já ao Windows o que foi ligado, para a pergunta aparecer agora e não a meio de uma chamada.
         if (perms.mic && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {

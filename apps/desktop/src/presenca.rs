@@ -31,7 +31,21 @@ mod imp {
     }
 }
 
+/// No Android não há "abrir com o sistema".
+#[cfg(mobile)]
+#[tauri::command]
+pub fn set_autostart(_app: tauri::AppHandle, _enabled: bool) -> Result<bool, String> {
+    Err("Não disponível no telemóvel.".into())
+}
+
+#[cfg(mobile)]
+#[tauri::command]
+pub fn get_autostart(_app: tauri::AppHandle) -> Result<bool, String> {
+    Ok(false)
+}
+
 /// Abrir a Tasca quando o Windows arranca (Definições > Privacidade e permissões).
+#[cfg(desktop)]
 #[tauri::command]
 pub fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<bool, String> {
     use tauri_plugin_autostart::ManagerExt;
@@ -42,6 +56,7 @@ pub fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<bool, Strin
 }
 
 /// Se a Tasca está marcada para abrir com o sistema.
+#[cfg(desktop)]
 #[tauri::command]
 pub fn get_autostart(app: tauri::AppHandle) -> Result<bool, String> {
     use tauri_plugin_autostart::ManagerExt;

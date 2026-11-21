@@ -712,7 +712,7 @@
     ["camera", "Câmara", "Para videochamadas. Desligada, o botão da câmara fica bloqueado."],
     ["notifications", "Notificações", "Avisos de mensagens e menções quando a Tasca está em segundo plano."],
     ["autostart", "Abrir com o Windows", "A Tasca abre minimizada quando ligas o PC, para os grupos que alojas estarem sempre disponíveis."],
-  ];
+  ].filter(([k]) => !(window.TASCA_MOBILE && k === "autostart"));
   function setPrivacidade() {
     const ok = S.settings.termsAccepted === termsVersion();
     return `<p class="lede">O que a Tasca pode usar neste PC. Desligar aqui desliga mesmo: a funcionalidade deixa de funcionar até a voltares a ligar.</p>
@@ -1221,7 +1221,7 @@
     const hosted = S.groups.filter((g) => g.owner === "me");
     return `<p class="lede">Grupos que estão alojados neste PC. Enquanto a Tasca estiver aberta, os membros conseguem falar contigo e entre si.</p>
       <div class="section"><div class="box">${hosted.map((g) => `<div class="row"><span class="rail-btn on" style="width:40px;height:40px;border-radius:12px;font-size:13px">${esc(g.short)}</span><div class="txt"><b>${esc(g.name)}</b><small>${(S.allMembers[g.id] || []).length} membros · 48,2 MB no disco</small></div><button class="btn" data-act="transfer" data-group-id="${g.id}">Transferir propriedade…</button></div>`).join("") || `<div class="row"><div class="txt"><small>Ainda não alojas nenhum grupo.</small></div></div>`}</div></div>
-      <div class="section"><h2>Arranque</h2><div class="box"><div class="row"><div class="txt"><b>Abrir a Tasca quando o Windows arranca</b><small>Minimizada na área de notificação, para os teus grupos estarem sempre disponíveis.</small></div>${sw("perms.autostart", perm("autostart"), "Abrir no arranque")}</div></div></div>`;
+      <div class="section only-desktop"><h2>Arranque</h2><div class="box"><div class="row"><div class="txt"><b>Abrir a Tasca quando o Windows arranca</b><small>Minimizada na área de notificação, para os teus grupos estarem sempre disponíveis.</small></div>${sw("perms.autostart", perm("autostart"), "Abrir no arranque")}</div></div></div>`;
   }
   function setSobre() {
     return `<div class="section"><div class="box"><div class="row"><span style="width:56px;height:56px;display:block">${LOGO}</span><div class="txt"><b style="font-size:18px">Tasca</b><small>Versão 0.1.0 (pré-visualização) · ${window.api.isMock ? "dados de teste no browser" : "app desktop, núcleo P2P ainda por ligar"}</small></div></div>
@@ -1917,6 +1917,46 @@
     document.body.appendChild(box);
   }
   window.addEventListener("error", (e) => { if (!S.groups) startFailed(e.error || e.message); });
+
+  // ---------------- telemóvel: botão de voltar e gestos ----------------
+  if (window.TASCA_MOBILE) {
+    const estreito = () => window.innerWidth <= 720;
+    // Voltar: fecha o que estiver aberto, um passo de cada vez; no fim, duas vezes para sair.
+    let ultimoVoltar = 0;
+    const voltar = () => {
+      if (document.querySelector(".ctx-menu")) return window.tascaMenu.close();
+      const sc = document.querySelector(".scrim:not(.locked)");
+      if (sc) return sc.remove();
+      if (document.querySelector(".scrim.locked")) return;
+      if (S.statusOpen) { S.statusOpen = false; return render(); }
+      if (S.membersOpen) { S.membersOpen = false; return render(); }
+      if (S.view === "settings") { S.view = S.prevView || "chat"; return render(); }
+      if (S.view === "voice") { S.view = "chat"; return render(); }
+      if (estreito() && !S.navOpen) { S.navOpen = true; return render(); }
+      const agora = Date.now();
+      if (agora - ultimoVoltar < 2000) { window.__TAURI__.core.invoke("sair_app").catch(() => {}); return; }
+      ultimoVoltar = agora; toast("Carrega outra vez em voltar para sair.");
+    };
+    try { window.__TAURI__.app.onBackButtonPress(voltar); } catch (x) { console.warn("botão de voltar", x); }
+
+    // Deslizar o dedo: da esquerda para a direita abre os grupos e canais, ao contrário fecha.
+    let t0 = null;
+    document.addEventListener("touchstart", (e) => {
+      const t = e.touches[0];
+      const alvo = e.target;
+      const ignora = e.touches.length > 1 || (alvo.closest && alvo.closest("input[type=range], .call-strip, .seg, .scrim, .ctx-menu, textarea"));
+      t0 = ignora ? null : { x: t.clientX, y: t.clientY, at: Date.now() };
+    }, { passive: true });
+    document.addEventListener("touchend", (e) => {
+      if (!t0 || !estreito() || S.view === "voice") { t0 = null; return; }
+      const t = e.changedTouches[0];
+      const dx = t.clientX - t0.x, dy = t.clientY - t0.y, ms = Date.now() - t0.at;
+      t0 = null;
+      if (ms > 600 || Math.abs(dx) < 70 || Math.abs(dy) > Math.abs(dx) * 0.6) return;
+      if (dx > 0 && !S.navOpen) { S.navOpen = true; render(); }
+      else if (dx < 0 && S.navOpen) { S.navOpen = false; render(); }
+    }, { passive: true });
+  }
 
   (async function start() {
     try { S.settings = await api.get_settings(); applyThemeOnly(); } catch {}

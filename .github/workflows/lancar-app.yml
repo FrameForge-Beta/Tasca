@@ -1,10 +1,17 @@
-# Cria o instalador da Tasca para Windows e publica-o como versão no GitHub.
+# Cria o instalador da Tasca para Windows e o APK para Android e publica-os como versão no GitHub.
 # Corre a cada push para o main: a versão passa a 0.1.<número da execução>.
-# A app instalada vê o latest.json da versão mais recente e atualiza-se sozinha ao abrir.
+# A app de Windows vê o latest.json da versão mais recente e atualiza-se sozinha ao abrir.
+# O APK fica sempre em .../releases/latest/download/Tasca.apk (link fixo para o site).
+# Em pull requests só compila o APK (sem publicar), para ver se a versão Android não partiu.
 #
 # Segredos necessários (Settings > Secrets and variables > Actions):
 #   TAURI_SIGNING_PRIVATE_KEY           chave privada que assina as atualizações
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  palavra-passe dessa chave
+# Android (sem eles o APK é assinado com uma chave temporária, que obriga a desinstalar
+# antes de instalar a versão seguinte):
+#   ANDROID_KEYSTORE_BASE64    o ficheiro .jks da chave, em base64
+#   ANDROID_KEYSTORE_PASSWORD  palavra-passe do .jks e da chave
+#   ANDROID_KEY_ALIAS          nome da chave dentro do .jks (tasca)
 # Opcionais (login com Google; sem eles o botão diz que ainda não está configurado):
 #   TASCA_GOOGLE_CLIENT_ID, TASCA_GOOGLE_CLIENT_SECRET  (ver docs/login-google.md)
 # Variável (Settings > Secrets and variables > Actions > Variables):
@@ -20,17 +27,25 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/lancar-app.yml"
+  pull_request:
+    paths:
+      - "apps/desktop/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/lancar-app.yml"
   workflow_dispatch:
 
 concurrency:
-  group: lancar-app
-  cancel-in-progress: false
+  group: lancar-app-${{ github.event_name == 'pull_request' && github.head_ref || 'main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: write
 
 jobs:
   windows:
+    if: github.event_name != 'pull_request'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -74,3 +89,106 @@ jobs:
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Definir versão
+        run: |
+          v="0.1.${{ github.run_number }}"
+          f=apps/desktop/tauri.conf.json
+          jq --arg v "$v" '.version = $v' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+          echo "VERSAO=$v" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Chave de assinatura
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          d=apps/desktop/gen/android
+          if [ -n "$KS_B64" ] && [ -n "$KS_PASS" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/tasca.jks"
+            alias="${KS_ALIAS:-tasca}"
+          else
+            echo "::warning::Sem ANDROID_KEYSTORE_BASE64: o APK vai assinado com uma chave temporária."
+            KS_PASS="temporaria-$(openssl rand -hex 8)"
+            alias=tasca
+            keytool -genkeypair -v -keystore "$RUNNER_TEMP/tasca.jks" -alias "$alias" -keyalg RSA -keysize 2048 \
+              -validity 10000 -storepass "$KS_PASS" -keypass "$KS_PASS" -dname "CN=Tasca, C=PT"
+            echo "CHAVE_TEMPORARIA=1" >> "$GITHUB_ENV"
+          fi
+          {
+            echo "keyAlias=$alias"
+            echo "password=$KS_PASS"
+            echo "storeFile=$RUNNER_TEMP/tasca.jks"
+          } > "$d/keystore.properties"
+
+      - name: Criar APK
+        working-directory: apps/desktop
+        env:
+          TASCA_GOOGLE_CLIENT_ID: ${{ secrets.TASCA_GOOGLE_CLIENT_ID }}
+          TASCA_GOOGLE_CLIENT_SECRET: ${{ secrets.TASCA_GOOGLE_CLIENT_SECRET }}
+          TASCA_SERVIDOR_URL: ${{ vars.TASCA_SERVIDOR_URL || 'https://tasca-pcnflabs.duckdns.org' }}
+        run: |
+          export NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          npm ci --no-audit --no-fund
+          npm run tauri -- android build --apk --target aarch64 --ci
+          apk=$(find gen/android/app/build/outputs/apk -name '*-release.apk' | head -1)
+          echo "APK: $apk"
+          mkdir -p "$RUNNER_TEMP/apk"
+          cp "$apk" "$RUNNER_TEMP/apk/Tasca.apk"
+          cp "$apk" "$RUNNER_TEMP/apk/Tasca_${VERSAO}_android.apk"
+          echo "${CHAVE_TEMPORARIA:-0}" > "$RUNNER_TEMP/apk/chave-temporaria.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tasca-android
+          path: ${{ runner.temp }}/apk/
+          retention-days: 14
+
+  # Junta o APK à versão que o job de Windows acabou de criar.
+  publicar-android:
+    if: github.event_name != 'pull_request'
+    needs: [windows, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: tasca-android
+          path: apk
+
+      - name: Juntar o APK à versão
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          v="v0.1.${{ github.run_number }}"
+          gh release upload "$v" apk/Tasca.apk apk/Tasca_0.1.${{ github.run_number }}_android.apk --clobber -R "${{ github.repository }}"
+          nota="Windows: instala com o ficheiro Tasca_..._x64-setup.exe. Quem já tem a Tasca recebe esta versão automaticamente ao abrir a app.
+
+          Android: instala o Tasca.apk (no telemóvel, permite instalar apps desta fonte quando o Android perguntar). Para atualizar, instala o APK novo por cima."
+          if [ "$(cat apk/chave-temporaria.txt)" = "1" ]; then
+            nota="$nota
+
+          Atenção: este APK foi assinado com uma chave temporária. Para instalar a versão seguinte é preciso desinstalar esta primeiro."
+          fi
+          gh release edit "$v" --notes "$nota" -R "${{ github.repository }}"

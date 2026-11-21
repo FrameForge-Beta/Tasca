@@ -3,6 +3,13 @@
 // de minimizar, maximizar e fechar. No browser (pré-visualização) só mostra o título.
 (function () {
   "use strict";
+  // Telemóvel (app Android): sem barra de janela; a interface usa o modo de ecrã estreito.
+  const MOBILE = /Android/i.test(navigator.userAgent);
+  window.TASCA_MOBILE = MOBILE;
+  if (MOBILE) {
+    document.documentElement.classList.add("mobile");
+    return;
+  }
   const win = window.__TAURI__ && window.__TAURI__.window && window.__TAURI__.window.getCurrentWindow
     ? window.__TAURI__.window.getCurrentWindow() : null;
   const LOGO = '<svg viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="116" fill="#9B2C3F"/><path fill="#F6EEE1" d="M168,96 H344 A72,72 0 0 1 416,168 V300 A72,72 0 0 1 344,372 H226 L138,430 L152,364 A72,72 0 0 1 96,300 V168 A72,72 0 0 1 168,96Z"/><g transform="translate(256,234)" fill="#2A5CAA"><path d="M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z"/><path transform="rotate(90)" d="M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z"/><path transform="rotate(180)" d="M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z"/><path transform="rotate(270)" d="M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z"/><circle r="16" fill="#E3A72F"/></g></svg>';
