@@ -43,6 +43,7 @@
       host: { online: false, lastSeen: "ontem às 23:40" }, unread: 0 },
   ];
 
+  const cats = {}; // ordem das categorias por grupo (as vazias também ficam)
   const channels = {
     "g-malta": [
       { id: "c-geral", kind: "text", cat: "Conversa", name: "geral", topic: "Tudo e mais alguma coisa. Sejam simpáticos." },
@@ -204,7 +205,7 @@
     for (const k of Object.keys(people)) if (k !== "me") delete people[k];
     Object.assign(people.me, { name: "Eu", key: "" });
     groups.length = 0; dms.length = 0;
-    for (const o of [channels, members, messages]) for (const k of Object.keys(o)) delete o[k];
+    for (const o of [channels, cats, members, messages]) for (const k of Object.keys(o)) delete o[k];
   }
 
   // Na app instalada, os grupos e canais que crias ficam guardados neste PC (por conta),
@@ -212,7 +213,7 @@
   let localKey = null;
   function persist() {
     if (!tauri || !localKey) return;
-    try { localStorage.setItem("tasca:local:" + localKey, JSON.stringify({ groups, channels, members, messages, profile: { color: people.me.color, photo: people.me.photo || null } })); } catch {}
+    try { localStorage.setItem("tasca:local:" + localKey, JSON.stringify({ groups, channels, cats, members, messages, profile: { color: people.me.color, photo: people.me.photo || null } })); } catch {}
   }
   function loadLocal(key) {
     if (!tauri || !key || localKey === key) return;
@@ -220,7 +221,7 @@
     let d = null; try { d = JSON.parse(localStorage.getItem("tasca:local:" + key)); } catch {}
     if (!d) return;
     groups.length = 0; groups.push(...(d.groups || []));
-    for (const [o, src] of [[channels, d.channels], [members, d.members], [messages, d.messages]]) Object.assign(o, src || {});
+    for (const [o, src] of [[channels, d.channels], [cats, d.cats], [members, d.members], [messages, d.messages]]) Object.assign(o, src || {});
     for (const list of Object.values(channels)) for (const c of list) if (c.inVoice) c.inVoice = [];
     for (const list of Object.values(messages)) for (const m of list) if (m.pending) m.pending = false;
     if (d.profile && d.profile.color) people.me.color = d.profile.color;
@@ -410,6 +411,49 @@
       if (!c) return true;
       if (c.kind === "text" && list.filter((x) => x.kind === "text").length <= 1) throw new Error("O grupo precisa de pelo menos um canal de texto.");
       list.splice(list.indexOf(c), 1); delete messages[channelId];
+      persist(); return true;
+    },
+    async list_categories({ groupId }) {
+      const out = [...(cats[groupId] || [])];
+      for (const c of channels[groupId] || []) if (!out.includes(c.cat)) out.push(c.cat);
+      return cats[groupId] = out, clone(out);
+    },
+    async create_category({ groupId, name }) {
+      const n = String(name || "").trim().slice(0, 24);
+      if (!n) throw new Error("Dá um nome à categoria.");
+      const list = await mock.list_categories({ groupId });
+      if (list.some((x) => x.toLowerCase() === n.toLowerCase())) throw new Error("Já há uma categoria com esse nome.");
+      cats[groupId].push(n); persist(); return n;
+    },
+    async rename_category({ groupId, from, to }) {
+      const n = String(to || "").trim().slice(0, 24);
+      if (!n) throw new Error("Dá um nome à categoria.");
+      await mock.list_categories({ groupId });
+      if (n !== from && cats[groupId].some((x) => x.toLowerCase() === n.toLowerCase())) throw new Error("Já há uma categoria com esse nome.");
+      cats[groupId] = cats[groupId].map((x) => (x === from ? n : x));
+      for (const c of channels[groupId] || []) if (c.cat === from) c.cat = n;
+      persist(); return n;
+    },
+    // Apaga a categoria; os canais dela passam para a categoria de cima (ou a de baixo).
+    async delete_category({ groupId, name }) {
+      const list = await mock.list_categories({ groupId });
+      if (list.length <= 1) throw new Error("O grupo precisa de pelo menos uma categoria.");
+      const i = list.indexOf(name); const to = list[i - 1] || list[i + 1];
+      for (const c of channels[groupId] || []) if (c.cat === name) c.cat = to;
+      cats[groupId] = list.filter((x) => x !== name); persist(); return to;
+    },
+    async reorder_categories({ groupId, order }) {
+      const list = await mock.list_categories({ groupId });
+      cats[groupId] = [...order.filter((x) => list.includes(x)), ...list.filter((x) => !order.includes(x))];
+      persist(); return true;
+    },
+    // Nova ordem dos canais, cada um com a sua categoria (texto e voz podem misturar-se).
+    async reorder_channels({ groupId, order }) {
+      const list = channels[groupId] || [];
+      const byId = Object.fromEntries(list.map((c) => [c.id, c]));
+      const next = order.map((o) => byId[o.id] && Object.assign(byId[o.id], { cat: o.cat || byId[o.id].cat })).filter(Boolean);
+      for (const c of list) if (!next.includes(c)) next.push(c);
+      list.length = 0; list.push(...next);
       persist(); return true;
     },
     async move_channel({ groupId, channelId, dir }) {

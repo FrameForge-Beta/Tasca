@@ -205,19 +205,21 @@
     if (S.home) return renderDmSidebar();
     const g = group();
     if (!g) return "";
-    const cats = [];
+    const cats = [...(S.cats[g.id] || [])];
     for (const c of S.channels) { if (!cats.includes(c.cat)) cats.push(c.cat); }
-    const editBtn = (c) => g.owner === "me" ? `<button class="chan-edit" data-edit-chan="${c.id}" aria-label="Editar ${esc(c.name)}" title="Editar canal">${I.gear}</button>` : "";
+    const own = g.owner === "me";
+    const editBtn = (c) => own ? `<button class="chan-edit" data-edit-chan="${c.id}" aria-label="Editar ${esc(c.name)}" title="Editar canal">${I.gear}</button>` : "";
+    const drag = (attr) => (own ? `draggable="true" ${attr}` : "");
     const body = cats.map((cat) => `
-      <div class="cat"><span>${esc(cat)}</span>${g.owner === "me" ? `<button class="icon-btn" style="width:22px;height:22px" data-act="new-channel" data-cat="${esc(cat)}" aria-label="Criar canal em ${esc(cat)}" title="Criar canal">${I.plus}</button>` : ""}</div>
+      <div class="cat" ${drag(`data-drag-cat="${esc(cat)}"`)}><span>${esc(cat)}</span>${own ? `<button class="icon-btn cat-edit" style="width:22px;height:22px" data-edit-cat="${esc(cat)}" aria-label="Editar categoria ${esc(cat)}" title="Editar categoria">${I.gear}</button><button class="icon-btn" style="width:22px;height:22px" data-act="new-channel" data-cat="${esc(cat)}" aria-label="Criar canal em ${esc(cat)}" title="Criar canal">${I.plus}</button>` : ""}</div>
       ${S.channels.filter((c) => c.cat === cat).map((c) => {
         if (c.kind === "text") {
           const on = c.id === S.channelId && S.view === "chat";
-          return `<div class="chan-wrap"><button class="chan ${on ? "on" : ""} ${c.unread && !on ? "unread" : ""}" data-chan="${c.id}">${I.hash}<span class="label">${esc(c.name)}</span>${c.unread && !on ? `<span class="pill">${c.unread}</span>` : ""}</button>${editBtn(c)}</div>`;
+          return `<div class="chan-wrap ${isMuted(c.id) ? "muted" : ""}" ${drag(`data-drag-chan="${c.id}"`)}><button class="chan ${on ? "on" : ""} ${c.unread && !on && !isMuted(c.id) ? "unread" : ""}" data-chan="${c.id}">${I.hash}<span class="label">${esc(c.name)}</span>${c.unread && !on && !isMuted(c.id) ? `<span class="pill">${c.unread}</span>` : ""}</button>${editBtn(c)}</div>`;
         }
         const on = S.voice && S.voice.channelId === c.id;
         const ppl = (c.inVoice || []).map((id) => S.people[id]);
-        return `<div class="chan-wrap"><button class="chan ${on && S.view === "voice" ? "on" : ""}" data-voice="${c.id}">${I.speaker}<span class="label">${esc(c.name)}</span>${ppl.length ? `<span class="pill" style="background:var(--caixa);color:var(--texto-2)">${ppl.length}</span>` : ""}</button>${editBtn(c)}</div>
+        return `<div class="chan-wrap ${isMuted(c.id) ? "muted" : ""}" ${drag(`data-drag-chan="${c.id}"`)}><button class="chan ${on && S.view === "voice" ? "on" : ""}" data-voice="${c.id}">${I.speaker}<span class="label">${esc(c.name)}</span>${ppl.length ? `<span class="pill" style="background:var(--caixa);color:var(--texto-2)">${ppl.length}</span>` : ""}</button>${editBtn(c)}</div>
           ${ppl.length ? `<ul class="voice-people">${ppl.map((p) => `<li data-spk="${p.id}" class="${S.speaking.includes(p.id) && !(p.id === "me" && S.muted) ? "speaking" : ""}">${avatar(p, "")}${esc(p.name)}${p.id === "me" && S.muted ? `<span class="muted-ic">${I.micOff}</span>` : ""}</li>`).join("")}</ul>` : ""}`;
       }).join("")}`).join("");
     return `
@@ -830,23 +832,21 @@
   function openChannelEditor(opts) {
     const g = group(); if (!g || g.owner !== "me") return;
     const c = opts.id ? S.channels.find((x) => x.id === opts.id) : null;
-    const cats = [...new Set(S.channels.map((x) => x.cat))];
-    let kind = c ? c.kind : opts.kind || (opts.cat && /voz/i.test(opts.cat) ? "voice" : "text");
-    const catDef = c ? c.cat : opts.cat || (kind === "voice" ? "Voz" : "Conversa");
-    if (window.tascaSugg) tascaSugg.source("categoria", () => cats);
-    modal(`<h2>${c ? "Editar canal" : "Criar canal"}</h2>
+    let kind = c ? c.kind : opts.kind || "text";
+    // o canal novo fica na categoria do + em que carregaste
+    const catDef = c ? c.cat : opts.cat || (S.cats[g.id] || [])[0] || "Canais";
+    modal(`<h2>${c ? "Editar canal" : "Criar canal"}</h2>${c ? "" : `<p>Vai ficar na categoria <b>${esc(catDef)}</b>.</p>`}
       ${c ? "" : `<div class="field"><label>Tipo</label><div class="kind-pick" role="radiogroup" aria-label="Tipo de canal">
         <button type="button" role="radio" data-kind="text" class="${kind === "text" ? "on" : ""}" aria-checked="${kind === "text"}">${I.hash}<span><b>Texto</b><small>Mensagens, imagens e ficheiros.</small></span></button>
         <button type="button" role="radio" data-kind="voice" class="${kind === "voice" ? "on" : ""}" aria-checked="${kind === "voice"}">${I.speaker}<span><b>Voz</b><small>Falar, câmara e partilhar ecrã.</small></span></button></div></div>`}
       <div class="field"><label for="ch-name">Nome</label><div class="user-in"><span id="ch-ic">${kind === "voice" ? I.speaker : I.hash}</span><input class="input" id="ch-name" maxlength="40" value="${c ? esc(c.name) : ""}" placeholder="${kind === "voice" ? "Sala de estar" : "novo-canal"}"></div></div>
       <div class="field" id="ch-topic-f" ${kind === "voice" ? "hidden" : ""}><label for="ch-topic">Tema</label><input class="input" id="ch-topic" maxlength="120" value="${c ? esc(c.topic || "") : ""}" placeholder="Sobre o que se fala aqui"></div>
-      <div class="field"><label for="ch-cat">Categoria</label><input class="input" id="ch-cat" data-sugg="categoria" maxlength="24" value="${esc(catDef)}"><small style="color:var(--texto-3)">Escreve um nome novo para criar outra categoria.</small></div>
-      ${c ? `<div class="field"><label>Ordem</label><div style="display:flex;gap:8px"><button type="button" class="btn ghost" data-move="-1">Subir</button><button type="button" class="btn ghost" data-move="1">Descer</button></div></div>` : ""}
+      ${c ? `<small style="color:var(--texto-3)">Para mudar a ordem ou a categoria, arrasta o canal na lista.</small>` : ""}
       <p id="ch-err" style="color:var(--perigo)" hidden></p>
       <div class="actions">${c ? `<button class="btn danger" id="ch-del" style="margin-right:auto">Apagar canal</button>` : ""}<button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="ch-save">${c ? "Guardar" : "Criar canal"}</button></div>`,
     (el, close) => {
       const err = (m) => { const p = $("#ch-err", el); p.textContent = m; p.hidden = !m; };
-      const refresh = async () => { S.channels = await api.list_channels({ groupId: g.id }); S.allChannels[g.id] = S.channels; };
+      const refresh = () => refreshChannels(g.id);
       el.addEventListener("click", async (e) => {
         const k = e.target.closest("[data-kind]");
         if (k) {
@@ -855,18 +855,15 @@
           $("#ch-ic", el).innerHTML = kind === "voice" ? I.speaker : I.hash;
           $("#ch-topic-f", el).hidden = kind === "voice";
           $("#ch-name", el).placeholder = kind === "voice" ? "Sala de estar" : "novo-canal";
-          const cat = $("#ch-cat", el); if (cat.value === "Voz" || cat.value === "Conversa") cat.value = kind === "voice" ? "Voz" : "Conversa";
           return;
         }
-        const mv = e.target.closest("[data-move]");
-        if (mv) { await api.move_channel({ groupId: g.id, channelId: c.id, dir: +mv.dataset.move }); await refresh(); render(); return; }
       });
       $("#ch-save", el).onclick = async () => {
         err("");
-        const name = $("#ch-name", el).value, topic = $("#ch-topic", el).value, cat = $("#ch-cat", el).value.trim() || (kind === "voice" ? "Voz" : "Conversa");
+        const name = $("#ch-name", el).value, topic = $("#ch-topic", el).value, cat = catDef;
         try {
           if (c) {
-            await api.update_channel({ groupId: g.id, channelId: c.id, name, topic, cat });
+            await api.update_channel({ groupId: g.id, channelId: c.id, name, topic });
             await refresh(); close(); render(); toast("Canal guardado.");
           } else {
             const n = await api.create_channel({ groupId: g.id, name, kind, topic, cat });
@@ -889,6 +886,106 @@
       };
     });
   }
+
+  async function refreshChannels(gid) {
+    const ch = await api.list_channels({ groupId: gid });
+    S.allChannels[gid] = ch; S.cats[gid] = await api.list_categories({ groupId: gid });
+    if (S.groupId === gid) S.channels = ch;
+  }
+
+  // Categorias: criar, mudar o nome, apagar (os canais passam para a de cima).
+  function openCategoryEditor(name) {
+    const g = group(); if (!g || g.owner !== "me") return;
+    document.querySelectorAll(".scrim:not(.locked)").forEach((x) => x.remove());
+    modal(`<h2>${name ? "Editar categoria" : "Criar categoria"}</h2>
+      <div class="field"><label for="cat-name">Nome</label><input class="input" id="cat-name" maxlength="24" value="${name ? esc(name) : ""}" placeholder="Ex.: Jogos"></div>
+      ${name ? `<small style="color:var(--texto-3)">Para a mudar de lugar, arrasta o título da categoria na lista.</small>` : ""}
+      <p id="cat-err" style="color:var(--perigo)" hidden></p>
+      <div class="actions">${name ? `<button class="btn danger" id="cat-del" style="margin-right:auto">Apagar categoria</button>` : ""}<button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="cat-save">${name ? "Guardar" : "Criar categoria"}</button></div>`,
+    (el, close) => {
+      const err = (m) => { const p = $("#cat-err", el); p.textContent = m; p.hidden = !m; };
+      const inp = $("#cat-name", el);
+      inp.addEventListener("keydown", (e) => { if (e.key === "Enter") $("#cat-save", el).click(); });
+      $("#cat-save", el).onclick = async () => {
+        try {
+          if (name) await api.rename_category({ groupId: g.id, from: name, to: inp.value });
+          else await api.create_category({ groupId: g.id, name: inp.value });
+          await refreshChannels(g.id); close(); render(); toast(name ? "Categoria guardada." : "Categoria criada. Carrega no + dela para lhe juntar canais.");
+        } catch (x) { err(String(x.message || x)); }
+      };
+      const del = $("#cat-del", el);
+      if (del) del.onclick = async () => {
+        if (del.dataset.sure !== "1") { const n = S.channels.filter((c) => c.cat === name).length; del.dataset.sure = "1"; del.textContent = "Carrega outra vez para apagar"; if (n) err(`Os canais dela (${n}) passam para a categoria de cima.`); return; }
+        try { await api.delete_category({ groupId: g.id, name }); await refreshChannels(g.id); close(); render(); toast("Categoria apagada."); }
+        catch (x) { err(String(x.message || x)); del.dataset.sure = ""; del.textContent = "Apagar categoria"; }
+      };
+    });
+  }
+
+  // ---------------- arrastar canais e categorias (anfitrião) ----------------
+  let dragging = null; // { kind: "chan" | "cat", id }
+  function clearDrop() { document.querySelectorAll(".drop-before, .drop-after, .drop-into, .dragging").forEach((x) => x.classList.remove("drop-before", "drop-after", "drop-into", "dragging")); }
+  function catHeaderOf(wrap) {
+    const c = S.channels.find((x) => x.id === wrap.dataset.dragChan);
+    return c ? [...document.querySelectorAll("[data-drag-cat]")].find((x) => x.dataset.dragCat === c.cat) : null;
+  }
+  function dropTarget(e) {
+    if (!dragging || !e.target.closest) return null;
+    const wrap = e.target.closest("[data-drag-chan]"), cat = e.target.closest("[data-drag-cat]");
+    if (dragging.kind === "chan") {
+      if (wrap) { const r = wrap.getBoundingClientRect(); return { el: wrap, pos: e.clientY < r.top + r.height / 2 ? "before" : "after" }; }
+      if (cat) return { el: cat, pos: "into" };
+    } else {
+      const el = cat || (wrap && catHeaderOf(wrap));
+      if (el) { const r = el.getBoundingClientRect(); return { el, pos: cat && e.clientY >= r.top + r.height / 2 ? "after" : "before" }; }
+    }
+    return null;
+  }
+  document.addEventListener("dragstart", (e) => {
+    const w = e.target.closest && e.target.closest("[data-drag-chan], [data-drag-cat]");
+    if (!w || !w.closest(".channels")) return;
+    dragging = w.dataset.dragChan ? { kind: "chan", id: w.dataset.dragChan } : { kind: "cat", id: w.dataset.dragCat };
+    e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", dragging.id);
+    requestAnimationFrame(() => w.classList.add("dragging"));
+  });
+  document.addEventListener("dragover", (e) => {
+    if (!dragging) return;
+    const t = dropTarget(e);
+    document.querySelectorAll(".drop-before, .drop-after, .drop-into").forEach((x) => x.classList.remove("drop-before", "drop-after", "drop-into"));
+    if (!t) return;
+    e.preventDefault(); e.dataTransfer.dropEffect = "move";
+    t.el.classList.add("drop-" + t.pos);
+  });
+  document.addEventListener("dragend", () => { dragging = null; clearDrop(); });
+  document.addEventListener("drop", async (e) => {
+    if (!dragging) return;
+    const t = dropTarget(e), d = dragging; dragging = null; clearDrop();
+    if (!t) return;
+    e.preventDefault();
+    const g = group(); if (!g) return;
+    if (d.kind === "chan") {
+      const list = S.channels.map((c) => ({ id: c.id, cat: c.cat }));
+      const me = list.find((x) => x.id === d.id); if (!me) return;
+      list.splice(list.indexOf(me), 1);
+      if (t.pos === "into") {
+        me.cat = t.el.dataset.dragCat;
+        const first = list.findIndex((x) => x.cat === me.cat);
+        list.splice(first < 0 ? list.length : first, 0, me);
+      } else {
+        const other = list.find((x) => x.id === t.el.dataset.dragChan); if (!other) return;
+        me.cat = other.cat;
+        list.splice(list.indexOf(other) + (t.pos === "after" ? 1 : 0), 0, me);
+      }
+      await api.reorder_channels({ groupId: g.id, order: list });
+    } else {
+      if (t.el.dataset.dragCat === d.id) return;
+      const order = (S.cats[g.id] || []).filter((x) => x !== d.id);
+      const at = order.indexOf(t.el.dataset.dragCat); if (at < 0) return;
+      order.splice(at + (t.pos === "after" ? 1 : 0), 0, d.id);
+      await api.reorder_categories({ groupId: g.id, order });
+    }
+    await refreshChannels(g.id); render();
+  });
 
   function setAparencia() {
     const s = S.settings;
@@ -1091,7 +1188,7 @@
     modal(`<h2>${esc(g.name)}</h2>
       <div class="box">
         <div class="row"><div class="txt"><b>Anfitrião</b><small>${mine ? "Este PC" : esc(S.people[g.owner].name)}</small></div></div>
-        ${mine ? `<div class="row"><div class="txt"><b>Canais</b><small>Cria canais de texto ou de voz. Para editar um, passa o rato por cima e carrega na roda.</small></div><button class="btn" data-act="new-channel">Criar canal</button></div>` : ""}
+        ${mine ? `<div class="row"><div class="txt"><b>Canais</b><small>Texto e voz podem estar na mesma categoria. Arrasta canais e categorias na lista para os ordenar.</small></div><span style="display:flex;gap:6px"><button class="btn ghost" data-act="new-category">Criar categoria</button><button class="btn" data-act="new-channel">Criar canal</button></span></div>` : ""}
         <div class="row"><div class="txt"><b>Notificações</b><small>Só menções</small></div><button class="btn">Mudar</button></div>
         ${mine ? `<div class="row"><div class="txt"><b>Transferir propriedade</b><small>Passa o grupo para o PC de outro membro. Ele tem de aceitar.</small></div><button class="btn" data-act="transfer" data-group-id="${g.id}">Transferir…</button></div>` : ""}
         <div class="row"><div class="txt"><b>${mine ? "Apagar grupo" : "Sair do grupo"}</b><small>${mine ? "Apaga o grupo deste PC. Os membros ficam com a cópia deles." : "Apaga a tua cópia local."}</small></div><button class="btn danger">${mine ? "Apagar" : "Sair"}</button></div>
@@ -1139,6 +1236,7 @@
     const g = group(); g.unread = 0;
     S.channels = await api.list_channels({ groupId: id });
     S.allChannels[id] = S.channels;
+    S.cats[id] = await api.list_categories({ groupId: id });
     S.members = await api.list_members({ groupId: id });
     S.allMembers[id] = S.members;
     const firstText = S.channels.find((c) => c.kind === "text");
@@ -1237,6 +1335,7 @@
       r.mine = !r.mine; r.n += r.mine ? 1 : -1; return render();
     }
     if (d.editChan) return openChannelEditor({ id: d.editChan });
+    if (d.editCat) return openCategoryEditor(d.editCat);
     if (d.setTab) { S.settingsTab = d.setTab; return render(); }
     if (d.themeSet) { await patch({ theme: d.themeSet }); applyTheme(); return render(); }
     if (d.status) { S.myStatus = d.status; S.autoAway = false; S.statusOpen = false; api.set_presence({ status: d.status }).catch(() => {}); render(); return toast("Estado: " + STATUS.find((x) => x[0] === d.status)[1] + "."); }
@@ -1312,6 +1411,7 @@
       case "lock": await api.lock(); location.reload(); return;
       case "google-backup": t.disabled = true; t.textContent = "A ligar…"; await api.google_backup(); t.textContent = "Ligado"; return toast("Cópia cifrada guardada no Google Drive.");
       case "test-relay": return toast("Relay respondeu em 12 ms.");
+      case "new-category": return openCategoryEditor(null);
       case "new-channel": document.querySelectorAll(".scrim:not(.locked)").forEach((x) => x.remove()); return openChannelEditor({ cat: d.cat });
       case "edit-profile": return openProfile();
       case "read-terms": return openTerms();
@@ -1319,11 +1419,97 @@
     }
   });
 
-  // botão direito num canal (anfitrião): editar
+  // ---------------- botão direito: canais e categorias ----------------
+  const mutedChans = new Set(store.get("muted-chans", []));
+  const isMuted = (id) => mutedChans.has(id);
+  function toggleMute(id) {
+    if (mutedChans.has(id)) mutedChans.delete(id); else mutedChans.add(id);
+    store.set("muted-chans", [...mutedChans]); render();
+  }
+  const ID_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M8 9v6M12 9h2a3 3 0 0 1 0 6h-2z"/></svg>';
+  async function duplicateChannel(g, c) {
+    const n = await api.create_channel({ groupId: g.id, name: c.kind === "voice" ? c.name + " (cópia)" : c.name + "-copia", kind: c.kind, topic: c.topic, cat: c.cat });
+    const order = S.channels.map((x) => ({ id: x.id, cat: x.cat })).filter((x) => x.id !== n.id);
+    order.splice(order.findIndex((x) => x.id === c.id) + 1, 0, { id: n.id, cat: c.cat });
+    await api.reorder_channels({ groupId: g.id, order });
+    await refreshChannels(g.id); render(); toast("Canal duplicado.");
+  }
+  async function moveChannelTo(g, c, cat) {
+    const order = S.channels.map((x) => ({ id: x.id, cat: x.cat })).filter((x) => x.id !== c.id);
+    let at = -1; order.forEach((x, i) => { if (x.cat === cat) at = i; });
+    order.splice(at < 0 ? order.length : at + 1, 0, { id: c.id, cat });
+    await api.reorder_channels({ groupId: g.id, order });
+    await refreshChannels(g.id); render(); toast(`Canal movido para ${cat}.`);
+  }
+  async function deleteChannelNow(g, c) {
+    try {
+      if (S.voice && S.voice.channelId === c.id) await leaveVoice();
+      await api.delete_channel({ groupId: g.id, channelId: c.id });
+      await refreshChannels(g.id);
+      if (S.channelId === c.id) { const t = S.channels.find((x) => x.kind === "text"); if (t) await openChannel(t.id); }
+      render(); toast("Canal apagado.");
+    } catch (x) { toast(String(x.message || x)); }
+  }
+  function confirmDelete(g, c) {
+    modal(`<h2>Apagar ${c.kind === "voice" ? "" : "#"}${esc(c.name)}?</h2>
+      <p>${c.kind === "text" ? "As mensagens deste canal são apagadas para toda a gente. Não dá para desfazer." : "O canal de voz desaparece para toda a gente."}</p>
+      <div class="actions"><button class="btn ghost" data-close>Cancelar</button><button class="btn danger" id="do-del">Apagar canal</button></div>`,
+    (el, close) => { $("#do-del", el).onclick = () => { close(); deleteChannelNow(g, c); }; });
+  }
+  function channelMenu(x, y, c) {
+    const g = group(); if (!g) return;
+    const own = g.owner === "me";
+    const cats = [...new Set([...(S.cats[g.id] || []), ...S.channels.map((z) => z.cat)])];
+    const items = [
+      { label: "Marcar como lida", disabled: !c.unread, onClick: () => { c.unread = 0; render(); } },
+      "-",
+      { label: "Convidar para o grupo", onClick: () => openInvite() },
+      { label: "Copiar link", onClick: () => copy(`tasca://grupo/${g.id}/canal/${c.id}`, null, "Link do canal copiado.") },
+      "-",
+      { label: isMuted(c.id) ? "Deixar de silenciar" : "Silenciar canal", hint: isMuted(c.id) ? "Sem avisos deste canal" : "", onClick: () => { toggleMute(c.id); toast(isMuted(c.id) ? "Canal silenciado." : "Canal com avisos outra vez."); } },
+    ];
+    if (own) items.push("-",
+      { label: "Mover para…", items: cats.map((k) => ({ label: k, checked: k === c.cat, disabled: k === c.cat, onClick: () => moveChannelTo(g, c, k) })) },
+      "-",
+      { label: "Editar canal", onClick: () => openChannelEditor({ id: c.id }) },
+      { label: "Duplicar canal", onClick: () => duplicateChannel(g, c) },
+      { label: "Criar canal de texto", onClick: () => openChannelEditor({ cat: c.cat, kind: "text" }) },
+      { label: "Criar canal de voz", onClick: () => openChannelEditor({ cat: c.cat, kind: "voice" }) },
+      { label: "Apagar canal", danger: true, onClick: () => confirmDelete(g, c) });
+    items.push("-", { label: "Copiar ID do canal", icon: ID_IC, onClick: () => copy(c.id, null, "ID copiado.") });
+    tascaMenu.open(x, y, items);
+  }
+  function categoryMenu(x, y, cat) {
+    const g = group(); if (!g) return;
+    const own = g.owner === "me";
+    const list = S.channels.filter((c) => c.cat === cat);
+    const items = [
+      { label: "Marcar tudo como lido", disabled: !list.some((c) => c.unread), onClick: () => { list.forEach((c) => (c.unread = 0)); render(); } },
+      { label: list.every((c) => isMuted(c.id)) && list.length ? "Deixar de silenciar a categoria" : "Silenciar categoria", disabled: !list.length, onClick: () => { const all = list.every((c) => isMuted(c.id)); list.forEach((c) => (all ? mutedChans.delete(c.id) : mutedChans.add(c.id))); store.set("muted-chans", [...mutedChans]); render(); } },
+    ];
+    if (own) items.push("-",
+      { label: "Criar canal de texto", onClick: () => openChannelEditor({ cat, kind: "text" }) },
+      { label: "Criar canal de voz", onClick: () => openChannelEditor({ cat, kind: "voice" }) },
+      { label: "Criar categoria", onClick: () => openCategoryEditor(null) },
+      "-",
+      { label: "Editar categoria", onClick: () => openCategoryEditor(cat) },
+      { label: "Apagar categoria", danger: true, onClick: () => openCategoryEditor(cat) });
+    tascaMenu.open(x, y, items);
+  }
   document.addEventListener("contextmenu", (e) => {
-    const b = e.target.closest("[data-chan], [data-voice]"); if (!b || !b.closest(".channels")) return;
-    const g = group(); if (!g || g.owner !== "me") return;
-    e.preventDefault(); openChannelEditor({ id: b.dataset.chan || b.dataset.voice });
+    if (!e.target.closest) return;
+    const b = e.target.closest("[data-chan], [data-voice], [data-drag-chan]");
+    const h = e.target.closest(".cat");
+    const g = group();
+    if (b && b.closest(".channels") && g) {
+      const id = b.dataset.chan || b.dataset.voice || b.dataset.dragChan;
+      const c = S.channels.find((x) => x.id === id); if (!c) return;
+      e.preventDefault(); return channelMenu(e.clientX, e.clientY, c);
+    }
+    if (h && h.closest(".channels") && g) {
+      const cat = h.dataset.dragCat || (h.querySelector("span") || {}).textContent;
+      e.preventDefault(); return categoryMenu(e.clientX, e.clientY, h.dataset.dragCat || cat);
+    }
   });
 
   // fechar painel de membros ao clicar fora (ecrãs estreitos)
@@ -1530,7 +1716,7 @@
     S.plugins = await api.list_plugins();
     S.dms = await api.list_dms();
     S.settings = await api.get_settings();
-    S.allChannels = {}; S.allMembers = {};
+    S.allChannels = {}; S.allMembers = {}; S.cats = {};
     for (const g of S.groups) {
       S.allChannels[g.id] = await api.list_channels({ groupId: g.id });
       S.allMembers[g.id] = await api.list_members({ groupId: g.id });
