@@ -16,6 +16,15 @@ const MAX_NAME_CHARS: usize = 64;
 const MAX_TOPIC_CHARS: usize = 1024;
 const MAX_CHANNELS: usize = 200;
 const MAX_CATEGORIES: usize = 50;
+/// Tamanho máximo da foto de perfil (`data:` URL), em carateres.
+pub const MAX_PHOTO_CHARS: usize = 256 * 1024;
+
+/// Perfil de um membro: cor e foto (o nome fica em `members`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Profile {
+    pub color: String,
+    pub photo: Option<String>,
+}
 
 /// Canais e categorias de um grupo, por ordem.
 pub type Layout = (Vec<ChannelDef>, Vec<String>);
@@ -136,6 +145,13 @@ impl Store {
              CREATE TABLE IF NOT EXISTS layouts (
                  group_id BLOB PRIMARY KEY,
                  data     BLOB NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS profiles (
+                 group_id BLOB NOT NULL,
+                 pubkey   BLOB NOT NULL,
+                 color    TEXT NOT NULL,
+                 photo    TEXT,
+                 PRIMARY KEY (group_id, pubkey)
              );",
         )?;
         Ok(Self { conn })
@@ -205,6 +221,15 @@ impl Store {
             EventKind::Layout { channels, categories } => {
                 ensure!(author == info.owner, "só o dono pode mudar os canais");
                 check_layout(channels, categories)?;
+            }
+            EventKind::Profile { name, color, photo } => {
+                ensure!(member, "só membros podem ter perfil no grupo");
+                check_name(name)?;
+                ensure!(color.len() <= 32, "cor inválida");
+                if let Some(p) = photo {
+                    ensure!(p.starts_with("data:image/"), "a foto tem de ser uma imagem");
+                    ensure!(p.len() <= MAX_PHOTO_CHARS, "foto demasiado grande");
+                }
             }
         }
         let tx = self.conn.transaction()?;
@@ -370,6 +395,24 @@ impl Store {
         .collect()
     }
 
+    /// Perfis publicados no grupo, por chave.
+    pub fn profiles(&self, group: GroupId) -> Result<std::collections::HashMap<[u8; 32], Profile>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT pubkey, color, photo FROM profiles WHERE group_id = ?1")?;
+        let rows = stmt.query_map(params![group.0], |r| {
+            Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?))
+        })?;
+        let mut out = std::collections::HashMap::new();
+        for r in rows {
+            let (k, color, photo) = r?;
+            if let Ok(k) = <[u8; 32]>::try_from(k.as_slice()) {
+                out.insert(k, Profile { color, photo });
+            }
+        }
+        Ok(out)
+    }
+
     /// Canais e categorias do grupo. Sem nenhum `Layout` publicado, a disposição de origem.
     pub fn layout(&self, group: GroupId) -> Result<Layout> {
         let data: Option<Vec<u8>> = self
@@ -451,6 +494,16 @@ fn apply(conn: &Connection, group: GroupId, ev: &SignedEvent) -> Result<()> {
             conn.execute(
                 "INSERT OR REPLACE INTO layouts (group_id, data) VALUES (?1, ?2)",
                 params![group.0, postcard::to_stdvec(&(channels, categories))?],
+            )?;
+        }
+        EventKind::Profile { name, color, photo } => {
+            conn.execute(
+                "INSERT OR REPLACE INTO profiles (group_id, pubkey, color, photo) VALUES (?1, ?2, ?3, ?4)",
+                params![group.0, ev.body.author, color, photo],
+            )?;
+            conn.execute(
+                "UPDATE members SET display_name = ?3 WHERE group_id = ?1 AND pubkey = ?2",
+                params![group.0, ev.body.author, name.trim()],
             )?;
         }
     }

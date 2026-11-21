@@ -48,6 +48,9 @@
     const mark = () => {
       let cur = 0;
       el.querySelectorAll("[data-sec]").forEach((s, i) => { if (s.offsetTop - body.offsetTop <= body.scrollTop + 8) cur = i; });
+      // no fundo, a última secção nunca chega ao topo: conta como a atual
+      const secs = el.querySelectorAll("[data-sec]");
+      if (body.scrollTop + body.clientHeight >= body.scrollHeight - 2) cur = secs.length - 1;
       el.querySelectorAll("[data-jump]").forEach((t, i) => t.classList.toggle("on", i === cur));
     };
     body.addEventListener("scroll", mark); mark();

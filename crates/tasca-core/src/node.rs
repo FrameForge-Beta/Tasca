@@ -19,7 +19,7 @@ use crate::{
     event::{EventKind, GroupId, SignedEvent},
     identity::Identity,
     invite::Invite,
-    protocol::{ClientMsg, HostMsg, read_frame, write_frame},
+    protocol::{ClientMsg, HostMsg, Presence, read_frame, write_frame},
     store::Store,
 };
 
@@ -43,6 +43,11 @@ struct Inner {
     servidor: Option<crate::servidor::AccountServer>,
     store: Mutex<Store>,
     feeds: Mutex<HashMap<GroupId, broadcast::Sender<Update>>>,
+    /// Quem está online em cada grupo (no anfitrião: quem está ligado; nos membros: o que
+    /// o anfitrião disse por último).
+    presence: Mutex<HashMap<GroupId, watch::Sender<Presence>>>,
+    /// Anfitrião: ligações abertas por (grupo, membro), para saber quando alguém sai mesmo.
+    conns: Mutex<HashMap<(GroupId, [u8; 32]), usize>>,
 }
 
 impl Inner {
@@ -52,6 +57,15 @@ impl Inner {
             .unwrap()
             .entry(group)
             .or_insert_with(|| broadcast::channel(1024).0)
+            .clone()
+    }
+
+    fn presence(&self, group: GroupId) -> watch::Sender<Presence> {
+        self.presence
+            .lock()
+            .unwrap()
+            .entry(group)
+            .or_insert_with(|| watch::channel(Presence::new()).0)
             .clone()
     }
 
@@ -93,6 +107,8 @@ impl Node {
             servidor: opts.servidor.clone(),
             store: Mutex::new(store),
             feeds: Default::default(),
+            presence: Default::default(),
+            conns: Default::default(),
         });
         let router = Router::builder(endpoint)
             .accept(
@@ -183,6 +199,12 @@ impl Node {
         })
     }
 
+    /// Quem está online num grupo e em que sala de voz. Muda quando alguém liga, desliga
+    /// ou entra numa sala; vazio enquanto um membro não está ligado ao anfitrião.
+    pub fn presence(&self, group: GroupId) -> watch::Receiver<Presence> {
+        self.inner.presence(group).subscribe()
+    }
+
     /// Recebe os eventos novos de um grupo (quer sejamos anfitrião, quer membro).
     pub fn subscribe(&self, group: GroupId) -> broadcast::Receiver<Update> {
         self.inner.feed(group).subscribe()
@@ -198,6 +220,14 @@ impl Node {
         if !info.hosted {
             bail!("este grupo não é hospedado aqui");
         }
+        let me = *self.inner.identity.public().as_bytes();
+        self.inner.presence(group).send_if_modified(|p| {
+            if p.contains_key(&me) {
+                return false;
+            }
+            p.insert(me, None);
+            true
+        });
         Ok(GroupHandle {
             group,
             inner: self.inner.clone(),
@@ -293,6 +323,9 @@ impl Node {
                     Ok(Some(HostMsg::PublishFailed(why))) => {
                         warn!("o anfitrião rejeitou a mensagem: {why}")
                     }
+                    Ok(Some(HostMsg::Presence(p))) => {
+                        inner.presence(group).send_replace(p);
+                    }
                     Ok(Some(other)) => debug!("mensagem ignorada: {other:?}"),
                     Ok(None) => break,
                     Err(e) => {
@@ -302,6 +335,7 @@ impl Node {
                 }
             }
             let _ = alive_tx.send(false);
+            inner.presence(group).send_replace(Presence::new());
         });
 
         Ok(GroupHandle {
@@ -354,6 +388,31 @@ impl GroupHandle {
             let mut rx = rx.clone();
             let _ = rx.wait_for(|v| !*v).await;
         }
+    }
+
+    /// Diz ao grupo em que sala de voz estás (`None` = saíste).
+    pub async fn set_voice(&self, channel: Option<String>) -> Result<()> {
+        if let Some(send) = &self.remote {
+            return write_frame(&mut *send.lock().await, &ClientMsg::Voice(channel)).await;
+        }
+        if self.is_hosted() {
+            let me = *self.inner.identity.public().as_bytes();
+            self.inner.presence(self.group).send_modify(|p| {
+                p.insert(me, channel);
+            });
+        }
+        Ok(())
+    }
+
+    /// Publica o teu perfil neste grupo (nome, cor e foto).
+    pub async fn set_profile(&self, name: &str, color: &str, photo: Option<String>) -> Result<()> {
+        self.publish(EventKind::Profile {
+            name: name.trim().to_string(),
+            color: color.to_string(),
+            photo,
+        })
+        .await?;
+        Ok(())
     }
 
     /// Dono: publica a disposição nova de canais e categorias.
@@ -464,6 +523,11 @@ impl HostProtocol {
         };
         write_frame(&mut send, &HostMsg::Welcome).await?;
 
+        // Fica online enquanto esta ligação durar.
+        let presence = self.inner.presence(group);
+        let _online = Online::new(self.inner.clone(), group, *remote.as_bytes());
+        let mut pres_rx = presence.subscribe();
+
         // Subscreve antes de ler o histórico, para não perder nada entretanto.
         let mut feed = self.inner.feed(group).subscribe();
         let mut last_sent = since;
@@ -476,6 +540,8 @@ impl HostProtocol {
         if let Some((epoch, key, _, _)) = key {
             write_frame(&mut send, &HostMsg::GroupKey { epoch, key: *key.as_bytes() }).await?;
         }
+        let atual = pres_rx.borrow_and_update().clone();
+        write_frame(&mut send, &HostMsg::Presence(atual)).await?;
 
         loop {
             tokio::select! {
@@ -495,6 +561,13 @@ impl HostProtocol {
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
                 },
+                changed = pres_rx.changed() => {
+                    if changed.is_err() {
+                        break;
+                    }
+                    let atual = pres_rx.borrow_and_update().clone();
+                    write_frame(&mut send, &HostMsg::Presence(atual)).await?;
+                }
                 msg = read_frame::<ClientMsg>(&mut recv) => match msg? {
                     Some(ClientMsg::Publish(ev)) => {
                         if ev.body.author != *remote.as_bytes() {
@@ -512,12 +585,58 @@ impl HostProtocol {
                             Err(e) => write_frame(&mut send, &HostMsg::PublishFailed(format!("{e:#}"))).await?,
                         }
                     }
+                    Some(ClientMsg::Voice(channel)) => {
+                        let who = *remote.as_bytes();
+                        presence.send_if_modified(|p| {
+                            let channel = channel.filter(|c| c.chars().count() <= 64);
+                            if p.get(&who) == Some(&channel) {
+                                return false;
+                            }
+                            p.insert(who, channel);
+                            true
+                        });
+                    }
                     Some(ClientMsg::Hello { .. }) => bail!("Hello repetido"),
                     None => break,
                 },
             }
         }
         Ok(())
+    }
+}
+
+/// Anfitrião: marca um membro como online enquanto uma ligação dele estiver aberta.
+struct Online {
+    inner: Arc<Inner>,
+    group: GroupId,
+    who: [u8; 32],
+}
+
+impl Online {
+    fn new(inner: Arc<Inner>, group: GroupId, who: [u8; 32]) -> Self {
+        *inner.conns.lock().unwrap().entry((group, who)).or_default() += 1;
+        inner.presence(group).send_if_modified(|p| {
+            if p.contains_key(&who) {
+                return false;
+            }
+            p.insert(who, None);
+            true
+        });
+        Self { inner, group, who }
+    }
+}
+
+impl Drop for Online {
+    fn drop(&mut self) {
+        let mut conns = self.inner.conns.lock().unwrap();
+        let n = conns.entry((self.group, self.who)).or_default();
+        *n = n.saturating_sub(1);
+        if *n == 0 {
+            conns.remove(&(self.group, self.who));
+            self.inner.presence(self.group).send_modify(|p| {
+                p.remove(&self.who);
+            });
+        }
     }
 }
 

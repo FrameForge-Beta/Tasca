@@ -18,6 +18,8 @@ pub enum ClientMsg {
         since: u64,
     },
     Publish(SignedEvent),
+    /// Sala de voz onde o membro está agora (`None` = em nenhuma).
+    Voice(Option<String>),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -28,7 +30,12 @@ pub enum HostMsg {
     PublishFailed(String),
     /// Chave atual da caixa do grupo no servidor (vai pela ligação iroh, já cifrada).
     GroupKey { epoch: u32, key: [u8; 32] },
+    /// Quem está ligado ao anfitrião agora (incluindo ele) e em que sala de voz.
+    Presence(Presence),
 }
+
+/// Membros online de um grupo → sala de voz em que estão.
+pub type Presence = std::collections::BTreeMap<[u8; 32], Option<String>>;
 
 pub async fn write_frame<T: Serialize>(send: &mut SendStream, msg: &T) -> Result<()> {
     let bytes = postcard::to_stdvec(msg)?;
