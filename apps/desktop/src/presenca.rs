@@ -30,3 +30,20 @@ mod imp {
         None
     }
 }
+
+/// Abrir a Tasca quando o Windows arranca (Definições > Privacidade e permissões).
+#[tauri::command]
+pub fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let al = app.autolaunch();
+    let r = if enabled { al.enable() } else { al.disable() };
+    r.map_err(|e| e.to_string())?;
+    al.is_enabled().map_err(|e| e.to_string())
+}
+
+/// Se a Tasca está marcada para abrir com o sistema.
+#[tauri::command]
+pub fn get_autostart(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch().is_enabled().map_err(|e| e.to_string())
+}

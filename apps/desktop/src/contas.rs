@@ -569,3 +569,42 @@ pub async fn suggest_usernames(username: String) -> Res<Vec<String>> {
     }
     Ok(livres)
 }
+
+/// Muda o nome mostrado da conta ativa (fica no cofre deste PC; o nome não está cifrado).
+#[tauri::command]
+pub async fn set_display_name(app: AppHandle, c: State<'_, Contas>, name: String) -> Res<String> {
+    let nome = name.trim().to_string();
+    tasca_core::account::check_display_name(&nome).map_err(txt)?;
+    let store = store(&app)?;
+    let n = nome.clone();
+    bloqueante(move || {
+        let mut v = store.load()?.ok_or_else(|| anyhow::anyhow!("ainda não há conta neste PC"))?;
+        v.display_name = n;
+        store.save(&v)
+    })
+    .await?;
+    if let Some(conta) = c.conta.lock().await.as_mut() {
+        conta.display_name = nome.clone();
+    }
+    Ok(nome)
+}
+
+/// Muda o @nome de utilizador no servidor de contas. Pede a palavra-passe porque a chave
+/// de login depende do nome.
+#[tauri::command]
+pub async fn change_username(app: AppHandle, new_username: String, password: String) -> Res<String> {
+    let srv = servidor()?;
+    let atual = ler_utilizador(&app)
+        .ok_or_else(|| "Esta conta ainda não tem nome de utilizador no servidor.".to_string())?;
+    let store = store(&app)?;
+    let pw = password.clone();
+    bloqueante(move || {
+        let v = store.load()?.ok_or_else(|| anyhow::anyhow!("ainda não há conta neste PC"))?;
+        v.open(&pw)?; // confirma a palavra-passe antes de falar com o servidor
+        Ok(())
+    })
+    .await?;
+    let nome = srv.rename(&atual, &new_username, &password).await.map_err(txt)?;
+    guardar_utilizador(&app, &nome);
+    Ok(nome)
+}

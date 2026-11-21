@@ -207,6 +207,29 @@
     for (const o of [channels, members, messages]) for (const k of Object.keys(o)) delete o[k];
   }
 
+  // Na app instalada, os grupos e canais que crias ficam guardados neste PC (por conta),
+  // até o núcleo P2P os guardar a sério.
+  let localKey = null;
+  function persist() {
+    if (!tauri || !localKey) return;
+    try { localStorage.setItem("tasca:local:" + localKey, JSON.stringify({ groups, channels, members, messages, profile: { color: people.me.color } })); } catch {}
+  }
+  function loadLocal(key) {
+    if (!tauri || !key || localKey === key) return;
+    localKey = key;
+    let d = null; try { d = JSON.parse(localStorage.getItem("tasca:local:" + key)); } catch {}
+    if (!d) return;
+    groups.length = 0; groups.push(...(d.groups || []));
+    for (const [o, src] of [[channels, d.channels], [members, d.members], [messages, d.messages]]) Object.assign(o, src || {});
+    for (const list of Object.values(channels)) for (const c of list) if (c.inVoice) c.inVoice = [];
+    for (const list of Object.values(messages)) for (const m of list) if (m.pending) m.pending = false;
+    if (d.profile && d.profile.color) people.me.color = d.profile.color;
+  }
+  const mockProfile = {
+    get() { try { return JSON.parse(localStorage.getItem("tasca:mock-profile")) || {}; } catch { return {}; } },
+    set(v) { try { localStorage.setItem("tasca:mock-profile", JSON.stringify(v)); } catch {} },
+  };
+
   const listeners = {};
   function emit(ev, data) { (listeners[ev] || []).forEach((fn) => fn(data)); }
 
@@ -296,10 +319,15 @@
           const s = await tauri.invoke("account_status");
           if (s.displayName) people.me.name = s.displayName;
           if (s.publicKey) people.me.key = "ed25519:" + s.publicKey;
-          if (s.username) people.me.username = s.username;
+          people.me.username = s.username || null;
+          loadLocal(s.publicKey);
         } catch {}
       }
-      else { const a = acct.get(); if (a && a.username) people.me.username = a.username; }
+      else {
+        const a = acct.get(); if (a && a.username) people.me.username = a.username;
+        const pr = mockProfile.get(); if (pr.color) people.me.color = pr.color;
+        if (a && a.displayName && unlocked) people.me.name = a.displayName;
+      }
       return clone(people.me);
     },
     async list_people() { return clone(people); },
@@ -319,6 +347,7 @@
     async send_message({ channelId, text }) {
       const m = { id: nextId++, day: today, at: nowHHMM(), from: "me", text, pending: true };
       (messages[channelId] = messages[channelId] || []).push(m);
+      if (tauri) { m.pending = false; persist(); setTimeout(() => emit("message_ack", { channelId, id: m.id }), 0); return clone(m); }
       // o anfitrião confirma (assina e guarda) pouco depois
       setTimeout(() => { m.pending = false; emit("message_ack", { channelId, id: m.id }); }, 600);
       if (/tasca|plugin|voz/i.test(text)) {
@@ -331,6 +360,65 @@
       }
       return clone(m);
     },
+    // ---- perfil ----
+    async set_display_name({ name }) {
+      const n = String(name || "").trim();
+      if (!n || n.length > 32) throw new Error("O nome tem de ter entre 1 e 32 caracteres.");
+      const a = acct.get(); if (a) acct.set({ ...a, displayName: n });
+      people.me.name = n; return n;
+    },
+    async set_profile({ color }) {
+      people.me.color = color;
+      if (tauri) persist(); else mockProfile.set({ ...mockProfile.get(), color });
+      return clone(people.me);
+    },
+    async change_username({ newUsername, password }) {
+      await wait(500);
+      if (!password) throw new Error("Escreve a tua palavra-passe.");
+      const u = String(newUsername).trim().replace(/^@/, "").toLowerCase();
+      if (!(await mock.username_available({ username: u }))) throw new Error("Esse nome de utilizador já está ocupado.");
+      const a = acct.get(); if (a) acct.set({ ...a, username: u });
+      people.me.username = u; return u;
+    },
+    async set_autostart({ enabled }) { return !!enabled; },
+    async get_autostart() { return !!settings.perms && !!settings.perms.autostart; },
+    // ---- canais (só o anfitrião) ----
+    async create_channel({ groupId, name, kind, topic, cat }) {
+      const g = groups.find((x) => x.id === groupId);
+      if (!g || g.owner !== "me") throw new Error("Só o anfitrião pode criar canais.");
+      const list = (channels[groupId] = channels[groupId] || []);
+      const c = { id: (kind === "voice" ? "v-" : "c-") + nextId++, kind, name: cleanName(name, kind), topic: topic || "", cat: cat || (kind === "voice" ? "Voz" : "Conversa"), ...(kind === "voice" ? { inVoice: [] } : {}) };
+      if (!c.name) throw new Error("Dá um nome ao canal.");
+      // fica no fim da sua categoria
+      let at = -1; list.forEach((x, i) => { if (x.cat === c.cat) at = i; });
+      list.splice(at < 0 ? list.length : at + 1, 0, c);
+      persist(); return clone(c);
+    },
+    async update_channel({ groupId, channelId, name, topic, cat }) {
+      const c = (channels[groupId] || []).find((x) => x.id === channelId);
+      if (!c) throw new Error("Esse canal já não existe.");
+      if (name != null) { const n = cleanName(name, c.kind); if (!n) throw new Error("Dá um nome ao canal."); c.name = n; }
+      if (topic != null) c.topic = topic;
+      if (cat != null && cat.trim()) c.cat = cat.trim();
+      persist(); return clone(c);
+    },
+    async delete_channel({ groupId, channelId }) {
+      const list = channels[groupId] || [];
+      const c = list.find((x) => x.id === channelId);
+      if (!c) return true;
+      if (c.kind === "text" && list.filter((x) => x.kind === "text").length <= 1) throw new Error("O grupo precisa de pelo menos um canal de texto.");
+      list.splice(list.indexOf(c), 1); delete messages[channelId];
+      persist(); return true;
+    },
+    async move_channel({ groupId, channelId, dir }) {
+      const list = channels[groupId] || [];
+      const i = list.findIndex((x) => x.id === channelId); if (i < 0) return false;
+      // troca com o vizinho da mesma categoria
+      const c = list[i]; let j = i + dir;
+      while (j >= 0 && j < list.length && list[j].cat !== c.cat) j += dir;
+      if (j < 0 || j >= list.length) return false;
+      [list[i], list[j]] = [list[j], list[i]]; persist(); return true;
+    },
     async create_group({ name }) {
       const g = { id: "g-" + nextId++, name, short: name.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase(),
         owner: "me", host: { online: true, route: "este PC", ping: 0 }, unread: 0 };
@@ -340,6 +428,7 @@
         { id: "v-" + nextId++, kind: "voice", cat: "Voz", name: "Sala", inVoice: [] },
       ];
       members[g.id] = ["me"];
+      persist();
       return clone(g);
     },
     async join_group({ invite }) {
@@ -391,6 +480,11 @@
     async transfer_ownership() { await wait(500); return true; },
   };
 
+  // nome de canal: texto em minúsculas com hífens; voz fica como está
+  function cleanName(n, kind) {
+    n = String(n || "").trim().slice(0, 40);
+    return kind === "voice" ? n : n.toLowerCase().replace(/\s+/g, "-").replace(/[^\p{L}\p{N}_-]/gu, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  }
   function deepMerge(t, s) {
     for (const k of Object.keys(s)) {
       if (s[k] && typeof s[k] === "object" && !Array.isArray(s[k])) deepMerge((t[k] = t[k] || {}), s[k]);

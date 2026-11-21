@@ -303,7 +303,7 @@ fn check_password(password: &str) -> Result<()> {
     Ok(())
 }
 
-fn check_display_name(name: &str) -> Result<()> {
+pub fn check_display_name(name: &str) -> Result<()> {
     let n = name.trim().chars().count();
     ensure!(
         n > 0 && n <= 32,

@@ -61,6 +61,16 @@ pub struct RegisterRequest {
     pub vault: String,
 }
 
+/// `POST /v1/renomear`: muda o nome de utilizador. A chave de login depende do nome,
+/// por isso vai também a chave nova (mesma palavra-passe, nome novo).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenameRequest {
+    pub username: String,
+    pub login_key: String,
+    pub new_username: String,
+    pub new_login_key: String,
+}
+
 /// `POST /v1/entrar`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoginRequest {
@@ -206,6 +216,22 @@ mod client {
             let vault = Vault::from_bytes(&unb64(&resp.vault)?)?;
             let account = vault.open(password)?;
             Ok((vault, account))
+        }
+
+        /// Muda o nome de utilizador. Devolve o nome novo já normalizado.
+        pub async fn rename(&self, username: &str, new_username: &str, password: &str) -> Result<String> {
+            let username = normalize_username(username)?;
+            let new_username = normalize_username(new_username)?;
+            let key = login_key(&username, password)?;
+            let new_key = login_key(&new_username, password)?;
+            let body = RenameRequest {
+                username,
+                login_key: hex::encode(key.as_ref()),
+                new_username: new_username.clone(),
+                new_login_key: hex::encode(new_key.as_ref()),
+            };
+            Self::check(self.http.post(self.url("v1/renomear")).json(&body).send().await.map_err(net)?).await?;
+            Ok(new_username)
         }
 
         /// Substitui o cofre no servidor. `new_password` quando a palavra-passe mudou.

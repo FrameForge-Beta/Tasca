@@ -83,6 +83,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         // Antes das janelas: no Windows a interface chama comandos de conta logo ao abrir.
         .manage(contas::Contas::default())
         .invoke_handler(tauri::generate_handler![
@@ -103,7 +104,11 @@ fn main() {
             contas::select_account,
             contas::sign_out,
             contas::suggest_usernames,
+            contas::set_display_name,
+            contas::change_username,
             presenca::idle_seconds,
+            presenca::set_autostart,
+            presenca::get_autostart,
         ])
         .setup(|app| {
             let app = app.handle().clone();

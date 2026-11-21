@@ -124,6 +124,26 @@
       root._expected = st.ask.map((i) => [i, words[i]]);
     },
 
+    // Depois de criar a conta: o que a Tasca pode usar e os termos (obrigatórios).
+    perms() {
+      const P = [
+        ["mic", "Microfone", "Para falares nas chamadas.", true],
+        ["camera", "Câmara", "Para videochamadas.", true],
+        ["notifications", "Notificações", "Avisos de mensagens e menções.", true],
+        ["autostart", "Abrir com o Windows", "Para os grupos que alojas estarem sempre disponíveis.", false],
+      ];
+      shell(`
+        <h1>Antes de começar</h1>
+        <p class="auth-lede">Escolhe o que a Tasca pode usar neste PC. Podes mudar tudo depois em Definições > Privacidade e permissões.</p>
+        <div class="perm-list">${P.map(([k, l, d, on]) => `<div class="perm-row"><div class="txt"><b>${l}</b><small>${d}</small></div><label class="switch"><input type="checkbox" id="p-${k}" ${on ? "checked" : ""}><span></span><span class="sr">${l}</span></label></div>`).join("")}</div>
+        <div class="auth-terms">
+          <label class="check"><input type="checkbox" id="p-terms"><span>Li e aceito os <button type="button" class="linkish" id="p-read">termos e regras da Tasca</button></span></label>
+          <div class="terms-box" id="p-terms-box" hidden>${(window.TASCA_TERMOS && window.TASCA_TERMOS.html) || ""}</div>
+        </div>
+        <p class="auth-err" hidden></p>
+        <button class="btn primary big" id="p-next" disabled>Entrar na Tasca</button>`);
+    },
+
     unlock() {
       shell(`
         <div class="auth-who"><span class="av big" style="background:#9B2C3F">${esc((st.displayName || "?")[0].toUpperCase())}</span><div><b>${esc(st.displayName || "")}</b><small>${st.username ? "@" + esc(st.username) + " · " : ""}Conta guardada neste PC${st.google ? " · cópia no Google Drive" : ""}</small></div></div>
@@ -275,6 +295,20 @@
         return;
       }
       if (b.id === "w-next") return go("confirm");
+      if (b.id === "p-read") { e.preventDefault(); const bx = root.querySelector("#p-terms-box"); bx.hidden = !bx.hidden; return; }
+      if (b.id === "p-next") {
+        const on = (k) => root.querySelector("#p-" + k).checked;
+        const perms = { mic: on("mic"), camera: on("camera"), notifications: on("notifications"), autostart: on("autostart") };
+        b.disabled = true; b.textContent = "A preparar…";
+        // Pede já ao Windows o que foi ligado, para a pergunta aparecer agora e não a meio de uma chamada.
+        if (perms.mic && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          try { (await navigator.mediaDevices.getUserMedia({ audio: true })).getTracks().forEach((t) => t.stop()); } catch {}
+        }
+        if (perms.notifications && window.Notification && Notification.permission === "default") { try { await Notification.requestPermission(); } catch {} }
+        if (perms.autostart) { try { await api.set_autostart({ enabled: true }); } catch { perms.autostart = false; } }
+        try { await api.set_settings({ patch: { perms, termsAccepted: (window.TASCA_TERMOS && window.TASCA_TERMOS.versao) || "" } }); } catch {}
+        return finish();
+      }
       if (b.dataset.acct) {
         b.disabled = true;
         try {
@@ -302,6 +336,7 @@
     });
     root.addEventListener("change", (e) => {
       if (e.target.id === "w-ok") root.querySelector("#w-next").disabled = !e.target.checked;
+      if (e.target.id === "p-terms") root.querySelector("#p-next").disabled = !e.target.checked;
     });
     root.addEventListener("input", (e) => {
       const t = e.target;
@@ -349,7 +384,7 @@
         if (f.id === "f-confirm") {
           const wrong = root._expected.find(([i, w]) => v("k-" + i).trim().toLowerCase() !== w);
           if (wrong) return err(`A palavra n.º ${wrong[0] + 1} não está certa. Confirma no papel.`);
-          return finish();
+          return go("perms");
         }
         if (f.id === "f-unlock") {
           busy(btn, true, "A abrir…");
