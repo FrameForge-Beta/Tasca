@@ -29,6 +29,8 @@
     edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
     at: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/></svg>',
     id: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M8 9v6M12 9h2a3 3 0 0 1 0 6h-2z"/></svg>',
+    note: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>',
+    tag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>',
     user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
     mute: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5zM22 9l-6 6M16 9l6 6"/></svg>',
     crown: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 7l4.5 4L12 4l4.5 7L21 7l-2 12H5z"/></svg>',
@@ -54,7 +56,7 @@
     const st = f.rel === "amigo" && f.status && f.status !== "offline" ? f.status : p.status || "offline";
     return {
       id, name: pick("name") || "Alguém", color: pick("color") || "#4A4542", photo: pick("photo") || null,
-      username: pick("username") || null, bio: pick("bio") || "", banner: pick("banner") || null,
+      realName: p.realName || f.realName || null, username: pick("username") || null, bio: pick("bio") || "", banner: pick("banner") || null,
       status: st, statusText: f.statusText || p.statusText || "", bot: p.bot, rel: f.rel || null, friendSince: f.rel === "amigo" ? f.since : null,
     };
   }
@@ -255,6 +257,43 @@
     A().toast(on ? `${person(id).name} silenciado só para ti.` : `${person(id).name} volta a ouvir-se.`);
   }
 
+  // ---- coisas só tuas sobre uma pessoa: nota, apelido, não ver o vídeo ----
+  async function toggleLocal(k, id, msg) {
+    const { S } = A();
+    const on = !(S.settings[k] || {})[id];
+    await A().patch({ [k]: { [id]: on } });
+    A().render(); if (msg) A().toast(msg(on));
+  }
+  function editNote(id) {
+    const { S, modal } = A();
+    const p = person(id);
+    modal(`<h2>Nota sobre ${esc(p.name)}</h2><p>Só tu a vês. Fica guardada neste PC.</p>
+      <div class="field"><label class="sr" for="note-t">Nota</label><textarea class="input" id="note-t" rows="4" maxlength="256" placeholder="Ex.: conheci no torneio de xadrez">${esc((S.settings.userNotes || {})[id] || "")}</textarea></div>
+      <div class="actions"><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="note-ok">Guardar</button></div>`,
+    (el, close) => { el.querySelector("#note-ok").onclick = async () => {
+      await A().patch({ userNotes: { [id]: el.querySelector("#note-t").value.trim() } }); close(); if (F.card) redrawCard(); A().toast("Nota guardada.");
+    }; });
+  }
+  function editNick(id) {
+    const { S, modal } = A();
+    const p = person(id);
+    modal(`<h2>Apelido para ${esc(p.realName || p.name)}</h2><p>Só tu vês este nome. Os outros continuam a ver o nome que a pessoa escolheu.</p>
+      <div class="field"><label class="sr" for="nick-t">Apelido</label><input class="input" id="nick-t" maxlength="32" value="${esc((S.settings.userNicks || {})[id] || "")}" placeholder="${esc(p.realName || p.name)}"></div>
+      <div class="actions"><button class="btn ghost" data-close>Cancelar</button>${(S.settings.userNicks || {})[id] ? '<button class="btn ghost" id="nick-rm">Tirar apelido</button>' : ""}<button class="btn primary" id="nick-ok">Guardar</button></div>`,
+    (el, close) => {
+      const save = async (v) => {
+        await A().patch({ userNicks: { [id]: v } });
+        S.people = await api.list_people(); await refresh();
+        for (const gid of Object.keys(S.allMembers || {})) S.allMembers[gid] = await api.list_members({ groupId: gid });
+        if (S.groupId && S.allMembers[S.groupId]) S.members = S.allMembers[S.groupId];
+        close(); A().rerenderKeepInput();
+      };
+      el.querySelector("#nick-ok").onclick = () => save(el.querySelector("#nick-t").value.trim());
+      const rm = el.querySelector("#nick-rm"); if (rm) rm.onclick = () => save("");
+      el.querySelector("#nick-t").addEventListener("keydown", (e) => { if (e.key === "Enter") el.querySelector("#nick-ok").click(); });
+    });
+  }
+
   // ---------------- menu de botão direito ----------------
   function userMenu(x, y, id, from) {
     const { S, group, copy, openProfile, openTransfer } = A();
@@ -263,9 +302,14 @@
     const rel = p.rel;
     const g = !S.home ? group() : null;
     const inGroup = g && (S.members || []).some((m) => m.id === id);
+    const inCall = !!(from && from.closest && from.closest(".callview, .voice-people, .dock"));
+    const local = (k) => (S.settings[k] || {})[id];
     const items = [
       { label: "Perfil", icon: IC.user, onClick: () => openCard(id, from) },
     ];
+    if (!me && !p.bot) items.push(
+      { label: local("userNotes") ? "Editar nota" : "Adicionar nota", hint: "Só tu a vês", icon: IC.note, onClick: () => editNote(id) },
+      { label: local("userNicks") ? "Mudar apelido" : "Dar um apelido", hint: local("userNicks") ? "Nome verdadeiro: " + (p.realName || p.name) : "Só para ti", icon: IC.tag, onClick: () => editNick(id) });
     if (me) {
       items.push({ label: "Editar perfil", icon: IC.edit, onClick: () => openProfile() });
     } else {
@@ -276,6 +320,8 @@
         items.push("-",
           { label: "Volume", range: { value: vol, min: 0, max: 200, step: 5, fmt: (v) => v + "%", onInput: (v) => setVolume(id, v) } },
           { label: "Silenciar", hint: "Só para ti, nas chamadas", checked: !!(S.settings.userMuted || {})[id], icon: IC.mute, onClick: () => toggleMuted(id) });
+        if (inCall) items.push(
+          { label: "Não ver o vídeo", hint: "Mostra só a foto desta pessoa", checked: !!local("userNoVideo"), onClick: () => toggleLocal("userNoVideo", id, (on) => on ? "Já não vês o vídeo de " + p.name + "." : "Voltas a ver o vídeo de " + p.name + ".") });
         items.push("-");
         if (rel === "amigo") items.push({ label: "Remover amigo", onClick: () => removeFriend(id) });
         else if (rel === "recebido") items.push({ label: "Aceitar pedido de amizade", onClick: () => act(() => api.accept_friend({ userId: id }), "Agora são amigos.") }, { label: "Recusar pedido", onClick: () => act(() => api.decline_friend({ userId: id }), "Pedido recusado.") });
@@ -291,6 +337,7 @@
         ] });
       }
     }
+    if (inCall) items.push("-", { label: "Mostrar quem está sem vídeo", checked: S.settings.callShowNoVideo !== false, onClick: async () => { await A().patch({ callShowNoVideo: S.settings.callShowNoVideo === false }); A().render(); } });
     for (const fn of hooks.userMenu) { try { const extra = fn(p, { where: "menu", groupId: g && g.id }); if (extra && extra.length) items.push("-", ...extra); } catch (x) { console.warn(x); } }
     items.push("-");
     if (p.username) items.push({ label: "Copiar ID (@" + p.username + ")", icon: IC.id, onClick: () => copy("@" + p.username, null, "ID copiado.") });
@@ -333,14 +380,17 @@
     const since = m && m.since ? `<div class="pc-sec"><h4>Na ${esc(g.name)} desde</h4><p>${fmtDate(m.since)}</p></div>` : "";
     const friends = p.friendSince ? `<div class="pc-sec"><h4>Amigos desde</h4><p>${fmtDate(p.friendSince)}</p></div>` : "";
     const statusTxt = p.statusText ? `<div class="pc-status"><span>${esc(p.statusText)}</span></div>` : "";
+    const note = (A().S.settings.userNotes || {})[id];
+    const noteSec = note ? `<div class="pc-sec"><h4>A tua nota</h4><p class="pc-bio">${esc(note)}</p></div>` : "";
     return `<div class="pc-banner" style="${bannerStyle(p.banner, p.color)}"></div>
       <div class="pc-av">${avatar(p, "xl", true)}</div>
       ${statusTxt}
       <div class="pc-body">
-        <div class="pc-names"><b>${esc(p.name)}</b><span>${p.username ? "@" + esc(p.username) : p.id === "me" ? "sem ID" : ""}${p.rel === "amigo" ? '<i class="pc-tag">amigo</i>' : ""}</span></div>
+        <div class="pc-names"><b>${esc(p.name)}</b>${p.realName && p.realName !== p.name ? `<small class="pc-real">${esc(p.realName)}</small>` : ""}<span>${p.username ? "@" + esc(p.username) : p.id === "me" ? "sem ID" : ""}${p.rel === "amigo" ? '<i class="pc-tag">amigo</i>' : ""}</span></div>
         <div class="pc-state"><i class="st-dot ${p.status}">${A().FLOR}</i>${statusLabel(p.status)}</div>
         ${p.bio ? `<div class="pc-sec"><h4>Sobre mim</h4><p class="pc-bio">${esc(p.bio)}</p></div>` : ""}
         <div class="pc-row2">${since}${friends}</div>
+        ${noteSec}
         ${out.length ? `<div class="pc-sec"><h4>Papéis</h4><div class="pc-roles">${out.map(([l, c]) => `<span style="--r:${c}"><i></i>${l}</span>`).join("")}</div></div>` : ""}
         ${hookSections(p, "card")}
         <div class="pc-btns">${cardButtons(p)}</div>
@@ -405,7 +455,7 @@
   }
 
   // ---------------- eventos ----------------
-  const personOf = (el) => el.dataset.member || el.dataset.person || el.dataset.friend || el.dataset.spk;
+  const personOf = (el) => el.dataset.member || el.dataset.person || el.dataset.friend || el.dataset.spk || el.dataset.who;
   document.addEventListener("click", (e) => {
     const t = e.target.closest("[data-fr-open], [data-fr-tab], [data-fr-add], [data-fr-accept], [data-fr-decline], [data-fr-cancel], [data-fr-unblock], [data-fr-msg], [data-fr-more], [data-pc-full], [data-pc-edit], [data-pc-add], [data-member], [data-person], .fr-row[data-friend]");
     if (!t) { if (F.card && !e.target.closest(".pcard") && !e.target.closest(".ctx-menu")) closeCard(); return; }
@@ -427,7 +477,7 @@
     if (id && S.people[id] || id === "me" || byId(id)) { e.preventDefault(); openCard(id, t); }
   });
   document.addEventListener("contextmenu", (e) => {
-    const t = e.target.closest && e.target.closest("[data-member], [data-person], [data-friend], .voice-people [data-spk], .me-av[data-spk]");
+    const t = e.target.closest && e.target.closest("[data-member], [data-person], [data-friend], [data-who], .vtile[data-spk], .voice-people [data-spk], .me-av[data-spk]");
     if (!t) return;
     const id = personOf(t);
     if (!id) return;
