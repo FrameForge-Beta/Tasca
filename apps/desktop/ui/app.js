@@ -1228,7 +1228,8 @@
       <div class="section only-desktop"><h2>Arranque</h2><div class="box"><div class="row"><div class="txt"><b>Abrir a Tasca quando o Windows arranca</b><small>Minimizada na área de notificação, para os teus grupos estarem sempre disponíveis.</small></div>${sw("perms.autostart", perm("autostart"), "Abrir no arranque")}</div></div></div>`;
   }
   function setSobre() {
-    return `<div class="section"><div class="box"><div class="row"><span style="width:56px;height:56px;display:block">${LOGO}</span><div class="txt"><b style="font-size:18px">Tasca</b><small>Versão 0.1.0 (pré-visualização) · ${window.api.isMock ? "dados de teste no browser" : "app desktop, núcleo P2P ainda por ligar"}</small></div></div>
+    const onde = window.api.isMock ? "dados de teste no browser" : window.TASCA_MOBILE ? "app Android" : "app para PC";
+    return `<div class="section"><div class="box"><div class="row"><span style="width:56px;height:56px;display:block">${LOGO}</span><div class="txt"><b style="font-size:18px">Tasca</b><small>Versão ${esc(appVersion || "…")} · ${onde}</small></div>${window.TASCA_MOBILE && !window.api.isMock ? `<button class="btn primary" data-act="check-update">Procurar atualizações</button>` : ""}</div>
       <div class="row"><div class="txt"><small>Conversa, voz e plugins. As mensagens vão cifradas de ponta a ponta; ficheiros e chamadas vão direto entre PCs. Feito com Rust, iroh, SQLite e Tauri.</small></div></div></div></div>`;
   }
 
@@ -1550,6 +1551,7 @@
       case "new-channel": document.querySelectorAll(".scrim:not(.locked)").forEach((x) => x.remove()); return openChannelEditor({ cat: d.cat });
       case "edit-profile": return openProfile();
       case "read-terms": return openTerms();
+      case "check-update": return checkUpdate(true);
       case "copy-pubkey": return copy(S.me.key, null, "Chave copiada.");
     }
   });
@@ -1932,6 +1934,53 @@
     document.body.appendChild(box);
   }
   window.addEventListener("error", (e) => { if (!S.groups) startFailed(e.error || e.message); });
+
+  // ---------------- telemóvel: atualizações ----------------
+  // No PC a app atualiza-se sozinha. No Android não dá para instalar sem a pessoa confirmar,
+  // por isso a app vê se há versão nova e abre o APK para instalar por cima.
+  let appVersion = null;
+  if (window.__TAURI__ && window.__TAURI__.core) window.__TAURI__.core.invoke("app_info").then((i) => { appVersion = i.version; }).catch(() => {});
+  const verNum = (v) => String(v || "").replace(/^v/, "").split(".").map((x) => parseInt(x, 10) || 0);
+  function newer(a, b) {
+    const x = verNum(a), y = verNum(b);
+    for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+    return false;
+  }
+  async function checkUpdate(manual) {
+    if (!window.TASCA_MOBILE || window.api.isMock) return;
+    try {
+      if (!appVersion) appVersion = (await window.__TAURI__.core.invoke("app_info")).version;
+      const r = await fetch("https://api.github.com/repos/RubenFernandes2004/Tasca/releases/latest", { headers: { Accept: "application/vnd.github+json" } });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const rel = await r.json();
+      const latest = String(rel.tag_name || "").replace(/^v/, "");
+      const apk = (rel.assets || []).some((a) => a.name === "Tasca.apk");
+      if (apk && newer(latest, appVersion)) offerUpdate(latest);
+      else if (manual) toast(`Já tens a versão mais recente (${appVersion}).`);
+    } catch (x) {
+      console.warn("atualizações:", x);
+      if (manual) toast("Não consegui ver se há versão nova. Tenta daqui a pouco.");
+    }
+  }
+  function offerUpdate(latest) {
+    if (document.getElementById("upd-go")) return;
+    modal(`<h2>Há uma versão nova</h2>
+      <p>Tens a ${esc(appVersion)} e já saiu a ${esc(latest)}. Carrega em Atualizar: o APK descarrega e depois tocas nele para instalar por cima. As contas e as conversas ficam.</p>
+      <div class="actions"><button class="btn" data-close>Agora não</button><button class="btn primary" id="upd-go">Atualizar</button></div>`, (m, close) => {
+      m.querySelector("#upd-go").onclick = () => {
+        window.__TAURI__.core.invoke("abrir_atualizacao").catch((e) => toast(String(e)));
+        close();
+      };
+    });
+  }
+  if (window.TASCA_MOBILE) {
+    setTimeout(() => checkUpdate(false), 4000);
+    // ao voltar à app (depois de estar em segundo plano), vê outra vez, no máximo de hora a hora
+    let ultimaVista = Date.now();
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && Date.now() - ultimaVista > 3600e3) { ultimaVista = Date.now(); checkUpdate(false); }
+    });
+  }
 
   // ---------------- telemóvel: botão de voltar e gestos ----------------
   if (window.TASCA_MOBILE) {

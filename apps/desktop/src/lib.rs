@@ -39,6 +39,15 @@ fn app_info(app: AppHandle) -> AppInfo {
     }
 }
 
+/// Telemóvel: abre o APK mais recente (o Android descarrega-o e pergunta se instala).
+#[tauri::command]
+fn abrir_atualizacao(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url("https://github.com/RubenFernandes2004/Tasca/releases/latest/download/Tasca.apk", None::<&str>)
+        .map_err(|e| format!("Não consegui abrir o link da atualização: {e}"))
+}
+
 /// Estado mostrado no ecrã de arranque.
 #[derive(Clone, Serialize)]
 #[serde(tag = "fase", rename_all = "snake_case")]
@@ -122,6 +131,7 @@ pub fn run() {
         .manage(voz::Voz::default())
         .invoke_handler(tauri::generate_handler![
             app_info,
+            abrir_atualizacao,
             sair_app,
             contas::account_status,
             contas::create_account,
