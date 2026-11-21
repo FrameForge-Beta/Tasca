@@ -21,9 +21,9 @@
   }
   const LV = ["Muito fraca", "Fraca", "Razoável", "Boa", "Forte"];
 
-  function shell(inner, { back } = {}) {
+  function shell(inner, { back, cls } = {}) {
     root.innerHTML = `
-      <div class="auth">
+      <div class="auth${cls ? " " + cls : ""}">
         <aside class="auth-brand" aria-hidden="true">
           <div class="auth-brand-in">
             <span class="auth-logo">${LOGO}</span>
@@ -60,6 +60,15 @@
       <span class="acct-txt"><b>${esc(a.displayName)}</b><small>${a.username ? "@" + esc(a.username) : "Só neste PC"}${a.remembered ? " · abre sozinha" : ""}</small></span>
       <span class="acct-go" aria-hidden="true">›</span></button>`;
 
+  // ícones do ecrã de boas-vindas
+  const sv = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+  const WL = {
+    chat: sv('<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>'),
+    mic: sv('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'),
+    lock: sv('<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
+    puzzle: sv('<path d="M19.4 14.6a2.4 2.4 0 1 0 0-4.8H18V6a2 2 0 0 0-2-2h-3.8V2.6a2.4 2.4 0 1 0-4.8 0V4H4a2 2 0 0 0-2 2v3.8h1.4a2.4 2.4 0 1 1 0 4.8H2V18a2 2 0 0 0 2 2h3.6v-1.4a2.4 2.4 0 1 1 4.8 0V20H16a2 2 0 0 0 2-2v-3.4z"/>'),
+  };
+
   // ---------------- ecrãs ----------------
   const screens = {
     welcome() {
@@ -72,13 +81,24 @@
           <button class="btn outline big" data-go="login">Entrar com outra conta</button>
         </div>
         <div class="auth-links auth-links-center"><button data-go="create">Criar conta nova</button></div>` : `
-        <h1>Bem-vindo à Tasca</h1>
-        <p class="auth-lede">A tua conta é cifrada com a tua palavra-passe antes de sair deste PC. Ninguém, nem nós, a consegue abrir.</p>
-        <div class="auth-actions">
-          <button class="btn primary big" data-go="login">Entrar</button>
+        <div class="wl-hero">
+          <span class="wl-logo">${LOGO}</span>
+          <b class="wl-name">Tasca</b>
+          <p class="wl-tag">O teu grupo, na <em>tua</em> tasca.</p>
         </div>
-        <div class="auth-sep"><span>Ainda não tens conta?</span></div>
-        <button class="btn outline big" data-go="create">Criar conta</button>`);
+        <h1 class="wl-title">Bem-vindo à Tasca</h1>
+        <p class="auth-lede wl-lede">A tua conta é cifrada com a tua palavra-passe antes de sair deste PC. Ninguém, nem nós, a consegue abrir.</p>
+        <ul class="wl-feats">
+          <li><i style="--c:#9B2C3F">${WL.chat}</i><span><b>Grupos e mensagens</b><small>Canais de texto, amigos e mensagens privadas.</small></span></li>
+          <li><i style="--c:#5E8C4A">${WL.mic}</i><span><b>Voz e vídeo</b><small>Chamadas com supressão de ruído, direto entre vocês.</small></span></li>
+          <li><i style="--c:#2A5CAA">${WL.lock}</i><span><b>Cifrado de ponta a ponta</b><small>Só tu e o teu grupo conseguem ler.</small></span></li>
+          <li><i style="--c:#B8791A">${WL.puzzle}</i><span><b>Plugins</b><small>Junta funcionalidades novas à tua medida.</small></span></li>
+        </ul>
+        <div class="wl-actions">
+          <button class="btn primary big" data-go="login">Entrar</button>
+          <div class="auth-sep"><span>Ainda não tens conta?</span></div>
+          <button class="btn outline big" data-go="create">Criar conta</button>
+        </div>`, { cls: "is-welcome" });
     },
 
     create() {
