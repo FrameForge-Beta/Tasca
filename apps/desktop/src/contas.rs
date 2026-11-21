@@ -455,6 +455,12 @@ pub async fn server_login(
     Ok(true)
 }
 
+/// Diagnóstico da ligação ao servidor de contas (mostrado quando o login não consegue ligar).
+#[tauri::command]
+pub async fn server_diagnostics() -> Res<Vec<String>> {
+    Ok(servidor()?.diagnostico().await)
+}
+
 /// Grava as 12 palavras num `.txt` no ambiente de trabalho, a pedido do utilizador.
 /// Nunca substitui um ficheiro que já exista. Devolve o caminho.
 #[tauri::command]
