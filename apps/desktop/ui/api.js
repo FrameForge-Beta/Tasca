@@ -212,7 +212,7 @@
   let localKey = null;
   function persist() {
     if (!tauri || !localKey) return;
-    try { localStorage.setItem("tasca:local:" + localKey, JSON.stringify({ groups, channels, members, messages, profile: { color: people.me.color } })); } catch {}
+    try { localStorage.setItem("tasca:local:" + localKey, JSON.stringify({ groups, channels, members, messages, profile: { color: people.me.color, photo: people.me.photo || null } })); } catch {}
   }
   function loadLocal(key) {
     if (!tauri || !key || localKey === key) return;
@@ -224,6 +224,7 @@
     for (const list of Object.values(channels)) for (const c of list) if (c.inVoice) c.inVoice = [];
     for (const list of Object.values(messages)) for (const m of list) if (m.pending) m.pending = false;
     if (d.profile && d.profile.color) people.me.color = d.profile.color;
+    if (d.profile && d.profile.photo) people.me.photo = d.profile.photo;
   }
   const mockProfile = {
     get() { try { return JSON.parse(localStorage.getItem("tasca:mock-profile")) || {}; } catch { return {}; } },
@@ -325,7 +326,7 @@
       }
       else {
         const a = acct.get(); if (a && a.username) people.me.username = a.username;
-        const pr = mockProfile.get(); if (pr.color) people.me.color = pr.color;
+        const pr = mockProfile.get(); if (pr.color) people.me.color = pr.color; people.me.photo = pr.photo || null;
         if (a && a.displayName && unlocked) people.me.name = a.displayName;
       }
       return clone(people.me);
@@ -367,9 +368,10 @@
       const a = acct.get(); if (a) acct.set({ ...a, displayName: n });
       people.me.name = n; return n;
     },
-    async set_profile({ color }) {
-      people.me.color = color;
-      if (tauri) persist(); else mockProfile.set({ ...mockProfile.get(), color });
+    async set_profile({ color, photo }) {
+      if (color) people.me.color = color;
+      if (photo !== undefined) people.me.photo = photo || null;
+      if (tauri) persist(); else mockProfile.set({ ...mockProfile.get(), color: people.me.color, photo: people.me.photo });
       return clone(people.me);
     },
     async change_username({ newUsername, password }) {
