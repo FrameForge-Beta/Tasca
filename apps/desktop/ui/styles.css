@@ -1167,3 +1167,11 @@ body.has-titlebar .app.call { padding: 0; }
 .dock .me-btns { gap: 0; }
 .dock .me-btns .icon-btn { width: 27px; height: 36px; }
 .dock .me-who .who b { font-size: 13.5px; }
+
+/* ---------- sugestões próprias nos campos ---------- */
+.sugg-menu { position: fixed; }
+.sugg-opt { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.sugg-opt .dd-txt { flex: 1; min-width: 0; }
+.sugg-x { border: 0; background: none; color: var(--texto-3); font-size: 18px; line-height: 1; width: 24px; height: 24px; border-radius: 6px; cursor: pointer; }
+.sugg-x:hover { background: var(--caixa-2); color: var(--texto); }
+.sugg-opt:hover { background: var(--hover); }

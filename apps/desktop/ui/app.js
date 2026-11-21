@@ -321,7 +321,7 @@
     const speaking = S.voice && S.speaking.includes("me") && !S.muted;
     const pop = S.statusOpen ? `<div class="status-pop" role="menu">
         <div class="status-pop-head">${avatar(me)}<div><b>${esc(me.name)}</b><small class="${me.username ? "" : "mono"}">${me.username ? "@" + esc(me.username) : esc(shortKey(me.key))}</small></div></div>
-        <label class="status-custom" for="custom-status"><span>Mensagem de estado</span><input id="custom-status" maxlength="60" placeholder="Ex.: a jogar Mario Kart" value="${esc(S.customStatus || "")}"></label>
+        <label class="status-custom" for="custom-status"><span>Mensagem de estado</span><input id="custom-status" data-sugg="estado" maxlength="60" placeholder="Ex.: a jogar Mario Kart" value="${esc(S.customStatus || "")}"></label>
         ${STATUS.map(([k, l, d]) => `<button role="menuitemradio" aria-checked="${st === k}" class="${st === k ? "on" : ""}" data-status="${k}"><i class="st-dot ${k}">${FLOR}</i><span><b>${l}</b><small>${d}</small></span></button>`).join("")}
         <button data-act="copy-key" class="status-copy">${I.lock}<span><b>${me.username ? "Copiar o meu nome" : "Copiar a minha chave"}</b><small>Para alguém te adicionar ou verificar quem és.</small></span></button>
         <div class="status-acct">
@@ -833,13 +833,14 @@
     const cats = [...new Set(S.channels.map((x) => x.cat))];
     let kind = c ? c.kind : opts.kind || (opts.cat && /voz/i.test(opts.cat) ? "voice" : "text");
     const catDef = c ? c.cat : opts.cat || (kind === "voice" ? "Voz" : "Conversa");
+    if (window.tascaSugg) tascaSugg.source("categoria", () => cats);
     modal(`<h2>${c ? "Editar canal" : "Criar canal"}</h2>
       ${c ? "" : `<div class="field"><label>Tipo</label><div class="kind-pick" role="radiogroup" aria-label="Tipo de canal">
         <button type="button" role="radio" data-kind="text" class="${kind === "text" ? "on" : ""}" aria-checked="${kind === "text"}">${I.hash}<span><b>Texto</b><small>Mensagens, imagens e ficheiros.</small></span></button>
         <button type="button" role="radio" data-kind="voice" class="${kind === "voice" ? "on" : ""}" aria-checked="${kind === "voice"}">${I.speaker}<span><b>Voz</b><small>Falar, câmara e partilhar ecrã.</small></span></button></div></div>`}
       <div class="field"><label for="ch-name">Nome</label><div class="user-in"><span id="ch-ic">${kind === "voice" ? I.speaker : I.hash}</span><input class="input" id="ch-name" maxlength="40" value="${c ? esc(c.name) : ""}" placeholder="${kind === "voice" ? "Sala de estar" : "novo-canal"}"></div></div>
       <div class="field" id="ch-topic-f" ${kind === "voice" ? "hidden" : ""}><label for="ch-topic">Tema</label><input class="input" id="ch-topic" maxlength="120" value="${c ? esc(c.topic || "") : ""}" placeholder="Sobre o que se fala aqui"></div>
-      <div class="field"><label for="ch-cat">Categoria</label><input class="input" id="ch-cat" maxlength="24" list="ch-cats" value="${esc(catDef)}"><datalist id="ch-cats">${cats.map((x) => `<option value="${esc(x)}">`).join("")}</datalist><small style="color:var(--texto-3)">Escreve um nome novo para criar outra categoria.</small></div>
+      <div class="field"><label for="ch-cat">Categoria</label><input class="input" id="ch-cat" data-sugg="categoria" maxlength="24" value="${esc(catDef)}"><small style="color:var(--texto-3)">Escreve um nome novo para criar outra categoria.</small></div>
       ${c ? `<div class="field"><label>Ordem</label><div style="display:flex;gap:8px"><button type="button" class="btn ghost" data-move="-1">Subir</button><button type="button" class="btn ghost" data-move="1">Descer</button></div></div>` : ""}
       <p id="ch-err" style="color:var(--perigo)" hidden></p>
       <div class="actions">${c ? `<button class="btn danger" id="ch-del" style="margin-right:auto">Apagar canal</button>` : ""}<button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="ch-save">${c ? "Guardar" : "Criar canal"}</button></div>`,
@@ -1406,6 +1407,7 @@
       const p = await api.set_plugin_enabled({ id: t.dataset.pluginToggle, enabled: t.checked });
       Object.assign(S.plugins.find((x) => x.id === p.id), p); render(); return;
     }
+    if (t.id === "custom-status") { if (window.tascaSugg) tascaSugg.remember("estado", t.value); return; }
     if (t.id === "sideload" && t.files[0]) { toast(`«${t.files[0].name}» carregado. Revê as permissões antes de ativar.`); return; }
     if (t.dataset.setting && t.type === "checkbox" && t.dataset.setting.startsWith("perms.")) {
       await patch(pathPatch(t.dataset.setting, t.checked)); return applyPerm(t.dataset.setting.slice(6), t.checked);
