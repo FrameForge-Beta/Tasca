@@ -224,7 +224,7 @@
         const on = S.voice && S.voice.channelId === c.id;
         const ppl = (c.inVoice || []).map((id) => S.people[id]);
         return `<div class="chan-wrap ${isMuted(c.id) ? "muted" : ""}" ${drag(`data-drag-chan="${c.id}"`)}><button class="chan ${on && S.view === "voice" ? "on" : ""}" data-voice="${c.id}">${I.speaker}<span class="label">${esc(c.name)}</span>${ppl.length ? `<span class="pill" style="background:var(--caixa);color:var(--texto-2)">${ppl.length}</span>` : ""}</button>${editBtn(c)}</div>
-          ${ppl.length ? `<ul class="voice-people">${ppl.map((p) => `<li data-spk="${p.id}" class="${S.speaking.includes(p.id) && !(p.id === "me" && S.muted) ? "speaking" : ""}">${avatar(p, "")}${esc(p.name)}${p.id === "me" && S.muted ? `<span class="muted-ic">${I.micOff}</span>` : ""}</li>`).join("")}</ul>` : ""}`;
+          ${ppl.length ? `<ul class="voice-people">${ppl.map((p) => `<li data-spk="${p.id}" class="${S.speaking.includes(p.id) && !(p.id === "me" && S.muted) ? "speaking" : ""}">${avatar(p, "")}${esc(p.name)}${(p.id === "me" ? S.muted : S.voice && S.voice.channelId === c.id && S.voiceStates && S.voiceStates[p.id] && S.voiceStates[p.id].muted) ? `<span class="muted-ic">${I.micOff}</span>` : ""}</li>`).join("")}</ul>` : ""}`;
       }).join("")}`).join("");
     return `
       <div class="group-head"><span class="name">${esc(g.name)}</span>
@@ -696,7 +696,7 @@
   const termsVersion = () => (window.TASCA_TERMOS && window.TASCA_TERMOS.versao) || "";
   async function applyPerm(key, on) {
     if (key === "mic") {
-      if (!on) { stopVad(); stopMicMeter(); if (S.voice && !S.muted) { S.muted = true; api.set_voice_state({ muted: true, deaf: S.deaf }); } toast("Microfone desligado. Nas chamadas ficas só a ouvir."); }
+      if (!on) { if (api.isMock) stopVad(); else if (S.voice) startVad(); stopMicMeter(); if (S.voice && !S.muted) { S.muted = true; api.set_voice_state({ muted: true, deaf: S.deaf }); } toast("Microfone desligado. Nas chamadas ficas só a ouvir."); }
       else { if (S.voice) startVad(); toast("Microfone ligado."); }
     }
     if (key === "camera") {
@@ -1096,6 +1096,8 @@
 
   // Medidor do microfone nas definições: mostra o nível real da entrada escolhida.
   let meter = null;
+  // Nível de 0 a 100 de um pico (0 a 1): -60 dBFS ou menos é 0, 0 dBFS é 100 (igual ao Rust).
+  const micLevel = (pk) => (pk > 0 ? Math.max(0, Math.min(100, Math.round(((20 * Math.log10(pk) + 60) / 60) * 100))) : 0);
   function stopMicMeter() {
     if (!meter) return;
     cancelAnimationFrame(meter.raf); meter.stream.getTracks().forEach((t) => t.stop()); meter.ctx.close(); meter = null;
@@ -1116,7 +1118,7 @@
         let peak = 0; for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
         const el = document.getElementById("mic-meter");
         if (!el) return stopMicMeter();
-        const pct = Math.min(100, Math.round((peak / 128) * 160));
+        const pct = micLevel(peak / 128);
         el.style.width = pct + "%";
         el.classList.toggle("on", pct >= (S.settings.sensitivity ?? 40));
         meter.raf = requestAnimationFrame(tick);
@@ -1135,6 +1137,8 @@
       <div class="row"><div class="txt"><b>Sensibilidade do microfone</b><small>Fala para ver o nível. Abaixo da sensibilidade escolhida o microfone não transmite.</small><div class="meter mic" style="margin-top:8px"><i id="mic-meter" style="width:0%"></i></div></div><input class="range" style="max-width:200px" type="range" min="0" max="100" id="sensitivity" data-setting="sensitivity" value="${s.sensitivity}"></div>
       <div class="row"><div class="txt"><b>Carregar para falar</b><small>Só transmite enquanto carregas na tecla (V).</small></div>${sw("pushToTalk", s.pushToTalk, "Carregar para falar")}</div>
       <div class="row"><div class="txt"><b>Supressão de ruído</b><small>Remove ventoinhas e teclado. Corre no teu PC.</small></div>${sw("noiseSuppression", s.noiseSuppression, "Supressão de ruído")}</div>
+      ${s.noiseSuppression !== false ? `<div class="row"><div class="txt"><b>Modo da supressão</b><small>${s.noiseMode === "light" ? "Leve (RNNoise): gasta muito pouco, bom para PCs fracos." : "Forte (DeepFilterNet): tira mais ruído e soa mais natural."}</small></div>
+        <div class="seg" role="radiogroup" aria-label="Modo da supressão de ruído">${[["deep", "Forte"], ["light", "Leve"]].map(([k, l]) => `<button role="radio" aria-checked="${(s.noiseMode || "deep") === k}" class="${(s.noiseMode || "deep") === k ? "on" : ""}" data-noise-mode="${k}">${l}</button>`).join("")}</div></div>` : ""}
       <div class="row"><div class="txt"><b>Cancelamento de eco</b></div>${sw("echoCancel", s.echoCancel, "Cancelamento de eco")}</div>
       <div class="row"><div class="txt"><b>Sons da chamada</b><small>Entrar e sair, microfone, som e partilha de ecrã.</small></div>
         <button class="btn ghost" data-act="test-sound">Ouvir</button>${sw("callSounds", S.settings.callSounds !== false, "Sons da chamada")}</div>
@@ -1325,9 +1329,14 @@
   async function joinVoice(id) {
     if (S.voice && S.voice.channelId === id) { S.view = "voice"; S.navOpen = false; render(); return; }
     if (S.voice) sfx.leave();
-    const info = await api.join_voice({ channelId: id });
+    let info;
+    try { info = await api.join_voice({ channelId: id, noise: noiseMode(), sensitivity: S.settings.sensitivity ?? 40 }); }
+    catch (e) { return toast(String(e.message || e)); }
     sfx.join();
     S.voice = { channelId: id, groupId: S.groupId, ...info };
+    S.voiceStates = {};
+    if (S.muted || S.deaf) api.set_voice_state({ muted: S.muted, deaf: S.deaf });
+    applyUserVolumes();
     if (!micAllowed()) { S.muted = true; api.set_voice_state({ muted: true, deaf: S.deaf }); toast("Entraste só a ouvir: o microfone está desligado nas permissões."); }
     startVad();
     S.channels = await api.list_channels({ groupId: S.groupId });
@@ -1360,7 +1369,27 @@
     sfx.setVolume(S.settings.soundVolume ?? 0.6);
     if (sfx.setOutput) sfx.setOutput(S.settings.outputDevice);
   }
-  async function patch(p) { S.settings = await api.set_settings({ patch: p }); }
+  async function patch(p) { S.settings = await api.set_settings({ patch: p }); voiceSettingsChanged(p); }
+  // supressão de ruído: "deep" (DeepFilterNet), "light" (RNNoise) ou "off"
+  const noiseMode = () => (S.settings.noiseSuppression === false ? "off" : S.settings.noiseMode === "light" ? "light" : "deep");
+  // Volume e silêncio de cada pessoa só para ti (definidos no menu de cada membro).
+  function applyUserVolumes() {
+    if (!S.voice || api.isMock) return;
+    const vol = S.settings.userVolume || {}, mut = S.settings.userMuted || {};
+    for (const id of new Set([...Object.keys(vol), ...Object.keys(mut)])) {
+      api.set_user_volume({ userId: id, volume: mut[id] ? 0 : (vol[id] ?? 100) / 100 }).catch(() => {});
+    }
+  }
+  // Definições mudadas a meio de uma chamada.
+  function voiceSettingsChanged(p) {
+    if (!S.voice || api.isMock || !p) return;
+    if ("inputDevice" in p || "outputDevice" in p || "echoCancel" in p) startVad();
+    if ("noiseSuppression" in p || "noiseMode" in p || "sensitivity" in p) {
+      api.set_voice_options({ noise: noiseMode(), sensitivity: S.settings.sensitivity ?? 40 }).catch(() => {});
+      if ("noiseSuppression" in p) startVad(); // a do sistema liga-se quando a nossa está desligada
+    }
+    if ("userVolume" in p || "userMuted" in p) applyUserVolumes();
+  }
   function pathPatch(path, value) {
     const keys = path.split("."); const out = {}; let o = out;
     keys.forEach((k, i) => { if (i === keys.length - 1) o[k] = value; else o = o[k] = {}; });
@@ -1625,6 +1654,21 @@
     const m = S.messages.find((x) => x.id === id);
     if (m && channelId === S.channelId) { m.pending = false; m.failed = true; if (S.view === "chat") rerenderKeepInput(); }
   });
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-noise-mode]");
+    if (!b) return;
+    await patch({ noiseMode: b.dataset.noiseMode }); render();
+  });
+  // Carregar para falar: só transmite enquanto a tecla V estiver carregada (com a Tasca à frente).
+  let pttDown = false;
+  const typing = (t) => t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+  window.addEventListener("keydown", (e) => { if ((e.key === "v" || e.key === "V") && !typing(e.target)) pttDown = true; });
+  window.addEventListener("keyup", (e) => { if (e.key === "v" || e.key === "V") pttDown = false; });
+  window.addEventListener("blur", () => { pttDown = false; });
+  if (window.vozAudio) {
+    vozAudio.transmit = () => !S.muted && !S.deaf && (!S.settings.pushToTalk || pttDown);
+    vozAudio.onFrame = ({ speaking }) => { if (speaking !== meSpeaking) { meSpeaking = speaking; applySpeaking(); } };
+  }
   document.addEventListener("keydown", (e) => {
     if (e.target.id === "msg-input" && e.key === "Enter" && !e.shiftKey) {
       e.preventDefault(); e.target.form.requestSubmit();
@@ -1743,8 +1787,31 @@
     remoteSpeaking = api.isMock ? speaking : speaking.filter((x) => x !== "me");
     applySpeaking();
   });
+  // Estado da ligação da chamada (ping, rota) e quem está sem microfone ou sem som.
+  api.on("voice_status", (st) => {
+    if (!S.voice) return;
+    const antes = S.voice.connected;
+    Object.assign(S.voice, { ping: st.ping, route: st.route, connected: st.connected });
+    if (antes !== undefined && antes !== st.connected) {
+      toast(st.connected ? "Voltaste a ligar à chamada." : "Perdeste a ligação à chamada. A tentar outra vez…");
+      rerenderKeepInput();
+    }
+  });
+  api.on("voice_members", ({ channelId, members }) => {
+    if (!S.voice || S.voice.channelId !== channelId) return;
+    S.voiceStates = Object.fromEntries(members.filter((m) => m.id !== "me").map((m) => [m.id, m]));
+    if (S.view !== "chat") rerenderKeepInput();
+  });
   const vad = { stream: null, ctx: null, timer: 0, lastLoud: 0 };
   async function startVad() {
+    // Na app instalada, o áudio da chamada (microfone e colunas) corre em voz.js.
+    if (!api.isMock && window.vozAudio) {
+      if (!S.voice) return;
+      return vozAudio.start({
+        inputDevice: S.settings.inputDevice, outputDevice: S.settings.outputDevice,
+        echoCancel: S.settings.echoCancel, noise: noiseMode(), mic: micAllowed(),
+      }).catch((e) => { console.warn(e); toast("Não consegui ligar o som da chamada."); });
+    }
     stopVad();
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !micAllowed()) return;
     const dev = S.settings.inputDevice;
@@ -1761,7 +1828,7 @@
       vad.timer = setInterval(() => {
         an.getByteTimeDomainData(buf);
         let peak = 0; for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
-        const level = Math.min(100, Math.round((peak / 128) * 160));
+        const level = micLevel(peak / 128);
         const now = Date.now();
         if (level >= (S.settings.sensitivity ?? 40)) vad.lastLoud = now;
         const on = !S.muted && !S.deaf && now - vad.lastLoud < 300; // fica aceso um pouco depois de parares
@@ -1770,6 +1837,7 @@
     } catch (x) { console.warn("microfone indisponível:", x); }
   }
   function stopVad() {
+    if (!api.isMock && window.vozAudio) vozAudio.stop();
     clearInterval(vad.timer);
     if (vad.stream) vad.stream.getTracks().forEach((t) => t.stop());
     if (vad.ctx) vad.ctx.close().catch(() => {});

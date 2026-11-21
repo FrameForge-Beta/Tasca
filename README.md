@@ -66,8 +66,9 @@ cargo test
 ## Plano
 
 1. ✅ Núcleo de rede: grupos, convites, texto e histórico
-2. Aplicação desktop (Tauri) para Windows
-3. Chamadas de voz
+2. ✅ Aplicação desktop (Tauri) para Windows
+3. ✅ Chamadas de voz: Opus, o anfitrião reencaminha o áudio, supressão de ruído com
+   DeepFilterNet (ou RNNoise no modo leve). Câmara e partilha de ecrã pela rede vêm a seguir.
 4. Loja de plugins com aprovação da equipa
 
 ## Licença

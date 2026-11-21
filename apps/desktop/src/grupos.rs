@@ -46,8 +46,6 @@ pub(crate) struct Ativa {
     servidor: bool,
     ligacoes: StdMutex<HashMap<GroupId, Ligacao>>,
     tarefas: StdMutex<Vec<JoinHandle<()>>>,
-    /// Sala de voz onde estou (grupo, id do canal).
-    voz: StdMutex<Option<(GroupId, String)>>,
 }
 
 struct Ligacao {
@@ -85,7 +83,7 @@ fn grupo(id: &str) -> Res<GroupId> {
 }
 
 /// `<grupo>/<canal>` → (grupo, canal).
-fn canal(id: &str) -> Res<(GroupId, String)> {
+pub(crate) fn canal(id: &str) -> Res<(GroupId, String)> {
     let (g, c) = id.split_once('/').ok_or("Canal desconhecido.")?;
     Ok((grupo(g)?, c.to_string()))
 }
@@ -106,7 +104,7 @@ impl Ativa {
         *chave == self.conta
     }
 
-    fn pessoa_id(&self, chave: &[u8; 32]) -> String {
+    pub(crate) fn pessoa_id(&self, chave: &[u8; 32]) -> String {
         if self.eu(chave) { "me".into() } else { hex(chave) }
     }
 
@@ -222,11 +220,6 @@ impl Ativa {
             };
             espera = 3;
             self.definir(app, g, h.clone(), true);
-            // estava numa sala deste grupo: diz outra vez ao anfitrião
-            let sala = self.voz.lock().unwrap().clone().filter(|(vg, _)| *vg == g).map(|(_, c)| c);
-            if sala.is_some() {
-                let _ = h.set_voice(sala).await;
-            }
             h.disconnected().await;
             if let Ok(off) = self.node.open_offline(g) {
                 self.definir(app, g, off, false);
@@ -382,7 +375,6 @@ pub(crate) async fn ativa(app: &AppHandle, rede: &Rede, contas: &Contas) -> Res<
         servidor: tem_servidor,
         ligacoes: Default::default(),
         tarefas: Default::default(),
-        voz: Default::default(),
     });
     for info in a.node.with_store(|s| s.groups()).map_err(txt)? {
         if let Err(e) = a.arrancar(app, info.id, None) {
@@ -927,33 +919,6 @@ pub async fn reorder_channels(
 }
 
 // ---------------- presença e perfil ----------------
-
-/// Entra numa sala de voz (por agora só avisa o grupo de que estás lá; o som é outra tarefa).
-#[tauri::command]
-pub async fn join_voice(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>, channel_id: String) -> Res<bool> {
-    let a = ativa(&app, &rede, &c).await?;
-    let (g, ch) = canal(&channel_id)?;
-    let antes = a.voz.lock().unwrap().replace((g, ch.clone()));
-    if let Some((vg, _)) = antes.filter(|(vg, _)| *vg != g) {
-        if let Ok(h) = a.handle(vg) {
-            let _ = h.set_voice(None).await;
-        }
-    }
-    a.handle(g)?.set_voice(Some(ch)).await.map_err(txt)?;
-    Ok(true)
-}
-
-#[tauri::command]
-pub async fn leave_voice(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>) -> Res<bool> {
-    let a = ativa(&app, &rede, &c).await?;
-    let antes = a.voz.lock().unwrap().take();
-    if let Some((g, _)) = antes {
-        if let Ok(h) = a.handle(g) {
-            let _ = h.set_voice(None).await;
-        }
-    }
-    Ok(true)
-}
 
 /// Publica o teu perfil (nome da conta, cor e foto) nos grupos onde ainda está diferente.
 #[tauri::command]
