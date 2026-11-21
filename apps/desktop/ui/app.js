@@ -115,7 +115,7 @@
       (S.navOpen ? " show-nav" : "") + (S.membersOpen ? " show-members" : "") +
       (S.view === "voice" && !S.callSidebar ? " call" : "");
     $("#rail").innerHTML = renderRail();
-    const tbp = document.getElementById("tb-plugins"); if (tbp) tbp.classList.toggle("on", S.view === "plugins");
+    const tbp = document.getElementById("tb-plugins"); if (tbp) tbp.classList.toggle("on", S.view === "settings" && S.settingsTab === "plugins");
     document.body.classList.add("ready");
     $("#sidebar").innerHTML = S.view === "settings" ? "" : renderSidebar();
     $("#sidebar").hidden = S.view === "settings";
@@ -152,15 +152,6 @@
   }
 
   function renderSidebar() {
-    if (S.view === "plugins") {
-      return `<div class="group-head"><span class="name">Plugins</span></div>
-        <div class="channels">
-          <div class="cat"><span>Loja</span></div>
-          ${[["loja", "Explorar", I.search], ["instalados", "Instalados", I.puzzle], ["carregar", "Carregar ficheiro", I.upload]].map(([k, l, ic]) =>
-            `<button class="chan ${S.pluginTab === k ? "on" : ""}" data-plugin-tab="${k}">${ic}<span class="label">${l}</span></button>`).join("")}
-          <div class="host-card" style="margin-top:16px"><i class="led" style="background:var(--oliva)"></i><b>Como funciona a verificação</b><span>Cada plugin da loja é revisto pela equipa e assinado. A Tasca confirma a assinatura antes de instalar.</span></div>
-        </div>${renderMe()}`;
-    }
     if (S.home) return renderDmSidebar();
     const g = group();
     if (!g) return "";
@@ -302,7 +293,6 @@
   }
 
   function renderMain() {
-    if (S.view === "plugins") return renderPlugins();
     if (S.view === "settings") return renderSettings();
     if (S.view === "voice") return renderVoice();
     return renderChat();
@@ -579,27 +569,24 @@
       body = list.length ? `<div class="plugins">${list.map(pluginCard).join("")}</div>` : `<p class="lede">Nenhum plugin corresponde a «${esc(S.pluginQuery)}».</p>`;
     }
     return `
-      <div class="main-head">${menuBtn()}<span class="title">${I.puzzle}Plugins</span><span class="topic">Catálogo no GitHub, revisto e assinado pela equipa</span></div>
-      <div class="page"><div class="page-inner">
-        <div style="display:grid;gap:6px"><h1>Plugins</h1><p class="lede">Junta funcionalidades à tua Tasca. Os plugins com o selo <span class="verified">${I.check}Verificado</span> foram revistos pela equipa e a assinatura é confirmada antes de instalar.</p></div>
+        <p class="lede">Junta funcionalidades à tua Tasca. Os plugins com o selo <span class="verified">${I.check}Verificado</span> foram revistos pela equipa e a assinatura é confirmada antes de instalar.</p>
         <div class="tabs" role="tablist">
           <button class="tab ${S.pluginTab === "loja" ? "on" : ""}" data-plugin-tab="loja">Explorar<span class="n">${S.plugins.length}</span></button>
           <button class="tab ${S.pluginTab === "instalados" ? "on" : ""}" data-plugin-tab="instalados">Instalados<span class="n">${nInst}</span></button>
           <button class="tab ${S.pluginTab === "carregar" ? "on" : ""}" data-plugin-tab="carregar">Carregar ficheiro</button>
         </div>
         ${S.pluginTab !== "carregar" ? `<div class="toolbar"><div class="search">${I.search}<label class="sr" for="plugin-q">Procurar plugins</label><input id="plugin-q" placeholder="Procurar plugins" value="${esc(S.pluginQuery)}"></div></div>` : ""}
-        ${body}
-      </div></div>`;
+        ${body}`;
   }
 
   // ---------------- definições ----------------
   const SET_TABS = [
     ["Utilizador", [["conta", "A minha conta"], ["aparencia", "Aparência"], ["voz", "Voz e vídeo"]]],
-    ["Tasca", [["rede", "Rede e relay"], ["backups", "Cópias de segurança"], ["grupos", "Grupos que aloja"], ["sobre", "Sobre"]]],
+    ["Tasca", [["plugins", "Plugins"], ["rede", "Rede e relay"], ["backups", "Cópias de segurança"], ["grupos", "Grupos que aloja"], ["sobre", "Sobre"]]],
   ];
   function renderSettings() {
     const nav = SET_TABS.map(([cat, items]) => `<div class="cat"><span>${cat}</span></div>${items.map(([k, l]) => `<button class="${S.settingsTab === k ? "on" : ""}" data-set-tab="${k}">${l}</button>`).join("")}`).join("");
-    const T = { conta: setConta, aparencia: setAparencia, voz: setVoz, rede: setRede, backups: setBackups, grupos: setGrupos, sobre: setSobre }[S.settingsTab];
+    const T = { plugins: renderPlugins, conta: setConta, aparencia: setAparencia, voz: setVoz, rede: setRede, backups: setBackups, grupos: setGrupos, sobre: setSobre }[S.settingsTab];
     return `<div class="settings">
       <nav aria-label="Secções das definições">${nav}</nav>
       <div class="page"><div class="page-inner">
@@ -977,7 +964,10 @@
       case "dm-call": case "dm-video": return toast("Chamadas privadas: em breve. Vão diretamente entre os dois PCs.");
       case "new-dm": return toast("Escolhe alguém da lista de membros de um grupo para começar a conversar.");
       case "new-group": return openNewGroup();
-      case "plugins": S.view = "plugins"; S.navOpen = window.innerWidth <= 720 ? S.navOpen : false; return render();
+      case "plugins":
+        // os plugins vivem nas definições; carregar outra vez no puzzle fecha
+        if (S.view === "settings" && S.settingsTab === "plugins") { S.view = S.prevView || "chat"; return render(); }
+        S.prevView = S.view === "settings" ? S.prevView : S.view; S.settingsTab = "plugins"; S.view = "settings"; S.navOpen = false; return render();
       case "settings": S.prevView = S.view === "settings" ? S.prevView : S.view; S.view = "settings"; S.navOpen = false; return render();
       case "settings-voz": S.prevView = S.view; S.settingsTab = "voz"; S.view = "settings"; return render();
       case "close-settings": S.view = S.prevView || "chat"; return render();
@@ -1149,7 +1139,7 @@
     S.speaking = speaking;
     if (S.voice || S.view === "chat") {
       if (S.view === "voice" && !document.fullscreenElement) { $("#main").innerHTML = renderVoice(); fitCallGrid(); }
-      if (S.view !== "settings" && S.view !== "plugins" && !(S.home && !S.voice) && document.activeElement?.id !== "dm-q" && !S.statusOpen) {
+      if (S.view !== "settings" && !(S.home && !S.voice) && document.activeElement?.id !== "dm-q" && !S.statusOpen) {
         const ch = $(".channels"); const st = ch ? ch.scrollTop : 0;
         $("#sidebar").innerHTML = renderSidebar();
         const ch2 = $(".channels"); if (ch2) ch2.scrollTop = st;
