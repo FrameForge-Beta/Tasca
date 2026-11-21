@@ -189,6 +189,49 @@ mod client {
             bail!("{msg}")
         }
 
+        /// Testa a ligação ao servidor passo a passo (DNS, TCP, HTTPS) e devolve o que viu.
+        /// Serve para perceber porque é que um aparelho não chega ao servidor.
+        pub async fn diagnostico(&self) -> Vec<String> {
+            use std::time::Instant;
+            let mut out = vec![format!("Servidor: {}", self.base)];
+            let host = self.base.host_str().unwrap_or_default().to_string();
+            let port = self.base.port_or_known_default().unwrap_or(443);
+            let t = Instant::now();
+            let ips: Vec<std::net::SocketAddr> =
+                match tokio::time::timeout(Duration::from_secs(10), tokio::net::lookup_host((host.as_str(), port))).await {
+                    Ok(Ok(a)) => {
+                        let v: Vec<_> = a.collect();
+                        out.push(format!("DNS: {:?} ({} ms)", v, t.elapsed().as_millis()));
+                        v
+                    }
+                    Ok(Err(e)) => {
+                        out.push(format!("DNS: erro {e} ({} ms)", t.elapsed().as_millis()));
+                        vec![]
+                    }
+                    Err(_) => {
+                        out.push("DNS: sem resposta em 10 s".into());
+                        vec![]
+                    }
+                };
+            for a in ips.iter().take(3) {
+                let t = Instant::now();
+                let r = tokio::time::timeout(Duration::from_secs(8), tokio::net::TcpStream::connect(a)).await;
+                out.push(match r {
+                    Ok(Ok(_)) => format!("TCP {a}: ok ({} ms)", t.elapsed().as_millis()),
+                    Ok(Err(e)) => format!("TCP {a}: erro {e} ({} ms)", t.elapsed().as_millis()),
+                    Err(_) => format!("TCP {a}: sem resposta em 8 s"),
+                });
+            }
+            let t = Instant::now();
+            let r = tokio::time::timeout(Duration::from_secs(15), self.http.get(self.url("saude")).send()).await;
+            out.push(match r {
+                Ok(Ok(resp)) => format!("HTTPS /saude: {} ({} ms)", resp.status(), t.elapsed().as_millis()),
+                Ok(Err(e)) => format!("HTTPS /saude: {e:?} ({} ms)", t.elapsed().as_millis()),
+                Err(_) => "HTTPS /saude: sem resposta em 15 s".into(),
+            });
+            out
+        }
+
         /// Cria a conta no servidor com o cofre já fechado com a palavra-passe.
         pub async fn register(&self, username: &str, password: &str, vault: &Vault) -> Result<()> {
             let username = normalize_username(username)?;

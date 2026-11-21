@@ -133,6 +133,7 @@ pub fn run() {
             contas::username_available,
             contas::server_register,
             contas::server_login,
+            contas::server_diagnostics,
             contas::save_phrase_desktop,
             contas::list_accounts,
             contas::select_account,

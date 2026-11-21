@@ -45,6 +45,22 @@
     const e = root.querySelector(".auth-err");
     if (e) { e.textContent = msg; e.hidden = !msg; }
   }
+  // Quando não liga ao servidor: botão que testa DNS, TCP e HTTPS e mostra o resultado.
+  function diagnostico() {
+    const e = root.querySelector(".auth-err");
+    if (!e || root.querySelector(".auth-diag")) return;
+    const box = document.createElement("div");
+    box.className = "auth-diag";
+    box.innerHTML = `<button type="button" class="linkish">Ver diagnóstico da ligação</button><pre hidden></pre>`;
+    e.after(box);
+    const pre = box.querySelector("pre");
+    box.querySelector("button").onclick = async (ev) => {
+      ev.target.disabled = true; pre.hidden = false; pre.textContent = "A testar…";
+      try { pre.textContent = (await api.server_diagnostics()).join("\n"); }
+      catch (x) { pre.textContent = String(x.message || x); }
+      ev.target.disabled = false;
+    };
+  }
   function busy(btn, on, label) {
     btn.disabled = on;
     if (on) { btn.dataset.l = btn.textContent; btn.textContent = label; } else if (btn.dataset.l) btn.textContent = btn.dataset.l;
@@ -435,7 +451,9 @@
         }
       } catch (x) {
         busy(btn, false);
-        err(String(x.message || x));
+        const msg = String(x.message || x);
+        err(msg);
+        if (/ligar ao servidor/i.test(msg)) diagnostico();
       }
     });
   }
