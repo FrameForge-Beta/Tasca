@@ -150,7 +150,7 @@ mod client {
             let base = url::Url::parse(url).context("endereço do servidor inválido")?;
             let local = matches!(base.host_str(), Some("localhost" | "127.0.0.1" | "::1"));
             ensure!(base.scheme() == "https" || local, "o servidor de contas tem de usar https://");
-            let http = reqwest::Client::builder().timeout(Duration::from_secs(20)).build()?;
+            let http = crate::http_builder().timeout(Duration::from_secs(20)).build()?;
             Ok(Self { base, http })
         }
 

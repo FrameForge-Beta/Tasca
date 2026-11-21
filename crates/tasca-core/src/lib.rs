@@ -17,6 +17,23 @@ pub mod servidor;
 pub mod store;
 pub mod voz;
 
+/// Cliente HTTPS para o servidor de contas e o Google.
+///
+/// No Android não se usa o verificador de certificados do sistema (precisa de uma parte
+/// Kotlin ligada à JVM, e sem ela o primeiro pedido falhava e o login ficava pendurado):
+/// usa-se a lista de autoridades de certificação da Mozilla, embutida na app.
+#[cfg(any(feature = "google", feature = "servidor"))]
+pub(crate) fn http_builder() -> reqwest::ClientBuilder {
+    let b = reqwest::Client::builder();
+    #[cfg(target_os = "android")]
+    let b = b.tls_certs_only(
+        webpki_root_certs::TLS_SERVER_ROOT_CERTS
+            .iter()
+            .filter_map(|c| reqwest::Certificate::from_der(c).ok()),
+    );
+    b
+}
+
 pub use caixa::ChaveCaixa;
 pub use account::{Account, AccountStore, RecoveryPhrase, Vault};
 pub use event::{ChannelDef, ChannelKind, EventKind, GroupId, SignedEvent};

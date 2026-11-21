@@ -308,7 +308,7 @@ impl GoogleSession {
 }
 
 fn http_client() -> Result<reqwest::Client> {
-    Ok(reqwest::Client::builder()
+    Ok(crate::http_builder()
         .timeout(Duration::from_secs(30))
         .build()?)
 }
