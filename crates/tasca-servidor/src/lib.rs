@@ -24,7 +24,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use tasca_core::{
     Vault,
     servidor::{
-        ErrorBody, LoginRequest, LoginResponse, RegisterRequest, UpdateRequest, UserInfo, b64,
+        ErrorBody, LoginRequest, LoginResponse, RegisterRequest, RenameRequest, UpdateRequest, UserInfo, b64,
         normalize_username, parse_key_hex, unb64,
     },
 };
@@ -128,6 +128,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/registar", post(register))
         .route("/v1/entrar", post(login))
         .route("/v1/cofre", post(update))
+        .route("/v1/renomear", post(rename))
         .route("/v1/utilizador/{nome}", get(lookup))
         .route("/v1/caixas/{id}", get(caixas::ler).post(caixas::escrever))
         .layer(DefaultBodyLimit::max(tasca_core::caixa::MAX_BLOCO))
@@ -321,6 +322,34 @@ async fn update(State(st): State<AppState>, Json(req): Json<UpdateRequest>) -> R
         }
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn rename(State(st): State<AppState>, Json(req): Json<RenameRequest>) -> Result<StatusCode, ApiError> {
+    let username = normalize_username(&req.username).map_err(|_| wrong_login())?;
+    let new_username = normalize_username(&req.new_username).map_err(bad)?;
+    authenticate(&st, &username, &req.login_key)?;
+    if new_username == username {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    let new_key = parse_key_hex(&req.new_login_key).map_err(bad)?;
+    let mut salt = [0u8; 16];
+    getrandom::fill(&mut salt).map_err(internal)?;
+    let ver = verifier(&new_key, &salt)?;
+    let db = st.db.lock().unwrap();
+    let res = db.execute(
+        "UPDATE contas SET utilizador = ?2, sal = ?3, verificador = ?4, atualizada = ?5 WHERE utilizador = ?1",
+        params![username, new_username, salt, ver, now()],
+    );
+    match res {
+        Ok(_) => {
+            info!("conta renomeada: {username} -> {new_username}");
+            Ok(StatusCode::NO_CONTENT)
+        }
+        Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::ConstraintViolation => {
+            Err(ApiError(StatusCode::CONFLICT, "Esse nome de utilizador já está ocupado.".into()))
+        }
+        Err(e) => Err(internal(e)),
+    }
 }
 
 async fn lookup(State(st): State<AppState>, UrlPath(nome): UrlPath<String>) -> Result<Json<UserInfo>, ApiError> {

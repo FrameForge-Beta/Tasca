@@ -12,6 +12,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-updater = "2"
 tauri-plugin-opener = "2"
+tauri-plugin-autostart = "2"
 tasca-core = { path = "../../crates/tasca-core" }
 anyhow = "1"
 zeroize = "1"

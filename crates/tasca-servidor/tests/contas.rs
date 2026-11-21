@@ -49,6 +49,17 @@ async fn registar_entrar_mudar_palavra_passe() {
 
     // Não se pode trocar o cofre por um de outra conta.
     assert!(srv.update("tiago", novo, None, &outra.seal(novo).unwrap()).await.is_err());
+
+    // Mudar o nome: o antigo fica livre, entra-se com o novo e a mesma palavra-passe.
+    srv.register("outro", pw, &outra.seal(pw).unwrap()).await.unwrap();
+    let err = srv.rename("tiago", "outro", novo).await.unwrap_err();
+    assert!(err.to_string().contains("ocupado"), "{err}");
+    assert!(srv.rename("tiago", "tiagof", "palavra-passe errada!!").await.is_err());
+    assert_eq!(srv.rename("tiago", "TiagoF", novo).await.unwrap(), "tiagof");
+    assert!(srv.login("tiago", novo).await.is_err());
+    assert!(srv.lookup("tiago").await.unwrap().is_none());
+    let (_, a) = srv.login("tiagof", novo).await.unwrap();
+    assert_eq!(a.identity.public(), conta.identity.public());
 }
 
 #[tokio::test]
