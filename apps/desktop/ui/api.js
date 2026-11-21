@@ -13,9 +13,11 @@
 //   list_dms, create_group, join_group, create_invite, join_voice, leave_voice, set_voice_state,
 //   set_camera, list_capture_sources, start_screen_share, stop_screen_share,
 //   list_plugins, set_plugin_enabled, install_plugin, get_settings, set_settings,
-//   run_backup, list_backups, transfer_ownership
+//   run_backup, list_backups, transfer_ownership,
+//   list_friends, send_friend_request, accept_friend, decline_friend, cancel_friend, remove_friend,
+//   block_user, unblock_user, set_presence, list_dm_messages, send_dm, close_dm (amigos.rs, dms.rs)
 // Eventos: "message", "message_ack", "group_changed", "host_status", "typing", "voice_activity",
-//   "video_track", "backup_progress"
+//   "video_track", "backup_progress", "friends_changed", "friend_request", "friend_presence", "dms_changed"
 //
 // Na app instalada, grupos, canais, membros e mensagens vêm do núcleo (apps/desktop/src/grupos.rs);
 // ver `real` mais abaixo. Voz, plugins, conversas privadas e cópias ainda são simulados.
@@ -26,13 +28,13 @@
   // ---------------- dados de teste ----------------
   const people = {
     me:   { id: "me",   name: "Tiago",    color: "#9B2C3F", key: "ed25519:7Hk2…Qp9x", status: "online" },
-    rui:  { id: "rui",  name: "Rui",      color: "#2A5CAA", key: "ed25519:Rm4c…1aZe", status: "online" },
-    ines: { id: "ines", name: "Inês",     color: "#5E8C4A", key: "ed25519:In8s…v0Lk", status: "online" },
-    marta:{ id: "marta",name: "Marta",    color: "#B8791A", key: "ed25519:Mt2a…9cWw", status: "away" },
-    joao: { id: "joao", name: "João",     color: "#6B4C9A", key: "ed25519:Jo5a…oR3t", status: "online" },
-    bia:  { id: "bia",  name: "Beatriz",  color: "#2E7D7A", key: "ed25519:Bz7t…ee1Q", status: "offline" },
-    diogo:{ id: "diogo",name: "Diogo",    color: "#7A3B2E", key: "ed25519:Dg0o…Hh2s", status: "offline" },
-    carol:{ id: "carol",name: "Carolina", color: "#4A6FA5", key: "ed25519:Cr1l…xx8p", status: "online" },
+    rui:  { id: "rui",  name: "Rui",      color: "#2A5CAA", key: "ed25519:Rm4c…1aZe", status: "online", username: "rui.dev", bio: "Anfitrião da Malta. Rust e cafés." },
+    ines: { id: "ines", name: "Inês",     color: "#5E8C4A", key: "ed25519:In8s…v0Lk", status: "online", username: "ines_m", bio: "🎧 sempre em chamada" },
+    marta:{ id: "marta",name: "Marta",    color: "#B8791A", key: "ed25519:Mt2a…9cWw", status: "away", username: "marta_cx", bio: "Xadrez às quintas." },
+    joao: { id: "joao", name: "João",     color: "#6B4C9A", key: "ed25519:Jo5a…oR3t", status: "online", username: "joaozinho", bio: "" },
+    bia:  { id: "bia",  name: "Beatriz",  color: "#2E7D7A", key: "ed25519:Bz7t…ee1Q", status: "offline", username: "bia.t", bio: "" },
+    diogo:{ id: "diogo",name: "Diogo",    color: "#7A3B2E", key: "ed25519:Dg0o…Hh2s", status: "offline", username: "diogo", bio: "" },
+    carol:{ id: "carol",name: "Carolina", color: "#4A6FA5", key: "ed25519:Cr1l…xx8p", status: "online", username: "carol", bio: "Fotografia e viagens." },
     bot:  { id: "bot",  name: "Lembretes",color: "#2A5CAA", key: "plugin:lembretes", status: "online", bot: true },
   };
 
@@ -175,6 +177,18 @@
       perms: ["aparência"], installs: "3,0 mil" },
   ];
 
+  // amigos (teste): rel = amigo | enviado | recebido | bloqueado
+  const DAY = 86400000;
+  const friends = [
+    { id: "rui", rel: "amigo", since: Date.now() - 400 * DAY },
+    { id: "ines", rel: "amigo", since: Date.now() - 120 * DAY },
+    { id: "marta", rel: "amigo", since: Date.now() - 30 * DAY },
+    { id: "bia", rel: "amigo", since: Date.now() - 9 * DAY },
+    { id: "carol", rel: "recebido", since: Date.now() - 3600000 },
+    { id: "diogo", rel: "enviado", since: Date.now() - 2 * DAY },
+  ];
+  people.ines.statusText = "a jogar Mario Kart";
+
   const settings = {
     theme: "dark",
     fontSize: 15,
@@ -208,7 +222,7 @@
   if (tauri) {
     for (const k of Object.keys(people)) if (k !== "me") delete people[k];
     Object.assign(people.me, { name: "Eu", key: "" });
-    groups.length = 0; dms.length = 0;
+    groups.length = 0; dms.length = 0; friends.length = 0;
     for (const o of [channels, cats, members, messages]) for (const k of Object.keys(o)) delete o[k];
   }
 
@@ -218,7 +232,7 @@
   let localKey = null;
   function persist() {
     if (!tauri || !localKey) return;
-    try { localStorage.setItem("tasca:local:" + localKey, JSON.stringify({ v: 2, profile: { color: people.me.color, photo: people.me.photo || null } })); } catch {}
+    try { localStorage.setItem("tasca:local:" + localKey, JSON.stringify({ v: 2, profile: { color: people.me.color, photo: people.me.photo || null, bio: people.me.bio || "", banner: people.me.banner || null } })); } catch {}
   }
   async function loadLocal(key) {
     if (!tauri || !key || localKey === key) return;
@@ -227,6 +241,8 @@
     if (!d) return;
     if (d.profile && d.profile.color) people.me.color = d.profile.color;
     if (d.profile && d.profile.photo) people.me.photo = d.profile.photo;
+    if (d.profile && d.profile.bio) people.me.bio = d.profile.bio;
+    if (d.profile && d.profile.banner) people.me.banner = d.profile.banner;
     if (d.v !== 2) {
       for (const g of d.groups || []) {
         if (g.owner !== "me") continue;
@@ -339,6 +355,7 @@
       else {
         const a = acct.get(); if (a && a.username) people.me.username = a.username;
         const pr = mockProfile.get(); if (pr.color) people.me.color = pr.color; people.me.photo = pr.photo || null;
+        people.me.bio = pr.bio || ""; people.me.banner = pr.banner || null;
         if (a && a.displayName && unlocked) people.me.name = a.displayName;
       }
       return clone(people.me);
@@ -380,10 +397,12 @@
       const a = acct.get(); if (a) acct.set({ ...a, displayName: n });
       people.me.name = n; return n;
     },
-    async set_profile({ color, photo }) {
+    async set_profile({ color, photo, bio, banner }) {
       if (color) people.me.color = color;
       if (photo !== undefined) people.me.photo = photo || null;
-      if (tauri) persist(); else mockProfile.set({ ...mockProfile.get(), color: people.me.color, photo: people.me.photo });
+      if (bio !== undefined) people.me.bio = String(bio || "").slice(0, 190);
+      if (banner !== undefined) people.me.banner = banner || null;
+      if (tauri) persist(); else mockProfile.set({ ...mockProfile.get(), color: people.me.color, photo: people.me.photo, bio: people.me.bio, banner: people.me.banner });
       return clone(people.me);
     },
     async change_username({ newUsername, password }) {
@@ -535,6 +554,34 @@
       return clone(entry);
     },
     async transfer_ownership() { await wait(500); return true; },
+    // ---- amigos (teste) ----
+    async list_friends() { return clone(friends.map((f) => ({ ...people[f.id], ...f, statusText: people[f.id].statusText || "" }))); },
+    async send_friend_request({ username, userId, name }) {
+      await wait(400);
+      let id = userId;
+      if (username) {
+        const u = String(username).trim().replace(/^@/, "").toLowerCase();
+        id = Object.keys(people).find((k) => people[k].username === u);
+        if (!id) throw new Error(`Não há ninguém com o nome @${u}.`);
+      }
+      if (id === "me") throw new Error("Não te podes adicionar a ti próprio.");
+      const f = friends.find((x) => x.id === id);
+      if (f && f.rel === "amigo") throw new Error("Já são amigos.");
+      if (f && f.rel === "enviado") throw new Error("Já pediste. Agora é esperar que aceite.");
+      if (f && f.rel === "recebido") { f.rel = "amigo"; f.since = Date.now(); }
+      else friends.push({ id, rel: "enviado", since: Date.now(), name: name || (people[id] && people[id].name) });
+      emit("friends_changed", {}); return clone(friends.find((x) => x.id === id));
+    },
+    async accept_friend({ userId }) { const f = friends.find((x) => x.id === userId); f.rel = "amigo"; f.since = Date.now(); emit("friends_changed", {}); return true; },
+    async decline_friend({ userId }) { friends.splice(friends.findIndex((x) => x.id === userId), 1); emit("friends_changed", {}); return true; },
+    async cancel_friend({ userId }) { friends.splice(friends.findIndex((x) => x.id === userId), 1); emit("friends_changed", {}); return true; },
+    async remove_friend({ userId }) { friends.splice(friends.findIndex((x) => x.id === userId), 1); emit("friends_changed", {}); return true; },
+    async block_user({ userId }) {
+      const f = friends.find((x) => x.id === userId);
+      if (f) { f.rel = "bloqueado"; f.since = Date.now(); } else friends.push({ id: userId, rel: "bloqueado", since: Date.now() });
+      emit("friends_changed", {}); return true;
+    },
+    async unblock_user({ userId }) { const i = friends.findIndex((x) => x.id === userId && x.rel === "bloqueado"); if (i >= 0) friends.splice(i, 1); emit("friends_changed", {}); return true; },
   };
 
   // ---------------- app instalada: comandos do núcleo ----------------
@@ -550,14 +597,23 @@
     return { ...m, day, at: d.toTimeString().slice(0, 5) };
   }
   // o teu perfil (cor e foto, guardados neste PC) vai para os grupos onde ainda está diferente
-  const publishProfile = () => inv("publish_profile", { color: people.me.color, photo: people.me.photo || null }).catch((e) => console.warn("perfil não publicado:", e));
+  const publishProfile = () => inv("publish_profile", { color: people.me.color, photo: people.me.photo || null, bio: people.me.bio || "", banner: people.me.banner || null }).catch((e) => console.warn("perfil não publicado:", e));
   if (tauri && window.__TAURI__.event) window.__TAURI__.event.listen("host_status", (e) => { if (e.payload && e.payload.online) publishProfile(); });
   const real = {
     async list_people() { const p = clone(people); try { Object.assign(p, await inv("list_group_people")); } catch (e) { console.warn(e); } return p; },
     async list_members(a) { return (await inv("list_members", a)).map((m) => (m.id === "me" ? { ...clone(people.me), owner: m.owner } : m)); },
     async list_channels(a) { return inv("list_channels", a); },
-    async list_messages(a) { return (await inv("list_messages", a)).map(fmt); },
-    async send_message(a) { return fmt(await inv("send_message", a)); },
+    // conversas privadas (dm-<chave do amigo>) vão cifradas pelo servidor; ver apps/desktop/src/dms.rs
+    async list_dms() { return (await inv("list_dms")).map((d) => ({ ...d, last: d.last ? fmt(d.last) : null })); },
+    async list_messages(a) {
+      if (String(a.channelId).startsWith("dm-")) return (await inv("list_dm_messages", { userId: a.channelId.slice(3) })).map(fmt);
+      inv("close_dm").catch(() => {});
+      return (await inv("list_messages", a)).map(fmt);
+    },
+    async send_message(a) {
+      if (String(a.channelId).startsWith("dm-")) return fmt(await inv("send_dm", { userId: a.channelId.slice(3), text: a.text }));
+      return fmt(await inv("send_message", a));
+    },
     async create_group(a) { return inv("create_group", a); },
     async join_group(a) { const g = await inv("join_group", a); publishProfile(); return g; },
     async set_profile(a) { const r = await mock.set_profile(a); publishProfile(); return r; },

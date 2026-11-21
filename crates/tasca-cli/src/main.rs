@@ -165,6 +165,7 @@ fn print_event(node: &Node, group: GroupId, ev: &tasca_core::SignedEvent) {
         EventKind::Message { channel, text } => println!("[#{channel}] {who}: {text}"),
         EventKind::Layout { channels, .. } => println!("* {who} mudou os canais ({} canais)", channels.len()),
         EventKind::Profile { name, .. } => println!("* {who} atualizou o perfil ({name})"),
+        EventKind::ProfileCard { .. } => println!("* {who} atualizou o cartão de perfil"),
     }
 }
 

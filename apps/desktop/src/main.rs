@@ -12,7 +12,9 @@
 // Sem janela de consola no Windows em modo release.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod amigos;
 mod contas;
+mod dms;
 mod grupos;
 mod presenca;
 
@@ -89,6 +91,7 @@ fn main() {
         // Antes das janelas: no Windows a interface chama comandos de conta logo ao abrir.
         .manage(contas::Contas::default())
         .manage(grupos::Rede::default())
+        .manage(amigos::Amigos::default())
         .invoke_handler(tauri::generate_handler![
             app_info,
             contas::account_status,
@@ -131,6 +134,19 @@ fn main() {
             grupos::join_voice,
             grupos::leave_voice,
             grupos::publish_profile,
+            amigos::list_friends,
+            amigos::send_friend_request,
+            amigos::accept_friend,
+            amigos::decline_friend,
+            amigos::cancel_friend,
+            amigos::remove_friend,
+            amigos::block_user,
+            amigos::unblock_user,
+            amigos::set_presence,
+            amigos::list_dms,
+            amigos::list_dm_messages,
+            amigos::close_dm,
+            amigos::send_dm,
             presenca::idle_seconds,
             presenca::set_autostart,
             presenca::get_autostart,

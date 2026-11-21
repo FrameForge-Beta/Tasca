@@ -46,6 +46,13 @@ pub enum EventKind {
         color: String,
         photo: Option<String>,
     },
+    /// Cartão de perfil do autor: @nome de utilizador, biografia e banner (cor `#RRGGBB`
+    /// ou imagem `data:image/...`). O @nome confirma-se no servidor de contas.
+    ProfileCard {
+        username: Option<String>,
+        bio: String,
+        banner: Option<String>,
+    },
 }
 
 /// Tipo de canal.
