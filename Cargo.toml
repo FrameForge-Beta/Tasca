@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/tasca-core", "crates/tasca-cli", "apps/desktop", "crates/tasca-servidor"]
+members = ["crates/tasca-core", "crates/tasca-cli", "apps/desktop", "crates/tasca-servidor", "crates/tasca-voz"]
 
 [workspace.package]
 edition = "2024"

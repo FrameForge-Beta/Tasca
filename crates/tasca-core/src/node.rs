@@ -37,7 +37,7 @@ pub struct NodeOptions {
     pub servidor: Option<crate::servidor::AccountServer>,
 }
 
-struct Inner {
+pub(crate) struct Inner {
     identity: Identity,
     #[cfg(feature = "servidor")]
     servidor: Option<crate::servidor::AccountServer>,
@@ -55,7 +55,7 @@ impl Inner {
             .clone()
     }
 
-    fn store(&self) -> std::sync::MutexGuard<'_, Store> {
+    pub(crate) fn store(&self) -> std::sync::MutexGuard<'_, Store> {
         self.store.lock().unwrap()
     }
 }
@@ -65,6 +65,7 @@ pub struct Node {
     inner: Arc<Inner>,
     router: Router,
     local_only: bool,
+    voz: Arc<crate::voz::Hub>,
 }
 
 impl Node {
@@ -94,6 +95,7 @@ impl Node {
             store: Mutex::new(store),
             feeds: Default::default(),
         });
+        let voz = Arc::new(crate::voz::Hub::default());
         let router = Router::builder(endpoint)
             .accept(
                 ALPN,
@@ -101,11 +103,16 @@ impl Node {
                     inner: inner.clone(),
                 },
             )
+            .accept(
+                crate::voz::VOZ_ALPN,
+                crate::voz::HostVoz { inner: Arc::downgrade(&inner), hub: voz.clone() },
+            )
             .spawn();
         Ok(Self {
             inner,
             router,
             local_only: opts.local_only,
+            voz,
         })
     }
 
@@ -310,6 +317,38 @@ impl Node {
             remote: Some(Arc::new(tokio::sync::Mutex::new(send))),
             alive: Some(alive_rx),
         })
+    }
+
+    /// Entra numa sala de voz de um grupo. Como anfitrião fica neste PC; como membro liga-se
+    /// ao anfitrião, que reencaminha o áudio entre os participantes.
+    pub async fn entrar_voz(&self, group: GroupId, room: &str) -> Result<crate::voz::Chamada> {
+        let info = self
+            .inner
+            .store()
+            .group(group)?
+            .ok_or_else(|| anyhow!("grupo desconhecido"))?;
+        if info.hosted {
+            let me = *self.inner.identity.public().as_bytes();
+            return Ok(crate::voz::Chamada::local(self.voz.clone(), group, room, me));
+        }
+        let conn = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            self.router.endpoint().connect(iroh::EndpointAddr::new(info.owner), crate::voz::VOZ_ALPN),
+        )
+        .await
+        .map_err(|_| anyhow!("o anfitrião não respondeu"))?
+        .map_err(|e| anyhow!("não consegui ligar ao anfitrião: {e}"))?;
+        crate::voz::Chamada::remota(conn, group, room).await
+    }
+
+    /// Anfitrião: as salas de voz de um grupo e quem está em cada uma.
+    pub fn salas_voz(&self, group: GroupId) -> Vec<(String, Vec<crate::voz::Participante>)> {
+        self.voz.salas(group)
+    }
+
+    /// Anfitrião: muda sempre que alguém entra, sai ou muda de estado numa sala de voz.
+    pub fn watch_voz(&self) -> watch::Receiver<u64> {
+        self.voz.watch()
     }
 
     pub async fn shutdown(self) -> Result<()> {
