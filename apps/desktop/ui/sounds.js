@@ -5,12 +5,14 @@
   let ctx = null;
   let volume = 0.6;
   let enabled = true;
+  let sink = "default";
 
   function audio() {
     if (!ctx) {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return null;
       ctx = new AC();
+      if (sink !== "default" && ctx.setSinkId) ctx.setSinkId(sink).catch(() => {});
     }
     if (ctx.state === "suspended") ctx.resume();
     return ctx;
@@ -47,6 +49,8 @@
   window.sfx = {
     setVolume(v) { volume = Math.max(0, Math.min(1, v)); },
     setEnabled(on) { enabled = !!on; },
+    // colunas/auscultadores escolhidos nas definições
+    setOutput(id) { sink = id || "default"; if (ctx && ctx.setSinkId) ctx.setSinkId(sink === "default" ? "" : sink).catch(() => {}); },
     // microfone
     mute()     { play([[N.E5, 0, 0.09], [N.A4, 0.07, 0.14]], { gain: 0.18 }); },
     unmute()   { play([[N.A4, 0, 0.09], [N.E5, 0.07, 0.14]], { gain: 0.18 }); },

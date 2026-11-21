@@ -39,6 +39,10 @@
     camOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.7 6H14a2 2 0 0 1 2 2v3.3l1 1 4.2-3.5a.5.5 0 0 1 .8.4v8.2M16 16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2M2 2l20 20"/></svg>',
     screen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4M12 13V7M9 10l3-3 3 3"/></svg>',
     screenOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4M9 7l6 6M15 7l-6 6"/></svg>',
+    shrink: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg>',
+    swap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3l4 4-4 4M20 7H8M8 21l-4-4 4-4M4 17h12"/></svg>',
+    logout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>',
+    retry: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>',
     expand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>',
     signal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 20v-3M9 20v-7M14 20V9M19 20V4"/></svg>',
   };
@@ -63,10 +67,14 @@
     s = s.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
     return s;
   }
+  // Estado: a flor da Tasca em miniatura, com as pétalas da cor do estado.
+  const PETAL = "M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z";
+  const FLOR = `<svg viewBox="-100 -100 200 200" aria-hidden="true"><g class="petals">${[0, 90, 180, 270].map((r) => `<path transform="rotate(${r})" d="${PETAL}"/>`).join("")}</g><circle class="miolo" r="20"/></svg>`;
   function avatar(p, cls = "", withStatus = false) {
     return `<span class="av ${cls}" style="background:${p.color}" aria-hidden="true">${esc(initials(p.name))}${
-      withStatus ? `<i class="st ${p.status}"></i>` : ""}</span>`;
+      withStatus ? `<i class="st ${p.status}">${FLOR}</i>` : ""}</span>`;
   }
+  const shortKey = (k) => (k && k.length > 22 ? k.slice(0, 14) + "…" + k.slice(-6) : k || "");
   function toast(text) {
     const t = document.createElement("div");
     t.className = "toast"; t.textContent = text;
@@ -116,6 +124,8 @@
     $("#members").innerHTML = S.view === "chat" && !S.home ? renderMembers() : "";
     const list = $(".messages");
     if (list) list.scrollTop = list.scrollHeight;
+    if (S.view === "settings" && S.settingsTab === "voz") { if (!meter && DEV.loaded) startMicMeter(); }
+    else stopMicMeter();
   }
 
   function renderRail() {
@@ -221,7 +231,7 @@
     return `<div class="dock-call" style="--g:${g.color || "var(--vinho)"}">
       <button class="dock-where" data-voice="${c.id}" title="Abrir a chamada">
         <span class="sig" aria-label="Qualidade da ligação">${bars}</span>
-        <span class="dock-where-txt"><b>${esc(c.name)}</b><small>${esc(g.name)} · ${esc(S.voice.route)} · ${S.voice.ping} ms</small></span>
+        <span class="dock-where-txt"><b>Em chamada</b><small>${esc(g.name)} · ${esc(c.name)} · ${S.voice.ping} ms</small></span>
       </button>
       ${share}
       <div class="dock-tgls">
@@ -233,18 +243,52 @@
     </div>`;
   }
 
+  // Botão de ecrã inteiro: muda para "sair" enquanto a chamada está em ecrã inteiro.
+  const fsBtn = () => document.fullscreenElement
+    ? `<button class="icon-btn" data-act="fullscreen" aria-label="Sair do ecrã inteiro" title="Sair do ecrã inteiro (Esc)">${I.shrink}</button>`
+    : `<button class="icon-btn" data-act="fullscreen" aria-label="Ecrã inteiro" title="Ecrã inteiro">${I.expand}</button>`;
+  document.addEventListener("fullscreenchange", () => {
+    document.querySelectorAll('[data-act="fullscreen"]').forEach((b) => { b.outerHTML = fsBtn(); });
+    fitCallGrid();
+  });
+
+  // Ausente sozinho: só quando escolheste "Online" e não mexes no PC há 10 minutos.
+  // Se escolheres Ausente, Não incomodar ou Invisível, fica como escolheste.
+  const IDLE_AWAY = 10 * 60;
+  const myStatus = () => (S.myStatus === "online" && S.autoAway ? "away" : S.myStatus || "online");
+  let lastInput = Date.now();
+  for (const ev of ["pointermove", "pointerdown", "keydown", "wheel"]) window.addEventListener(ev, () => { lastInput = Date.now(); }, { passive: true });
+  async function idleSeconds() {
+    try { const n = await api.idle_seconds(); if (typeof n === "number") return n; } catch {}
+    return (Date.now() - lastInput) / 1000; // sem o sistema: conta só a atividade nesta janela
+  }
+  setInterval(async () => {
+    if (!S.me) return;
+    const away = S.myStatus === "online" && (await idleSeconds()) >= IDLE_AWAY;
+    if (away !== !!S.autoAway) {
+      S.autoAway = away;
+      api.set_presence({ status: myStatus() }).catch(() => {});
+      if (!document.querySelector("#custom-status:focus")) render();
+    }
+  }, 15000);
+
   function renderMe() {
     const me = S.me;
-    const st = S.myStatus || "online";
+    const st = myStatus();
     const label = STATUS.find((x) => x[0] === st)[1];
     const speaking = S.voice && S.speaking.includes("me") && !S.muted;
     const pop = S.statusOpen ? `<div class="status-pop" role="menu">
-        <div class="status-pop-head">${avatar(me)}<div><b>${esc(me.name)}</b><small class="mono">${esc(me.key)}</small></div></div>
+        <div class="status-pop-head">${avatar(me)}<div><b>${esc(me.name)}</b><small class="${me.username ? "" : "mono"}">${me.username ? "@" + esc(me.username) : esc(shortKey(me.key))}</small></div></div>
         <label class="status-custom" for="custom-status"><span>Mensagem de estado</span><input id="custom-status" maxlength="60" placeholder="Ex.: a jogar Mario Kart" value="${esc(S.customStatus || "")}"></label>
-        ${STATUS.map(([k, l, d]) => `<button role="menuitemradio" aria-checked="${st === k}" class="${st === k ? "on" : ""}" data-status="${k}"><i class="st-dot ${k}"></i><span><b>${l}</b><small>${d}</small></span></button>`).join("")}
-        <button data-act="copy-key" class="status-copy">${I.lock}<span><b>Copiar a minha chave</b><small>Para alguém te adicionar ou verificar quem és.</small></span></button>
+        ${STATUS.map(([k, l, d]) => `<button role="menuitemradio" aria-checked="${st === k}" class="${st === k ? "on" : ""}" data-status="${k}"><i class="st-dot ${k}">${FLOR}</i><span><b>${l}</b><small>${d}</small></span></button>`).join("")}
+        <button data-act="copy-key" class="status-copy">${I.lock}<span><b>${me.username ? "Copiar o meu nome" : "Copiar a minha chave"}</b><small>Para alguém te adicionar ou verificar quem és.</small></span></button>
+        <div class="status-acct">
+          <button data-act="switch-account">${I.swap}<span><b>Trocar de conta</b></span></button>
+          <button data-act="sign-out" class="danger">${I.logout}<span><b>Terminar sessão</b></span></button>
+        </div>
       </div>` : "";
-    return `<div class="dock">${renderVoiceBar()}<div class="me">
+    const vg = S.voice ? S.groups.find((x) => x.id === S.voice.groupId) : null;
+    return `<div class="dock ${S.voice ? "in-call" : ""}" ${vg ? `style="--g:${vg.color || "var(--vinho)"}"` : ""}>${renderVoiceBar()}<div class="me">
       <button class="me-who" data-act="status" aria-expanded="${!!S.statusOpen}" aria-label="O teu estado: ${label}">
         <span class="me-av ${speaking ? "speaking" : ""}">${avatar({ ...me, status: st }, "s", true)}</span>
         <span class="who"><b>${esc(me.name)}</b><small>${esc(S.customStatus || label)}</small></span>
@@ -291,14 +335,15 @@
       lastFrom = m.from; lastAt = m.at;
       const reacts = m.reactions ? `<div class="reactions">${m.reactions.map((r, i) => `<button class="reaction ${r.mine ? "mine" : ""}" data-react="${m.id}:${i}">${r.e} ${r.n}</button>`).join("")}</div>` : "";
       const file = m.file ? `<div class="attach"><span class="ext">${esc(m.file.ext)}</span><div><b>${esc(m.file.name)}</b><small>${esc(m.file.size)} · enviado diretamente por ${esc(p.name)}</small></div></div>` : "";
-      const state = m.pending ? `<span class="sent-state">a enviar ao anfitrião…</span>` : "";
+      const state = ""; // a enviar: a mensagem só fica mais escura (classe "pending")
       const mine = m.from === "me";
-      const cls = `msg ${mine ? "mine" : ""} ${first ? "first" : ""} ${m.mentionsMe ? "mentioned" : ""} ${m.pending ? "pending" : ""}`;
+      const cls = `msg ${mine ? "mine" : ""} ${first ? "first" : ""} ${m.mentionsMe ? "mentioned" : ""} ${m.pending ? "pending" : ""} ${m.failed ? "failed" : ""}`;
+      const fail = m.failed ? `<div class="msg-fail"><small>Não foi enviada. Volta a tentar.</small><button class="retry" data-retry="${esc(m.id)}" aria-label="Tentar enviar outra vez" title="Tentar enviar outra vez">${I.retry}</button></div>` : "";
       if (first) {
         const tag = p.bot ? '<span class="tag bot">plugin</span>' : g.owner === p.id ? '<span class="tag">anfitrião</span>' : "";
-        out += `<div class="${cls}">${avatar(p)}<div><div class="bubble"><div class="meta"><span class="author" style="--a:${p.color}">${esc(p.name)}</span>${tag}<span class="time">${esc(m.at)}</span></div><div class="body">${fmt(m.text)}${state}</div>${file}</div>${reacts}</div></div>`;
+        out += `<div class="${cls}">${avatar(p)}<div><div class="bubble"><div class="meta"><span class="author" style="--a:${p.color}">${esc(p.name)}</span>${tag}<span class="time">${esc(m.at)}</span></div><div class="body">${fmt(m.text)}${state}</div>${file}</div>${reacts}${fail}</div></div>`;
       } else {
-        out += `<div class="${cls}"><span class="gutter">${esc(m.at)}</span><div><div class="bubble"><div class="body">${fmt(m.text)}${state}</div>${file}</div>${reacts}</div></div>`;
+        out += `<div class="${cls}"><span class="gutter">${esc(m.at)}</span><div><div class="bubble"><div class="body">${fmt(m.text)}${state}</div>${file}</div>${reacts}${fail}</div></div>`;
       }
       return out;
     }).join("");
@@ -409,6 +454,8 @@
       items.push({ id: p.id + ":cam", who: p.id, kind: cam ? "cam" : "avatar", label: p.name + (p.id === "me" ? " (tu)" : "") });
     }
     if (S.focus && !items.some((x) => x.id === S.focus)) S.focus = null;
+    // Sozinho na chamada não há nada para destacar: o quadrado fica sempre igual.
+    if (items.length < 2) S.focus = null;
 
     const tile = (x, extra = "") => {
       const p = S.people[x.who];
@@ -417,7 +464,7 @@
       const inner = x.kind === "avatar" ? `<span class="tile-bg" style="--c:${p.color}"></span>${avatar(p)}` : fakeScreen(x.kind === "screen" ? "screen" : "cam", x.who);
       const badge = x.kind === "screen" ? `<span class="live"><b>${esc(x.meta)}</b>AO VIVO</span>` : "";
       const host = x.kind !== "screen" && g.owner === x.who ? '<span class="host-tag">ANFITRIÃO</span>' : "";
-      return `<button class="vtile ${speaking ? "speaking" : ""} ${x.kind !== "avatar" ? "has-video" : ""} ${extra}" data-focus="${x.id}" aria-label="${S.focus === x.id ? "Voltar à grelha" : "Pôr em destaque: " + esc(x.label)}" ${extra.includes("grid-cell") ? 'style="width:var(--tw);"' : ""}>${inner}${badge}${host}
+      return `<button class="vtile ${speaking ? "speaking" : ""} ${x.kind !== "avatar" ? "has-video" : ""} ${extra}" ${items.length > 1 ? `data-focus="${x.id}" aria-label="${S.focus === x.id ? "Voltar à grelha" : "Pôr em destaque: " + esc(x.label)}"` : `aria-label="${esc(x.label)}"`} ${extra.includes("grid-cell") ? 'style="width:var(--tw);"' : ""}>${inner}${badge}${host}
         <span class="lbl">${x.kind === "screen" ? I.screen.replace("<svg", '<svg style="color:inherit"') : muted ? I.micOff : ""}${esc(x.label)}</span></button>`;
     };
 
@@ -435,12 +482,11 @@
           <button class="icon-btn ${S.callSidebar ? "on" : ""}" data-act="call-sidebar" aria-label="${S.callSidebar ? "Esconder grupos e canais" : "Mostrar grupos e canais"}" title="${S.callSidebar ? "Esconder grupos e canais" : "Mostrar grupos e canais"}">${I.menu}</button>
           <span class="title">${I.speaker}${esc(c.name)}<small>${esc(g.name)}</small></span>
           <span class="call-chips">
-            <span class="chip" title="Ligação ao anfitrião"><i class="dot"></i>${esc(S.voice.route)} · ${S.voice.ping} ms</span>
-            <span class="chip" title="Áudio e vídeo cifrados ponta a ponta">${I.lock.replace("<svg", '<svg width="14" height="14"')}Cifrado</span>
+            <span class="chip" title="Ligação ao anfitrião: ${esc(S.voice.route)}"><i class="dot"></i>Ping ${S.voice.ping} ms</span>
             <span class="chip ${up > 5 ? "warn" : ""}" title="Quanto estás a enviar"><i class="dot"></i>${up.toFixed(1).replace(".", ",")} Mbps</span>
           </span>
           <button class="icon-btn" data-chan-open="${esc(c.id)}" data-act="call-chat" aria-label="Abrir o chat do grupo" title="Abrir o chat (a chamada continua)">${I.hash}</button>
-          <button class="icon-btn" data-act="fullscreen" aria-label="Ecrã inteiro" title="Ecrã inteiro">${I.expand}</button>
+          ${fsBtn()}
         </div>
         ${body}
         <div class="call-controls">
@@ -585,12 +631,79 @@
       <div class="row"><div class="txt"><b>Mensagens compactas</b><small>Menos espaço entre mensagens.</small></div>${sw("compact", s.compact, "Mensagens compactas")}</div>
     </div></div>`;
   }
+  // ---------------- dispositivos reais (microfone, colunas, câmara) ----------------
+  // A lista vem do sistema (enumerateDevices). Os nomes só aparecem depois de a app ter
+  // autorização para o microfone, por isso pede-a uma vez.
+  const DEV = { loaded: false, loading: false, in: [], out: [], cam: [], err: null };
+  async function loadDevices(ask = true) {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) { DEV.err = "Este sistema não deixa ver os dispositivos."; DEV.loaded = true; return; }
+    DEV.loading = true;
+    try {
+      let list = await navigator.mediaDevices.enumerateDevices();
+      if (ask && !list.some((d) => d.kind === "audioinput" && d.label)) {
+        try {
+          const st = await navigator.mediaDevices.getUserMedia({ audio: true });
+          st.getTracks().forEach((t) => t.stop());
+          list = await navigator.mediaDevices.enumerateDevices();
+        } catch { DEV.err = "A Tasca não tem autorização para usar o microfone. Dá-lha nas definições de privacidade do Windows."; }
+      }
+      const pick = (kind) => list.filter((d) => d.kind === kind && d.deviceId !== "default" && d.deviceId !== "communications")
+        .map((d, i) => ({ id: d.deviceId, label: d.label || `${kind === "videoinput" ? "Câmara" : kind === "audioinput" ? "Microfone" : "Saída"} ${i + 1}` }));
+      DEV.in = pick("audioinput"); DEV.out = pick("audiooutput"); DEV.cam = pick("videoinput");
+    } catch (x) { DEV.err = String(x.message || x); }
+    DEV.loaded = true; DEV.loading = false;
+  }
+  if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+    navigator.mediaDevices.addEventListener("devicechange", async () => {
+      await loadDevices(false);
+      if (S.view === "settings" && S.settingsTab === "voz") { render(); startMicMeter(); }
+    });
+  }
+  const devSelect = (id, key, list, fallback) => {
+    const cur = S.settings[key] || "default";
+    const opts = [["default", fallback], ...list.map((d) => [d.id, d.label])];
+    return `<select class="input" id="${id}" data-setting="${key}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${v === cur ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
+  };
+
+  // Medidor do microfone nas definições: mostra o nível real da entrada escolhida.
+  let meter = null;
+  function stopMicMeter() {
+    if (!meter) return;
+    cancelAnimationFrame(meter.raf); meter.stream.getTracks().forEach((t) => t.stop()); meter.ctx.close(); meter = null;
+  }
+  async function startMicMeter() {
+    stopMicMeter();
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+    const dev = S.settings.inputDevice;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: dev && dev !== "default" ? { deviceId: { exact: dev } } : true });
+      if (S.view !== "settings" || S.settingsTab !== "voz") { stream.getTracks().forEach((t) => t.stop()); return; }
+      const ctx = new AudioContext(); const an = ctx.createAnalyser(); an.fftSize = 512;
+      ctx.createMediaStreamSource(stream).connect(an);
+      const buf = new Uint8Array(an.fftSize);
+      meter = { stream, ctx, raf: 0 };
+      const tick = () => {
+        an.getByteTimeDomainData(buf);
+        let peak = 0; for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
+        const el = document.getElementById("mic-meter");
+        if (!el) return stopMicMeter();
+        const pct = Math.min(100, Math.round((peak / 128) * 160));
+        el.style.width = pct + "%";
+        el.classList.toggle("on", pct >= (S.settings.sensitivity ?? 40));
+        meter.raf = requestAnimationFrame(tick);
+      };
+      tick();
+    } catch { /* sem autorização: o medidor fica parado */ }
+  }
+
   function setVoz() {
     const s = S.settings;
+    if (!DEV.loaded && !DEV.loading) loadDevices().then(() => { if (S.view === "settings" && S.settingsTab === "voz") { render(); startMicMeter(); } });
     return `<div class="section"><h2>Dispositivos</h2><div class="box">
-      <div class="row"><div class="field" style="flex:1;min-width:200px"><label for="inputDevice">Entrada</label><select class="input" id="inputDevice" data-setting="inputDevice">${["Microfone (Realtek Audio)", "Microfone USB (Blue Yeti)", "Predefinição do Windows"].map((d) => `<option ${d === s.inputDevice ? "selected" : ""}>${d}</option>`).join("")}</select></div>
-        <div class="field" style="flex:1;min-width:200px"><label for="outputDevice">Saída</label><select class="input" id="outputDevice" data-setting="outputDevice">${["Auscultadores (Realtek Audio)", "Colunas (Realtek Audio)", "Predefinição do Windows"].map((d) => `<option ${d === s.outputDevice ? "selected" : ""}>${d}</option>`).join("")}</select></div></div>
-      <div class="row"><div class="txt"><b>Sensibilidade do microfone</b><small>Abaixo deste nível o microfone não transmite.</small><div class="meter" style="margin-top:8px"><i id="mic-meter" style="width:40%"></i></div></div><input class="range" style="max-width:200px" type="range" min="0" max="100" id="sensitivity" data-setting="sensitivity" value="${s.sensitivity}"></div>
+      <div class="row"><div class="field" style="flex:1;min-width:200px"><label for="inputDevice">Entrada</label>${devSelect("inputDevice", "inputDevice", DEV.in, "Predefinição do sistema")}</div>
+        <div class="field" style="flex:1;min-width:200px"><label for="outputDevice">Saída</label>${devSelect("outputDevice", "outputDevice", DEV.out, "Predefinição do sistema")}</div></div>
+      ${DEV.err ? `<div class="row"><small class="dev-err">${esc(DEV.err)}</small></div>` : !DEV.loaded ? `<div class="row"><small>A procurar dispositivos…</small></div>` : ""}
+      <div class="row"><div class="txt"><b>Sensibilidade do microfone</b><small>Fala para ver o nível. Abaixo da sensibilidade escolhida o microfone não transmite.</small><div class="meter mic" style="margin-top:8px"><i id="mic-meter" style="width:0%"></i></div></div><input class="range" style="max-width:200px" type="range" min="0" max="100" id="sensitivity" data-setting="sensitivity" value="${s.sensitivity}"></div>
       <div class="row"><div class="txt"><b>Carregar para falar</b><small>Só transmite enquanto carregas na tecla (V).</small></div>${sw("pushToTalk", s.pushToTalk, "Carregar para falar")}</div>
       <div class="row"><div class="txt"><b>Supressão de ruído</b><small>Remove ventoinhas e teclado. Corre no teu PC.</small></div>${sw("noiseSuppression", s.noiseSuppression, "Supressão de ruído")}</div>
       <div class="row"><div class="txt"><b>Cancelamento de eco</b></div>${sw("echoCancel", s.echoCancel, "Cancelamento de eco")}</div>
@@ -598,7 +711,7 @@
         <button class="btn ghost" data-act="test-sound">Ouvir</button>${sw("callSounds", S.settings.callSounds !== false, "Sons da chamada")}</div>
       <div class="row"><div class="txt"><b>Volume dos sons</b><small>${Math.round((S.settings.soundVolume ?? 0.6) * 100)}%</small></div><input class="range" style="max-width:200px" type="range" min="0" max="100" id="soundVolume" data-setting="soundVolume" value="${Math.round((S.settings.soundVolume ?? 0.6) * 100)}"></div>
     </div><h2>Vídeo</h2><div class="box">
-      <div class="row"><div class="field" style="flex:1;min-width:200px"><label for="camDevice">Câmara</label><select class="input" id="camDevice" data-setting="camDevice">${["Câmara integrada (HD)", "Logitech C920", "OBS Virtual Camera"].map((d) => `<option>${d}</option>`).join("")}</select></div>
+      <div class="row"><div class="field" style="flex:1;min-width:200px"><label for="camDevice">Câmara</label>${devSelect("camDevice", "camDevice", DEV.cam, DEV.cam.length ? "Predefinição do sistema" : "Nenhuma câmara encontrada")}</div>
         <div class="field" style="flex:1;min-width:200px"><label for="shareQuality">Qualidade da partilha de ecrã</label><select class="input" id="shareQuality" data-setting="shareQuality">${["720p · 30 fps", "1080p · 30 fps", "1080p · 60 fps"].map((d, i) => `<option ${i === 1 ? "selected" : ""}>${d}</option>`).join("")}</select></div></div>
       <div class="row"><div class="txt"><b>Usar a placa gráfica para codificar</b><small>Menos peso no processador quando partilhas um jogo (NVENC, AMF ou Quick Sync).</small></div>${sw("hwEncode", true, "Codificação por hardware")}</div>
     </div><p class="lede" style="font-size:13px">Codec Opus. Vídeo em AV1 ou H.264, conforme a placa gráfica. O anfitrião reencaminha áudio e vídeo sem os descodificar.</p></div>`;
@@ -802,6 +915,7 @@
     document.body.style.fontSize = S.settings.fontSize + "px";
     sfx.setEnabled(S.settings.callSounds !== false);
     sfx.setVolume(S.settings.soundVolume ?? 0.6);
+    if (sfx.setOutput) sfx.setOutput(S.settings.outputDevice);
   }
   async function patch(p) { S.settings = await api.set_settings({ patch: p }); }
   function pathPatch(path, value) {
@@ -838,6 +952,11 @@
       Object.assign(S.plugins.find((x) => x.id === p.id), p);
       render(); return toast(`${p.name} removido.`);
     }
+    if (d.retry) {
+      const m = S.messages.find((x) => String(x.id) === d.retry);
+      if (m) { m.failed = false; m.pending = true; rerenderKeepInput(); trySend(S.channelId, m); }
+      return;
+    }
     if (d.react) {
       const [mid, i] = d.react.split(":");
       const m = S.messages.find((x) => String(x.id) === mid); const r = m.reactions[+i];
@@ -845,7 +964,7 @@
     }
     if (d.setTab) { S.settingsTab = d.setTab; return render(); }
     if (d.themeSet) { await patch({ theme: d.themeSet }); applyTheme(); return render(); }
-    if (d.status) { S.myStatus = d.status; S.statusOpen = false; render(); return toast("Estado: " + STATUS.find((x) => x[0] === d.status)[1] + "."); }
+    if (d.status) { S.myStatus = d.status; S.autoAway = false; S.statusOpen = false; api.set_presence({ status: d.status }).catch(() => {}); render(); return toast("Estado: " + STATUS.find((x) => x[0] === d.status)[1] + "."); }
     if (d.msgStyle) { await patch({ msgStyle: d.msgStyle }); return render(); }
     if (d.relay) { await patch({ relay: d.relay }); return render(); }
     if (d.dest) { await patch({ backup: { dest: d.dest } }); return render(); }
@@ -875,7 +994,13 @@
         return openSharePicker();
       case "call-sidebar": S.callSidebar = !S.callSidebar; return render();
       case "call-chat": { const gid = S.voice.groupId; if (S.groupId !== gid) await openGroup(gid); else await openChannel(S.channels.find((x) => x.kind === "text").id); return; }
-      case "fullscreen": { const el = $(".callview") || $(".spotlight"); try { el.requestFullscreen().catch(() => {}); } catch {} return; }
+      case "fullscreen": {
+        try {
+          if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+          else { const el = $(".callview") || $(".spotlight"); el.requestFullscreen().catch(() => {}); }
+        } catch {}
+        return;
+      }
       case "invite": return openInvite();
       case "group-menu": return openGroupMenu();
       case "transfer": return openTransfer(d.groupId);
@@ -884,7 +1009,9 @@
         else { S.showMembers = !S.showMembers; store.set("members", S.showMembers); }
         return render();
       case "nav": S.navOpen = !S.navOpen; return render();
-      case "copy-key": return copy(S.me.key, null, "Chave copiada.");
+      case "copy-key": return S.me.username ? copy("@" + S.me.username, null, "Nome copiado.") : copy(S.me.key, null, "Chave copiada.");
+      case "switch-account": S.statusOpen = false; if (S.voice) await leaveVoice(); await api.select_account({ id: null }); return location.reload();
+      case "sign-out": S.statusOpen = false; if (S.voice) await leaveVoice(); await api.sign_out(); return location.reload();
       case "attach": return toast("No Tauri abre o seletor de ficheiros. O ficheiro vai direto para os PCs dos membros.");
       case "emoji": { const i = $("#msg-input"); i.value += "🍷"; i.focus(); return; }
       case "connect-dest": {
@@ -919,9 +1046,33 @@
     const text = inp.value.trim();
     if (!text) return;
     inp.value = "";
-    const m = await api.send_message({ channelId: S.channelId, text });
-    if (S.home) S.dms = await api.list_dms();
+    // aparece logo, mais escura, até o anfitrião confirmar
+    const m = { id: "tmp-" + Date.now(), day: "Hoje", at: new Date().toTimeString().slice(0, 5), from: "me", text, pending: true };
     S.messages.push(m); render(); $("#msg-input").focus();
+    trySend(S.channelId, m);
+  });
+  // Envia (ou volta a enviar) uma mensagem. Se falhar, ou se ninguém confirmar em 20 s,
+  // fica marcada como não enviada, com o botão para tentar outra vez.
+  async function trySend(channelId, m) {
+    m.pending = true; m.failed = false;
+    const localId = m.id;
+    try {
+      const r = await api.send_message({ channelId, text: m.text });
+      Object.assign(m, r, { failed: false });
+      if (S.home) S.dms = await api.list_dms();
+    } catch (x) {
+      m.pending = false; m.failed = true;
+      console.warn("mensagem não enviada:", x);
+    }
+    if (S.view === "chat") rerenderKeepInput();
+    setTimeout(() => {
+      if (m.pending && !m.failed) { m.pending = false; m.failed = true; if (S.view === "chat") rerenderKeepInput(); }
+    }, 20000);
+    return localId;
+  }
+  api.on("message_failed", ({ channelId, id }) => {
+    const m = S.messages.find((x) => x.id === id);
+    if (m && channelId === S.channelId) { m.pending = false; m.failed = true; if (S.view === "chat") rerenderKeepInput(); }
   });
   document.addEventListener("keydown", (e) => {
     if (e.target.id === "msg-input" && e.key === "Enter" && !e.shiftKey) {
@@ -964,7 +1115,12 @@
     }
     if (t.id === "sideload" && t.files[0]) { toast(`«${t.files[0].name}» carregado. Revê as permissões antes de ativar.`); return; }
     if (t.dataset.setting && t.type === "checkbox") { await patch(pathPatch(t.dataset.setting, t.checked)); if (t.dataset.setting === "callSounds") applyTheme(); return; }
-    if (t.dataset.setting && t.tagName === "SELECT") return patch(pathPatch(t.dataset.setting, t.value));
+    if (t.dataset.setting && t.tagName === "SELECT") {
+      await patch(pathPatch(t.dataset.setting, t.value));
+      if (t.dataset.setting === "inputDevice") startMicMeter();
+      if (t.dataset.setting === "outputDevice" && window.sfx && sfx.setOutput) sfx.setOutput(t.value);
+      return;
+    }
     if (t.dataset.setting && t.type !== "range") return patch(pathPatch(t.dataset.setting, t.value));
   });
 

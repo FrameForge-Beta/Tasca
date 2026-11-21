@@ -52,15 +52,30 @@
   const pwField = (id, label, auto) => `<div class="field"><label for="${id}">${label}</label>
       <div class="pw"><input class="input" type="password" id="${id}" autocomplete="${auto}"><button type="button" class="pw-eye" data-eye="${id}" aria-label="Mostrar palavra-passe">ver</button></div></div>`;
 
+  const rememberField = (id) => `<label class="check remember"><input type="checkbox" id="${id}" checked><span>Lembrar esta conta neste PC<small>Da próxima vez abre sem pedir a palavra-passe.</small></span></label>`;
+  const AV = ["#9B2C3F", "#2A5CAA", "#5E8C4A", "#B8791A", "#6B4C9A", "#2E7D7A"];
+  const avColor = (s) => AV[[...String(s)].reduce((a, c) => a + c.charCodeAt(0), 0) % AV.length];
+  const accountRow = (a) => `<button class="acct-row" data-acct="${esc(a.id)}">
+      <span class="av" style="background:${avColor(a.id)}">${esc((a.displayName || "?")[0].toUpperCase())}</span>
+      <span class="acct-txt"><b>${esc(a.displayName)}</b><small>${a.username ? "@" + esc(a.username) : "Só neste PC"}${a.remembered ? " · abre sozinha" : ""}</small></span>
+      <span class="acct-go" aria-hidden="true">›</span></button>`;
+
   // ---------------- ecrãs ----------------
   const screens = {
     welcome() {
-      shell(`
+      const list = st.accounts || [];
+      shell(list.length ? `
+        <h1>Escolhe a conta</h1>
+        <p class="auth-lede">Contas guardadas neste PC.</p>
+        <div class="acct-list">${list.map(accountRow).join("")}</div>
+        <div class="auth-actions">
+          <button class="btn outline big" data-go="login">Entrar com outra conta</button>
+        </div>
+        <div class="auth-links auth-links-center"><button data-go="create">Criar conta nova</button></div>` : `
         <h1>Bem-vindo à Tasca</h1>
         <p class="auth-lede">A tua conta é cifrada com a tua palavra-passe antes de sair deste PC. Ninguém, nem nós, a consegue abrir.</p>
         <div class="auth-actions">
-          ${st.exists ? `<button class="btn primary big" data-go="unlock">Entrar como ${esc(st.displayName)}</button>` : ""}
-          <button class="btn ${st.exists ? "outline" : "primary"} big" data-go="login">${st.exists ? "Entrar com outra conta" : "Entrar"}</button>
+          <button class="btn primary big" data-go="login">Entrar</button>
         </div>
         <div class="auth-sep"><span>Ainda não tens conta?</span></div>
         <button class="btn outline big" data-go="create">Criar conta</button>`);
@@ -72,10 +87,11 @@
         <p class="auth-lede">${st.server ? "Não precisas de email. Com o nome de utilizador entras noutro PC." : "Só fica neste PC. Não precisas de email."}</p>
         <form id="f-create" class="auth-form" novalidate>
           <div class="field"><label for="c-name">Nome</label><input class="input" id="c-name" maxlength="32" autocomplete="nickname" placeholder="Como te vão ver nos grupos"></div>
-          ${st.server ? `<div class="field"><label for="c-user">Nome de utilizador</label><input class="input" id="c-user" maxlength="24" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="letras, números, _ e ."><small class="hint">Para entrares noutro PC e para te encontrarem.</small></div>` : ""}
+          ${st.server ? `<div class="field"><label for="c-user">Nome de utilizador</label><div class="user-in"><span aria-hidden="true">@</span><input class="input" id="c-user" maxlength="24" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="letras, números, _ e ."></div><small class="hint" id="c-user-st">É assim que te encontram, e com ele entras noutro PC.</small><div class="sugg" id="c-sugg" hidden></div></div>` : ""}
           ${pwField("c-pw", "Palavra-passe", "new-password")}
           <div class="meter-row"><div class="meter"><i id="c-meter"></i></div><small id="c-lv">Pelo menos 8 caracteres</small></div>
           ${pwField("c-pw2", "Repete a palavra-passe", "new-password")}
+          ${rememberField("c-rem")}
           <p class="auth-note">Se te esqueceres da palavra-passe, só as 12 palavras que vais ver a seguir te devolvem a conta.</p>
           <p class="auth-err" hidden></p>
           <button class="btn primary big" type="submit">Continuar</button>
@@ -113,10 +129,11 @@
         <div class="auth-who"><span class="av big" style="background:#9B2C3F">${esc((st.displayName || "?")[0].toUpperCase())}</span><div><b>${esc(st.displayName || "")}</b><small>${st.username ? "@" + esc(st.username) + " · " : ""}Conta guardada neste PC${st.google ? " · cópia no Google Drive" : ""}</small></div></div>
         <form id="f-unlock" class="auth-form" novalidate>
           ${pwField("u-pw", "Palavra-passe", "current-password")}
+          ${rememberField("u-rem")}
           <p class="auth-err" hidden></p>
           <button class="btn primary big" type="submit">Entrar</button>
         </form>
-        <div class="auth-links"><button data-go="recover">Esqueci-me da palavra-passe</button></div>`, { back: "welcome" });
+        <div class="auth-links"><button data-go="recover">Esqueci-me da palavra-passe</button><button id="u-switch">Não és tu? Trocar de conta</button></div>`);
     },
 
     login() {
@@ -127,6 +144,7 @@
         <form id="f-login" class="auth-form" novalidate>
           <div class="field"><label for="l-user">Nome de utilizador</label><input class="input" id="l-user" maxlength="25" autocomplete="username" autocapitalize="off" spellcheck="false" value="${esc(st.username || "")}"></div>
           ${pwField("l-pw", "Palavra-passe", "current-password")}
+          ${rememberField("l-rem")}
           <p class="auth-err" hidden></p>
           <button class="btn primary big" type="submit">Entrar</button>
         </form>
@@ -149,6 +167,7 @@
           <div class="field"><label for="r-phrase">12 palavras</label><textarea class="input mono" id="r-phrase" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="palavra1 palavra2 …"></textarea><small id="r-count" class="hint">0 de 12</small></div>
           ${pwField("r-pw", "Palavra-passe nova", "new-password")}
           ${pwField("r-pw2", "Repete a palavra-passe", "new-password")}
+          ${rememberField("r-rem")}
           <p class="auth-err" hidden></p>
           <button class="btn primary big" type="submit">Recuperar</button>
         </form>`, { back: "login" });
@@ -174,6 +193,7 @@
         <form id="f-grestore" class="auth-form" novalidate>
           ${pwField("g-pw", "Palavra-passe da Tasca", "current-password")}
           <p class="auth-note">É a palavra-passe da Tasca, não a do Google. A cópia está cifrada com ela.</p>
+          ${rememberField("g-rem")}
           <p class="auth-err" hidden></p>
           <button class="btn primary big" type="submit">Entrar</button>
         </form>`, { back: "welcome" });
@@ -192,6 +212,39 @@
     if (st.wantGoogleBackup) { try { await api.google_backup(); } catch {} }
     root.classList.add("out");
     setTimeout(() => { root.remove(); done(); }, 260);
+  }
+
+  // Nome de utilizador: diz logo se está livre e, se não estiver, sugere parecidos.
+  let userTimer = 0, userSeq = 0;
+  function userState(text, cls) {
+    const h = root.querySelector("#c-user-st"); if (!h) return;
+    h.textContent = text; h.className = "hint " + (cls || "");
+  }
+  function checkUser(val) {
+    clearTimeout(userTimer);
+    const sg = root.querySelector("#c-sugg"); if (sg) sg.hidden = true;
+    const u = val.trim().replace(/^@/, "");
+    if (!u) return userState("É assim que te encontram, e com ele entras noutro PC.");
+    if (u.length < 3) return userState("Pelo menos 3 caracteres.");
+    userState("A verificar…");
+    const seq = ++userSeq;
+    userTimer = setTimeout(async () => {
+      try {
+        const free = await api.username_available({ username: u });
+        if (seq !== userSeq) return;
+        if (free) userState("@" + u.toLowerCase() + " está livre.", "ok");
+        else { userState("@" + u.toLowerCase() + " já está ocupado.", "bad"); showSuggestions(u); }
+      } catch (x) { if (seq === userSeq) userState(String(x.message || x), "bad"); }
+    }, 400);
+  }
+  async function showSuggestions(u) {
+    const sg = root.querySelector("#c-sugg"); if (!sg) return;
+    try {
+      const list = await api.suggest_usernames({ username: u });
+      if (!list.length) return;
+      sg.innerHTML = `<small>Livres:</small>${list.map((x) => `<button type="button" class="chip" data-sugg="${esc(x)}">@${esc(x)}</button>`).join("")}`;
+      sg.hidden = false;
+    } catch {}
   }
 
   // ---------------- eventos ----------------
@@ -222,6 +275,22 @@
         return;
       }
       if (b.id === "w-next") return go("confirm");
+      if (b.dataset.acct) {
+        b.disabled = true;
+        try {
+          await api.select_account({ id: b.dataset.acct });
+          Object.assign(st, await api.account_status());
+          return st.unlocked ? finish() : go("unlock");
+        } catch (x) { b.disabled = false; return err(String(x.message || x)); }
+      }
+      if (b.id === "u-switch") {
+        st.accounts = await api.list_accounts();
+        return go("welcome");
+      }
+      if (b.dataset.sugg) {
+        const i = root.querySelector("#c-user"); i.value = b.dataset.sugg; i.dispatchEvent(new Event("input", { bubbles: true }));
+        return;
+      }
       if (b.id === "g-go") {
         go("googleWait");
         try {
@@ -243,6 +312,7 @@
         m.dataset.s = s;
         root.querySelector("#c-lv").textContent = t.value ? LV[s] : "Pelo menos 8 caracteres";
       }
+      if (t.id === "c-user") checkUser(t.value);
       if (t.id === "r-phrase") {
         const n = t.value.trim() ? t.value.trim().split(/\s+/).length : 0;
         const c = root.querySelector("#r-count"); c.textContent = `${n} de 12`; c.classList.toggle("ok", n === 12);
@@ -252,6 +322,7 @@
       e.preventDefault();
       const f = e.target, btn = f.querySelector("button[type=submit]");
       const v = (id) => root.querySelector("#" + id).value;
+      const chk = (id) => { const c = root.querySelector("#" + id); return !!(c && c.checked); };
       err("");
       try {
         if (f.id === "f-create") {
@@ -263,11 +334,11 @@
           if (st.server && !user) return err("Escolhe um nome de utilizador.");
           if (user) {
             busy(btn, true, "A verificar o nome…");
-            if (!(await api.username_available({ username: user }))) { busy(btn, false); return err("Esse nome de utilizador já está ocupado."); }
+            if (!(await api.username_available({ username: user }))) { busy(btn, false); showSuggestions(user); return err("Esse nome de utilizador já está ocupado. Escolhe um dos sugeridos ou outro."); }
             busy(btn, false);
           }
           busy(btn, true, "A criar a tua chave…");
-          const r = await api.create_account({ displayName: name, password: v("c-pw") });
+          const r = await api.create_account({ displayName: name, password: v("c-pw"), remember: chk("c-rem") });
           st.phrase = r.recoveryPhrase; st.displayName = name; st.ask = null; st.serverErr = null;
           if (user) {
             try { st.username = await api.server_register({ username: user, password: v("c-pw") }); }
@@ -282,13 +353,13 @@
         }
         if (f.id === "f-unlock") {
           busy(btn, true, "A abrir…");
-          await api.unlock({ password: v("u-pw") });
+          await api.unlock({ password: v("u-pw"), remember: chk("u-rem") });
           return finish();
         }
         if (f.id === "f-login") {
           if (!v("l-user").trim()) return err("Escreve o teu nome de utilizador.");
           busy(btn, true, "A entrar…");
-          await api.server_login({ username: v("l-user").trim(), password: v("l-pw") });
+          await api.server_login({ username: v("l-user").trim(), password: v("l-pw"), remember: chk("l-rem") });
           return finish();
         }
         if (f.id === "f-recover") {
@@ -297,13 +368,13 @@
           if (v("r-pw").length < 8) return err("A palavra-passe tem de ter pelo menos 8 caracteres.");
           if (v("r-pw") !== v("r-pw2")) return err("As palavras-passe não são iguais.");
           busy(btn, true, "A recuperar…");
-          await api.recover({ phrase: v("r-phrase").trim().toLowerCase(), displayName: name, newPassword: v("r-pw") });
+          await api.recover({ phrase: v("r-phrase").trim().toLowerCase(), displayName: name, newPassword: v("r-pw"), remember: chk("r-rem") });
           st.displayName = name;
           return finish();
         }
         if (f.id === "f-grestore") {
           busy(btn, true, "A abrir…");
-          await api.google_restore({ password: v("g-pw") });
+          await api.google_restore({ password: v("g-pw"), remember: chk("g-rem") });
           return finish();
         }
       } catch (x) {
@@ -318,6 +389,7 @@
     async gate() {
       st = await api.account_status();
       if (st.unlocked) return st;
+      try { st.accounts = await api.list_accounts(); } catch { st.accounts = []; }
       root = document.createElement("div");
       root.id = "auth-root";
       document.body.appendChild(root);
