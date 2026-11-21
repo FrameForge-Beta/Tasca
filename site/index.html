@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tasca</title>
+<meta name="description" content="Tasca: grupos, mensagens encriptadas e chamadas de voz e vídeo, ponto a ponto. Personaliza tudo com plugins.">
+<meta property="og:title" content="Tasca">
+<meta property="og:description" content="Grupos, mensagens encriptadas e chamadas, ponto a ponto. Personaliza tudo com plugins.">
+<meta property="og:image" content="tasca-banner-1200x630.png">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#1C1714">
+<link rel="icon" href="tasca-icon.svg" type="image/svg+xml">
+<link rel="alternate icon" href="favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --vinho: #9B2C3F;
+    --vinho-escuro: #6E1E2D;
+    --vinho-claro: #B8405A;
+    --azulejo: #2A5CAA;
+    --ocre: #E3A72F;
+    --oliva: #5E8C4A;
+    --cal: #F6EEE1;
+    --fundo: #1C1714;
+    --painel: #27201B;
+    --caixa: #332A24;
+    --linha: #3d332c;
+    --texto: #F6EEE1;
+    --suave: #c9bba8;
+    --apagado: #8f8274;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--fundo);
+    color: var(--texto);
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 17px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  .contentor { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+
+  /* topo */
+  header.topo { position: sticky; top: 0; z-index: 10; background: rgba(28,23,20,.85); backdrop-filter: blur(10px); border-bottom: 1px solid transparent; transition: border-color .2s; }
+  header.topo.rolou { border-bottom-color: var(--linha); }
+  .topo .contentor { display: flex; align-items: center; justify-content: space-between; height: 68px; }
+  .marca img { height: 40px; display: block; }
+  .topo nav { display: flex; gap: 8px; align-items: center; }
+  .topo nav a { text-decoration: none; color: var(--suave); font-weight: 500; font-size: 15px; padding: 8px 12px; border-radius: 8px; }
+  .topo nav a:hover { color: var(--texto); background: var(--painel); }
+  .topo nav a.botao { color: var(--cal); background: var(--vinho); }
+  .topo nav a.botao:hover { background: var(--vinho-claro); }
+
+  /* herói */
+  .heroi { position: relative; overflow: hidden; padding: 72px 0 96px; }
+  .heroi::before {
+    content: ""; position: absolute; inset: 0;
+    background: url("tasca-azulejo-pattern.svg") repeat;
+    background-size: 96px;
+    opacity: .05;
+    mask-image: radial-gradient(ellipse at 70% 40%, #000 0%, transparent 70%);
+    -webkit-mask-image: radial-gradient(ellipse at 70% 40%, #000 0%, transparent 70%);
+    filter: grayscale(1) brightness(2);
+  }
+  .heroi .contentor { position: relative; display: grid; grid-template-columns: 1.05fr 1fr; gap: 56px; align-items: center; }
+  .selo { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--ocre); background: rgba(227,167,47,.1); border: 1px solid rgba(227,167,47,.25); padding: 5px 12px; border-radius: 999px; }
+  .selo .ponto { width: 7px; height: 7px; border-radius: 50%; background: var(--oliva); box-shadow: 0 0 0 3px rgba(94,140,74,.25); }
+  h1 { font-size: clamp(40px, 6vw, 64px); line-height: 1.05; font-weight: 800; letter-spacing: -0.03em; margin: 20px 0 18px; }
+  h1 em { font-style: normal; color: var(--ocre); }
+  .heroi p.lead { font-size: 20px; color: var(--suave); margin: 0 0 32px; max-width: 34ch; }
+
+  .descarregar { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+  .btn-download {
+    display: inline-flex; align-items: center; gap: 14px;
+    background: var(--vinho); color: var(--cal); text-decoration: none;
+    padding: 16px 26px 16px 22px; border-radius: 14px;
+    font-weight: 700; font-size: 18px;
+    box-shadow: 0 10px 30px -10px rgba(155,44,63,.8), inset 0 1px 0 rgba(255,255,255,.12);
+    transition: transform .15s, background .15s;
+  }
+  .btn-download:hover { background: var(--vinho-claro); transform: translateY(-2px); }
+  .btn-download svg { width: 26px; height: 26px; flex: none; }
+  .btn-download small { display: block; font-weight: 500; font-size: 13px; opacity: .8; margin-top: 1px; }
+  .btn-secundario { color: var(--suave); text-decoration: none; font-weight: 500; font-size: 15px; padding: 12px 6px; }
+  .btn-secundario:hover { color: var(--texto); text-decoration: underline; }
+  .nota { margin-top: 18px; font-size: 14px; color: var(--apagado); }
+
+  /* janela da app (ilustração) */
+  .janela { background: var(--painel); border: 1px solid var(--linha); border-radius: 16px; box-shadow: 0 40px 80px -30px rgba(0,0,0,.7); overflow: hidden; display: grid; grid-template-columns: 64px 150px 1fr; height: 400px; font-size: 13px; }
+  .j-grupos { background: var(--fundo); padding: 12px 0; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .j-grupos span { width: 40px; height: 40px; border-radius: 14px; display: grid; place-items: center; font-weight: 700; color: var(--cal); font-size: 15px; }
+  .j-grupos span:nth-child(1) { background: var(--vinho); }
+  .j-grupos span:nth-child(2) { background: var(--azulejo); border-radius: 50%; }
+  .j-grupos span:nth-child(3) { background: var(--oliva); border-radius: 50%; }
+  .j-grupos span:nth-child(4) { background: var(--caixa); border-radius: 50%; color: var(--suave); }
+  .j-canais { padding: 14px 10px; border-right: 1px solid var(--linha); }
+  .j-canais b { display: block; font-size: 14px; margin: 0 4px 12px; }
+  .j-canais div { padding: 5px 8px; border-radius: 6px; color: var(--apagado); }
+  .j-canais div.ativo { background: var(--caixa); color: var(--texto); }
+  .j-canais .voz { margin-top: 12px; color: var(--suave); }
+  .j-canais i { display: flex; align-items: center; gap: 6px; font-style: normal; padding: 3px 8px 3px 20px; color: var(--suave); }
+  .j-canais i::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--oliva); }
+  .j-chat { display: flex; flex-direction: column; padding: 16px; gap: 14px; min-width: 0; }
+  .msg { display: flex; gap: 10px; }
+  .msg .av { width: 32px; height: 32px; border-radius: 50%; flex: none; }
+  .msg .nome { font-weight: 700; font-size: 13px; }
+  .msg .nome span { color: var(--apagado); font-weight: 400; font-size: 11px; margin-left: 6px; }
+  .msg p { margin: 2px 0 0; color: var(--suave); line-height: 1.45; }
+  .mencao { color: var(--ocre); background: rgba(227,167,47,.12); padding: 0 3px; border-radius: 4px; }
+  .j-escrever { margin-top: auto; background: var(--caixa); border-radius: 10px; padding: 10px 12px; color: var(--apagado); display: flex; justify-content: space-between; }
+  .cadeado { display: inline-flex; align-items: center; gap: 4px; color: var(--oliva); font-size: 11px; }
+
+  /* secções */
+  section { padding: 88px 0; }
+  .titulo-sec { text-align: center; max-width: 640px; margin: 0 auto 48px; }
+  .titulo-sec h2 { font-size: clamp(30px, 4vw, 42px); font-weight: 800; letter-spacing: -0.02em; margin: 0 0 12px; line-height: 1.15; }
+  .titulo-sec p { color: var(--suave); margin: 0; font-size: 18px; }
+  .grelha { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .cartao { background: var(--painel); border: 1px solid var(--linha); border-radius: 16px; padding: 26px; }
+  .cartao .icone { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; margin-bottom: 16px; }
+  .cartao .icone svg { width: 22px; height: 22px; }
+  .cartao h3 { margin: 0 0 6px; font-size: 19px; font-weight: 700; }
+  .cartao p { margin: 0; color: var(--suave); font-size: 15.5px; }
+  .c-vinho { background: rgba(155,44,63,.2); color: #e06b80; }
+  .c-azulejo { background: rgba(42,92,170,.22); color: #7aa3e6; }
+  .c-ocre { background: rgba(227,167,47,.15); color: var(--ocre); }
+  .c-oliva { background: rgba(94,140,74,.2); color: #8fc276; }
+
+  .plugins { background: var(--painel); border-top: 1px solid var(--linha); border-bottom: 1px solid var(--linha); }
+  .plugins .contentor { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; }
+  .plugins h2 { font-size: clamp(30px, 4vw, 42px); font-weight: 800; letter-spacing: -0.02em; margin: 0 0 16px; line-height: 1.15; }
+  .plugins p { color: var(--suave); margin: 0 0 14px; }
+  .codigo { background: var(--fundo); border: 1px solid var(--linha); border-radius: 14px; padding: 20px 22px; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 14px; line-height: 1.7; color: var(--suave); overflow-x: auto; white-space: pre; }
+  .codigo .k { color: #e06b80; } .codigo .s { color: #8fc276; } .codigo .f { color: #7aa3e6; } .codigo .c { color: var(--apagado); }
+
+  .passos { counter-reset: passo; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .passo { padding: 26px; border-radius: 16px; border: 1px dashed var(--linha); }
+  .passo::before { counter-increment: passo; content: counter(passo); display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--vinho); font-weight: 800; margin-bottom: 14px; }
+  .passo h3 { margin: 0 0 6px; font-size: 18px; }
+  .passo p { margin: 0; color: var(--suave); font-size: 15.5px; }
+
+  .final { text-align: center; }
+  .final .descarregar { justify-content: center; }
+  .plataformas { display: flex; justify-content: center; gap: 12px; margin-top: 28px; flex-wrap: wrap; }
+  .plataformas span { font-size: 14px; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--linha); color: var(--suave); }
+  .plataformas span.sim { border-color: rgba(94,140,74,.5); color: #8fc276; }
+
+  footer { border-top: 1px solid var(--linha); padding: 32px 0; color: var(--apagado); font-size: 14px; }
+  footer .contentor { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  footer a { color: var(--suave); }
+
+  @media (max-width: 900px) {
+    .heroi .contentor, .plugins .contentor { grid-template-columns: 1fr; }
+    .grelha, .passos { grid-template-columns: 1fr; }
+    .janela { grid-template-columns: 52px 1fr; height: 340px; }
+    .j-canais { display: none; }
+    .topo nav a:not(.botao) { display: none; }
+  }
+  @media (max-width: 480px) {
+    .contentor { padding: 0 16px; }
+    .heroi { padding: 40px 0 64px; }
+    section { padding: 64px 0; }
+    .btn-download { width: 100%; justify-content: center; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topo" id="topo">
+  <div class="contentor">
+    <a href="#" class="marca" aria-label="Tasca"><img src="tasca-lockup-dark-bg.svg" alt="Tasca"></a>
+    <nav>
+      <a href="#funcionalidades">Funcionalidades</a>
+      <a href="#plugins">Plugins</a>
+      <a href="https://github.com/RubenFernandes2004/Tasca">GitHub</a>
+      <a href="#descarregar" class="botao">Descarregar</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="heroi">
+    <div class="contentor">
+      <div>
+        <span class="selo"><span class="ponto"></span><span class="versao-texto">Disponível para Windows</span></span>
+        <h1>O teu grupo,<br>na <em>tua</em> tasca.</h1>
+        <p class="lead">Conversas, chamadas de voz e vídeo e partilha de ficheiros, ponto a ponto e encriptado. Sem servidores de terceiros a guardar as tuas coisas.</p>
+        <div class="descarregar">
+          <a class="btn-download link-download" href="https://github.com/RubenFernandes2004/Tasca/releases/latest">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.5 10.5 4.4v7.2H3V5.5Zm0 13 7.5 1.1v-7.1H3v6Zm8.4 1.2L21 21v-8.5h-9.6v7.2Zm0-15.4v7.3H21V3l-9.6 1.3Z"/></svg>
+            <span>Descarregar para Windows<small class="detalhe-download">Windows 10 e 11, 64 bits</small></span>
+          </a>
+          <a class="btn-secundario" href="https://github.com/RubenFernandes2004/Tasca/releases">Todas as versões</a>
+        </div>
+        <p class="nota">Grátis e de código aberto. A app atualiza-se sozinha.</p>
+      </div>
+
+      <div class="janela" aria-hidden="true">
+        <div class="j-grupos"><span>T</span><span>A</span><span>F</span><span>+</span></div>
+        <div class="j-canais">
+          <b>A Malta</b>
+          <div class="ativo"># geral</div>
+          <div># jogos</div>
+          <div># memes</div>
+          <div class="voz">🔊 Sala</div>
+          <i>Rita</i><i>Zé</i>
+        </div>
+        <div class="j-chat">
+          <div class="msg"><div class="av" style="background:var(--azulejo)"></div><div><div class="nome">Rita<span>hoje às 21:04</span></div><p>Alguém para jogar logo?</p></div></div>
+          <div class="msg"><div class="av" style="background:var(--oliva)"></div><div><div class="nome">Zé<span>hoje às 21:05</span></div><p>Eu! <span class="mencao">@Tiago</span> vens?</p></div></div>
+          <div class="msg"><div class="av" style="background:var(--vinho)"></div><div><div class="nome">Tiago<span>hoje às 21:06</span></div><p>Bora, entro já na Sala 🎧</p></div></div>
+          <div class="j-escrever"><span>Mensagem para #geral</span><span class="cadeado">🔒 encriptado</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <section id="funcionalidades">
+    <div class="contentor">
+      <div class="titulo-sec">
+        <h2>Tudo o que um grupo precisa</h2>
+        <p>Feita para amigos, equipas e comunidades pequenas que querem ser donas das suas conversas.</p>
+      </div>
+      <div class="grelha">
+        <div class="cartao">
+          <div class="icone c-vinho"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.8c1.8.7 3 2.5 3.5 5.2"/></svg></div>
+          <h3>Grupos ponto a ponto</h3>
+          <p>O grupo vive no PC de quem o cria. Os membros ligam-se diretamente, sem intermediários.</p>
+        </div>
+        <div class="cartao">
+          <div class="icone c-oliva"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10" rx="2.5"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg></div>
+          <h3>Mensagens encriptadas</h3>
+          <p>Encriptação ponta a ponta em grupos e mensagens privadas. Só quem está na conversa a consegue ler.</p>
+        </div>
+        <div class="cartao">
+          <div class="icone c-azulejo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3.5"/></svg></div>
+          <h3>Voz e vídeo</h3>
+          <p>Salas de voz sempre abertas e chamadas com vídeo, com áudio Opus de alta qualidade.</p>
+        </div>
+        <div class="cartao">
+          <div class="icone c-ocre"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3.5h-6A2.5 2.5 0 0 0 5.5 6v12A2.5 2.5 0 0 0 8 20.5h8a2.5 2.5 0 0 0 2.5-2.5V8L14 3.5Z"/><path d="M14 3.5V8h4.5"/></svg></div>
+          <h3>Ficheiros sem limites</h3>
+          <p>Imagens e ficheiros vão diretamente de PC para PC. Sem limites de tamanho impostos por um servidor.</p>
+        </div>
+        <div class="cartao">
+          <div class="icone c-vinho"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5 3.5 7v10l8.5 4.5 8.5-4.5V7L12 2.5Z"/><path d="M3.5 7 12 11.5 20.5 7M12 11.5v10"/></svg></div>
+          <h3>Plugins para tudo</h3>
+          <p>Temas, comandos, bots e funcionalidades novas. Instala da loja ou escreve os teus em JavaScript.</p>
+        </div>
+        <div class="cartao">
+          <div class="icone c-azulejo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v4.5h-4.5"/></svg></div>
+          <h3>Sempre atualizada</h3>
+          <p>A Tasca atualiza-se sozinha em segundo plano. Recuperas a conta com 12 palavras se mudares de PC.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="plugins" id="plugins">
+    <div class="contentor">
+      <div>
+        <h2>A tasca é tua.<br>Muda o que quiseres.</h2>
+        <p>Quase tudo na Tasca pode ser estendido com plugins: um tema novo, um comando para o chat, um botão a mais, um bot para o grupo.</p>
+        <p>Os plugins da loja são revistos e assinados pela equipa antes de chegarem a ti. Os teus podes instalar diretamente de uma pasta.</p>
+      </div>
+<div class="codigo"><span class="c">// exemplo: plugins/dados.js</span>
+<span class="k">export default</span> {
+  nome: <span class="s">"Dados"</span>,
+  <span class="f">ativar</span>(tasca) {
+    tasca.comandos.<span class="f">registar</span>(<span class="s">"/dado"</span>, (msg) =&gt; {
+      <span class="k">const</span> n = <span class="f">Math.ceil</span>(<span class="f">Math.random</span>() * 6);
+      msg.<span class="f">responder</span>(<span class="s">`🎲 Saiu ${n}!`</span>);
+    });
+  },
+};</div>
+    </div>
+  </section>
+
+  <section>
+    <div class="contentor">
+      <div class="titulo-sec">
+        <h2>Pronto em dois minutos</h2>
+      </div>
+      <div class="passos">
+        <div class="passo"><h3>Descarrega</h3><p>Corre o instalador. Se o Windows avisar, carrega em "Mais informações" e depois em "Executar mesmo assim".</p></div>
+        <div class="passo"><h3>Cria a conta</h3><p>Escolhe um nome e uma palavra-passe. Guarda as 12 palavras de recuperação num sítio seguro.</p></div>
+        <div class="passo"><h3>Junta a malta</h3><p>Cria um grupo e envia o convite aos teus amigos, ou entra num grupo com um convite que recebeste.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="final" id="descarregar">
+    <div class="contentor">
+      <div class="titulo-sec">
+        <h2>Puxa uma cadeira.</h2>
+        <p>Descarrega a Tasca e começa a falar com a tua malta.</p>
+      </div>
+      <div class="descarregar">
+        <a class="btn-download link-download" href="https://github.com/RubenFernandes2004/Tasca/releases/latest">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.5 10.5 4.4v7.2H3V5.5Zm0 13 7.5 1.1v-7.1H3v6Zm8.4 1.2L21 21v-8.5h-9.6v7.2Zm0-15.4v7.3H21V3l-9.6 1.3Z"/></svg>
+          <span>Descarregar para Windows<small class="detalhe-download">Windows 10 e 11, 64 bits</small></span>
+        </a>
+      </div>
+      <div class="plataformas">
+        <span class="sim">✓ Windows</span>
+        <span>Linux, em breve</span>
+        <span>macOS, em breve</span>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="contentor">
+    <span>© Tasca. Código aberto sob licença MIT / Apache 2.0.</span>
+    <span><a href="https://github.com/RubenFernandes2004/Tasca">Código no GitHub</a> · <a href="https://github.com/RubenFernandes2004/Tasca/releases">Versões</a> · <a href="https://github.com/RubenFernandes2004/Tasca/issues">Reportar um problema</a></span>
+  </div>
+</footer>
+
+<script>
+  // Sombra no topo ao fazer scroll
+  const topo = document.getElementById("topo");
+  addEventListener("scroll", () => topo.classList.toggle("rolou", scrollY > 8), { passive: true });
+
+  // Liga os botões diretamente ao instalador da versão mais recente.
+  // Se a API do GitHub falhar, os botões continuam a abrir a página da última versão.
+  fetch("https://api.github.com/repos/RubenFernandes2004/Tasca/releases/latest", {
+    headers: { Accept: "application/vnd.github+json" },
+  })
+    .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+    .then((versao) => {
+      const exe = (versao.assets || []).find((a) => /-setup\.exe$/i.test(a.name));
+      if (!exe) return;
+      const mb = (exe.size / 1024 / 1024).toFixed(1).replace(".", ",");
+      const nome = versao.tag_name || "";
+      document.querySelectorAll(".link-download").forEach((a) => {
+        a.href = exe.browser_download_url;
+        a.setAttribute("download", "");
+      });
+      document.querySelectorAll(".detalhe-download").forEach((s) => {
+        s.textContent = `${nome} · ${mb} MB · Windows 10 e 11`;
+      });
+      document.querySelectorAll(".versao-texto").forEach((s) => {
+        s.textContent = `Versão ${nome.replace(/^v/, "")} disponível para Windows`;
+      });
+    })
+    .catch(() => {});
+</script>
+</body>
+</html>
