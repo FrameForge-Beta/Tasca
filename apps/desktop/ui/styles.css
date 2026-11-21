@@ -1040,3 +1040,10 @@ body.has-titlebar .app.call { padding: 0; }
 }
 .rail-btn.add svg { width: 20px; height: 20px; }
 .rail-btn.add:hover { border-style: solid; border-color: var(--oliva); color: var(--oliva); background: color-mix(in srgb, var(--oliva) 10%, transparent); transform: none; }
+
+/* a flor do estado fica solta, sem círculo por trás */
+.av .st, .av .st.online, .av .st.away, .av .st.dnd, .av .st.offline {
+  background: none !important; border: 0 !important; width: 15px; height: 15px; right: -4px; bottom: -4px;
+  filter: drop-shadow(0 0 1.5px rgba(0, 0, 0, .55));
+}
+.main-head .title .av .st { width: 12px; height: 12px; }
