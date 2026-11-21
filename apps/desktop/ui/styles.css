@@ -986,3 +986,57 @@ button.vtile:not([data-focus]) { cursor: default; }
 .msg-fail .retry { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; color: var(--perigo); border: 1px solid color-mix(in srgb, var(--perigo) 50%, transparent); }
 .msg-fail .retry:hover { background: var(--perigo); color: #fff; }
 .msg-fail .retry svg { width: 13px; height: 13px; }
+
+/* ---------- barra de cima (a janela não usa a do Windows) ---------- */
+:root { --tb-h: 36px; }
+body.has-titlebar { display: flex; flex-direction: column; }
+body.has-titlebar > .app { flex: 1; height: auto; min-height: 0; padding-top: 0; }
+body.has-titlebar #auth-root { top: var(--tb-h); }
+.titlebar {
+  height: var(--tb-h); flex: none; display: flex; align-items: center; gap: 6px;
+  padding-left: 14px; background: var(--rail); color: var(--texto-2);
+  user-select: none; -webkit-user-select: none; position: relative; z-index: 150;
+}
+.tb-brand { display: flex; align-items: center; gap: 8px; font-family: var(--f-display); font-weight: 800; font-size: 13px; letter-spacing: -0.01em; color: var(--texto); }
+.tb-brand svg { width: 18px; height: 18px; border-radius: 5px; }
+.tb-fill { flex: 1; align-self: stretch; }
+.tb-actions { display: flex; align-items: center; gap: 2px; padding-right: 6px; }
+.tb-btn { width: 32px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: var(--texto-3); background: none; transition: color .15s, background .15s; }
+.tb-btn svg { width: 18px; height: 18px; }
+.tb-btn:hover { color: var(--ocre); background: color-mix(in srgb, var(--ocre) 12%, transparent); }
+.tb-btn.on { color: var(--ocre); }
+body:not(.ready) #tb-plugins { display: none; }
+.tb-win { display: flex; align-self: stretch; }
+.tb-ctl { width: 46px; display: grid; place-items: center; color: var(--texto-2); }
+.tb-ctl svg { width: 11px; height: 11px; }
+.tb-ctl:hover { background: var(--hover); color: var(--texto); }
+.tb-ctl.close:hover { background: #C42B1C; color: #fff; }
+
+body.has-titlebar .app.call { padding: 0; }
+
+/* ---------- barra dos grupos: um painel como os outros ---------- */
+.rail {
+  background: var(--painel); border: 1px solid var(--linha); border-radius: 14px;
+  padding: 12px 0; gap: 10px;
+}
+.rail-btn { width: 44px; height: 44px; border-radius: 13px; font-size: 14px; }
+.rail-btn:hover { border-radius: 13px; }
+.rail-btn.on { border-radius: 13px; box-shadow: none; }
+.rail-btn::before {
+  display: block; content: ""; position: absolute; left: -13px; top: 50%; width: 4px; height: 0;
+  border-radius: 0 4px 4px 0; background: var(--g, var(--vinho)); transform: translateY(-50%);
+  transition: height .18s ease;
+}
+.rail-btn:hover::before { height: 14px; }
+.rail-btn.on::before { height: 28px; }
+.rail-btn.logo { width: 44px; height: 44px; }
+.rail-btn.logo svg { width: 44px; height: 44px; border-radius: 13px; }
+.rail-btn.logo::before { background: var(--ocre); }
+.rail-btn.logo.on { box-shadow: none; }
+.rail-btn .host-dot, .rail-btn .badge, .rail-btn.unread::after { border-color: var(--painel); }
+.rail-sep { width: 26px; height: 0; border: 0; border-top: 1px solid var(--linha); background: none; }
+.rail-btn.add {
+  background: none; border: 1.5px dashed color-mix(in srgb, var(--texto-3) 55%, transparent); color: var(--texto-3);
+}
+.rail-btn.add svg { width: 20px; height: 20px; }
+.rail-btn.add:hover { border-style: solid; border-color: var(--oliva); color: var(--oliva); background: color-mix(in srgb, var(--oliva) 10%, transparent); transform: none; }
