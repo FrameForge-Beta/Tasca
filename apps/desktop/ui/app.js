@@ -526,8 +526,12 @@
     if (S.sharing) items.push({ id: "me:screen", who: "me", kind: "screen", label: "O teu ecrã", meta: S.sharing.quality.replace(" · ", " ") });
     if (!api.isMock) for (const p of ppl) if (p && p.id !== "me" && vs(p.id).screen) items.push({ id: p.id + ":screen", who: p.id, kind: "screen", label: "Ecrã de " + p.name, meta: "" });
     for (const p of ppl) {
-      const cam = p.id === "me" ? S.camera : api.isMock ? p.id === "ines" : !!vs(p.id).camera;
+      const cam = (p.id === "me" ? S.camera : api.isMock ? p.id === "ines" : !!vs(p.id).camera) && !(S.settings.userNoVideo || {})[p.id];
       items.push({ id: p.id + ":cam", who: p.id, kind: cam ? "cam" : "avatar", label: p.name + (p.id === "me" ? " (tu)" : "") });
+    }
+    // "Mostrar quem está sem vídeo" desligado: só ficam vídeos e ecrãs (se houver algum)
+    if (S.settings.callShowNoVideo === false && items.some((x) => x.kind !== "avatar")) {
+      for (let i = items.length - 1; i >= 0; i--) if (items[i].kind === "avatar") items.splice(i, 1);
     }
     if (S.focus && !items.some((x) => x.id === S.focus)) S.focus = null;
     // Sozinho na chamada não há nada para destacar: o quadrado fica sempre igual.
@@ -540,7 +544,7 @@
       const inner = x.kind === "avatar" ? `<span class="tile-bg" style="--c:${p.color}"></span>${avatar(p)}` : fakeScreen(x.kind === "screen" ? "screen" : "cam", x.who);
       const badge = x.kind === "screen" ? `<span class="live">${x.meta ? `<b>${esc(x.meta)}</b>` : ""}AO VIVO</span>` : "";
       const host = x.kind !== "screen" && g.owner === x.who ? '<span class="host-tag">ANFITRIÃO</span>' : "";
-      return `<button ${x.kind !== "screen" ? `data-spk="${x.who}"` : ""} class="vtile ${speaking ? "speaking" : ""} ${x.kind !== "avatar" ? "has-video" : ""} ${extra}" ${items.length > 1 ? `data-focus="${x.id}" aria-label="${S.focus === x.id ? "Voltar à grelha" : "Pôr em destaque: " + esc(x.label)}"` : `aria-label="${esc(x.label)}"`} ${extra.includes("grid-cell") ? 'style="width:var(--tw);"' : ""}>${inner}${badge}${host}
+      return `<button ${x.kind !== "screen" ? `data-spk="${x.who}"` : `data-who="${x.who}"`} class="vtile ${speaking ? "speaking" : ""} ${x.kind !== "avatar" ? "has-video" : ""} ${extra}" ${items.length > 1 ? `data-focus="${x.id}" aria-label="${S.focus === x.id ? "Voltar à grelha" : "Pôr em destaque: " + esc(x.label)}"` : `aria-label="${esc(x.label)}"`} ${extra.includes("grid-cell") ? 'style="width:var(--tw);"' : ""}>${inner}${badge}${host}
         <span class="lbl">${x.kind === "screen" ? I.screen.replace("<svg", '<svg style="color:inherit"') : voiceIc(x.who)}${esc(x.label)}</span></button>`;
     };
 

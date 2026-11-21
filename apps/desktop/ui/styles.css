@@ -1319,6 +1319,7 @@ button.author:hover { text-decoration: underline; }
 .pc-body { padding: 10px 16px 14px; display: grid; gap: 10px; }
 .pc-names b { display: block; font-size: 20px; font-weight: 800; letter-spacing: -.01em; line-height: 1.2; overflow-wrap: anywhere; }
 .pc-names span { display: flex; align-items: center; gap: 6px; color: var(--texto-2); font-size: 14px; }
+.pc-names .pc-real { display: block; font-size: 12.5px; color: var(--texto-3); font-weight: 500; }
 .pc-tag { font-style: normal; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 6px; background: color-mix(in srgb, var(--oliva) 25%, transparent); color: color-mix(in srgb, var(--oliva) 70%, var(--texto)); }
 .pc-state { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--texto-2); }
 .pc-state .st-dot { width: 13px; height: 13px; margin: 0; }
