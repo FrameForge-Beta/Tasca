@@ -8,6 +8,29 @@
   window.TASCA_MOBILE = MOBILE;
   if (MOBILE) {
     document.documentElement.classList.add("mobile");
+    // Os textos foram escritos a pensar no PC: no telemóvel troca "neste PC" e afins.
+    const TROCAS = [
+      [/\bneste PC\b/g, "neste telemóvel"], [/\bdeste PC\b/g, "deste telemóvel"],
+      [/\bEste PC\b/g, "Este telemóvel"], [/\bno teu PC\b/g, "no teu telemóvel"],
+      [/\bdo teu PC\b/g, "do teu telemóvel"], [/\bnoutro PC\b/g, "noutro dispositivo"],
+    ];
+    const trocar = (n) => {
+      if (n.nodeType === 3) {
+        if (n.nodeValue.indexOf("PC") < 0) return;
+        let t = n.nodeValue;
+        for (const [re, por] of TROCAS) t = t.replace(re, por);
+        if (t !== n.nodeValue) n.nodeValue = t;
+      } else if (n.nodeType === 1) {
+        const w = document.createTreeWalker(n, NodeFilter.SHOW_TEXT);
+        for (let x = w.nextNode(); x; x = w.nextNode()) trocar(x);
+      }
+    };
+    new MutationObserver((ms) => {
+      for (const m of ms) {
+        if (m.type === "characterData") trocar(m.target);
+        else m.addedNodes.forEach(trocar);
+      }
+    }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
     return;
   }
   const win = window.__TAURI__ && window.__TAURI__.window && window.__TAURI__.window.getCurrentWindow
