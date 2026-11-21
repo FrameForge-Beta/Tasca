@@ -14,6 +14,7 @@ pub mod node;
 pub mod protocol;
 pub mod servidor;
 pub mod store;
+pub mod voz;
 
 pub use caixa::ChaveCaixa;
 pub use account::{Account, AccountStore, RecoveryPhrase, Vault};
@@ -22,6 +23,7 @@ pub use identity::Identity;
 pub use invite::Invite;
 pub use node::{GroupHandle, Node, NodeOptions};
 pub use store::Store;
+pub use voz::{Chamada, Participante, VOZ_ALPN};
 
 /// Identificador do protocolo da Tasca na negociação QUIC (ALPN).
 pub const ALPN: &[u8] = b"tasca/0";

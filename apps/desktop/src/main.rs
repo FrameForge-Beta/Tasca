@@ -6,8 +6,8 @@
 //!
 //! A interface (pasta `ui/`) chama comandos Rust com `invoke`: `app_info`, os comandos de
 //! conta (`contas.rs`) e os de grupos, canais e mensagens (`grupos.rs`, ligados ao
-//! `tasca-core`). Os restantes comandos listados em `ui/api.js` (voz, plugins, cópias)
-//! ainda usam dados de teste no próprio JavaScript.
+//! `tasca-core`), e os de voz (`voz.rs`, com o `tasca-voz`). Os restantes comandos
+//! listados em `ui/api.js` (plugins, cópias) ainda usam dados de teste no próprio JavaScript.
 
 // Sem janela de consola no Windows em modo release.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -15,6 +15,7 @@
 mod contas;
 mod grupos;
 mod presenca;
+mod voz;
 
 use std::time::Duration;
 
@@ -89,6 +90,7 @@ fn main() {
         // Antes das janelas: no Windows a interface chama comandos de conta logo ao abrir.
         .manage(contas::Contas::default())
         .manage(grupos::Rede::default())
+        .manage(voz::Voz::default())
         .invoke_handler(tauri::generate_handler![
             app_info,
             contas::account_status,
@@ -128,8 +130,12 @@ fn main() {
             grupos::delete_category,
             grupos::reorder_categories,
             grupos::reorder_channels,
-            grupos::join_voice,
-            grupos::leave_voice,
+            voz::join_voice,
+            voz::leave_voice,
+            voz::set_voice_state,
+            voz::set_voice_options,
+            voz::set_user_volume,
+            voz::voice_frame,
             grupos::publish_profile,
             presenca::idle_seconds,
             presenca::set_autostart,

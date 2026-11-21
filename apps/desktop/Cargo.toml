@@ -14,6 +14,7 @@ tauri-plugin-updater = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-autostart = "2"
 tasca-core = { path = "../../crates/tasca-core" }
+tasca-voz = { path = "../../crates/tasca-voz" }
 anyhow = "1"
 zeroize = "1"
 getrandom = "0.4"
