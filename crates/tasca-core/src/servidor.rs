@@ -273,7 +273,19 @@ mod client {
 
     fn net(e: reqwest::Error) -> anyhow::Error {
         if e.is_timeout() || e.is_connect() {
-            anyhow!("não consegui ligar ao servidor de contas. Verifica a internet e tenta outra vez.")
+            // A causa de fundo (DNS, TLS, recusado…) ajuda a perceber o que falhou.
+            let mut causa = String::new();
+            let mut fonte = std::error::Error::source(&e);
+            while let Some(f) = fonte {
+                causa = f.to_string();
+                fonte = f.source();
+            }
+            tracing::warn!("servidor de contas inacessível: {e:?}");
+            if causa.is_empty() {
+                anyhow!("não consegui ligar ao servidor de contas. Verifica a internet e tenta outra vez.")
+            } else {
+                anyhow!("não consegui ligar ao servidor de contas ({causa}). Verifica a internet e tenta outra vez.")
+            }
         } else {
             anyhow!("erro de rede: {e}")
         }
