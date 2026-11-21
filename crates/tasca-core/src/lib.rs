@@ -6,6 +6,8 @@
 pub mod account;
 pub mod amigos;
 pub mod caixa;
+#[cfg(feature = "servidor")]
+mod dns;
 pub mod dispositivo;
 pub mod event;
 #[cfg(feature = "google")]

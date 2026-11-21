@@ -150,7 +150,11 @@ mod client {
             let base = url::Url::parse(url).context("endereço do servidor inválido")?;
             let local = matches!(base.host_str(), Some("localhost" | "127.0.0.1" | "::1"));
             ensure!(base.scheme() == "https" || local, "o servidor de contas tem de usar https://");
-            let http = crate::http_builder().timeout(Duration::from_secs(20)).build()?;
+            let porta = base.port_or_known_default().unwrap_or(443);
+            let http = crate::http_builder()
+                .timeout(Duration::from_secs(20))
+                .dns_resolver(std::sync::Arc::new(crate::dns::Resolvedor::new(porta)))
+                .build()?;
             Ok(Self { base, http })
         }
 
@@ -213,6 +217,12 @@ mod client {
                         vec![]
                     }
                 };
+            if ips.is_empty() || ips.iter().all(|a| crate::dns::e_local(a.ip())) {
+                let t = Instant::now();
+                let doh = crate::http_builder().timeout(Duration::from_secs(6)).build().unwrap_or_default();
+                let publicos = crate::dns::doh(&doh, &host).await;
+                out.push(format!("DNS seguro (1.1.1.1): {publicos:?} ({} ms)", t.elapsed().as_millis()));
+            }
             for a in ips.iter().take(3) {
                 let t = Instant::now();
                 let r = tokio::time::timeout(Duration::from_secs(8), tokio::net::TcpStream::connect(a)).await;
