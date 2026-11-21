@@ -71,7 +71,7 @@
   const PETAL = "M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z";
   const FLOR = `<svg viewBox="-100 -100 200 200" aria-hidden="true"><g class="petals">${[0, 90, 180, 270].map((r) => `<path transform="rotate(${r})" d="${PETAL}"/>`).join("")}</g><circle class="miolo" r="20"/></svg>`;
   function avatar(p, cls = "", withStatus = false) {
-    return `<span class="av ${cls}" style="background:${p.color}" aria-hidden="true">${esc(initials(p.name))}${
+    return `<span class="av ${cls} ${p.photo ? "has-photo" : ""}" style="background:${p.color}" aria-hidden="true">${p.photo ? `<img src="${esc(p.photo)}" alt="">` : esc(initials(p.name))}${
       withStatus ? `<i class="st ${p.status}">${FLOR}</i>` : ""}</span>`;
   }
   const shortKey = (k) => (k && k.length > 22 ? k.slice(0, 14) + "…" + k.slice(-6) : k || "");
@@ -659,7 +659,7 @@
   function setConta() {
     const me = S.me;
     return `<div class="section"><div class="box">
-      <div class="row"><span class="av" style="width:64px;height:64px;font-size:24px;background:${me.color}" aria-hidden="true">${esc(initials(me.name))}</span>
+      <div class="row">${avatar(me).replace('class="av ', 'class="av xl ')}
         <div class="txt"><b style="font-size:18px">${esc(me.name)}</b><small>${me.username ? "@" + esc(me.username) : "Ainda sem nome de utilizador"}</small></div><button class="btn" data-act="edit-profile">Editar perfil</button></div>
       <div class="row"><div class="txt"><b>A tua identidade</b><small>A tua chave pública. A privada fica cifrada neste PC e só tu a abres.</small><div class="mono" style="margin-top:6px;color:var(--texto-2);word-break:break-all">${esc(me.key)}</div></div><button class="btn" data-act="copy-pubkey">Copiar</button></div>
       <div class="row"><div class="txt"><b>Cópia no Google Drive</b><small>A tua conta cifrada fica numa pasta privada da Tasca no teu Drive, para a recuperares noutro PC só com a palavra-passe.</small></div><button class="btn" data-act="google-backup">Ligar Google</button></div>
@@ -733,10 +733,12 @@
   const COLORS = ["#9B2C3F", "#C0563A", "#B8791A", "#5E8C4A", "#2E7D7A", "#2A5CAA", "#4A6FA5", "#6B4C9A", "#7A3B2E", "#4A4542"];
   function openProfile() {
     const me = S.me;
-    let color = me.color;
+    let color = me.color, photo = me.photo || null;
     modal(`<h2>Editar perfil</h2>
-      <div class="profile-prev"><span class="av" id="pf-av" style="width:64px;height:64px;font-size:24px;background:${me.color}">${esc(initials(me.name))}</span>
-        <div><b id="pf-name-prev">${esc(me.name)}</b><small>${me.username ? "@" + esc(me.username) : ""}</small></div></div>
+      <div class="profile-prev"><button type="button" class="pf-photo" id="pf-photo" title="Mudar a foto" aria-label="Mudar a foto">${avatar({ ...me, photo }).replace('class="av ', 'id="pf-av" class="av xl ')}<span class="pf-cam">${I.cam}</span></button>
+        <div><b id="pf-name-prev">${esc(me.name)}</b><small>${me.username ? "@" + esc(me.username) : ""}</small>
+          <span class="pf-photo-btns"><button type="button" class="linkish" id="pf-pick">${photo ? "Mudar a foto" : "Escolher foto"}</button><button type="button" class="linkish" id="pf-rm" ${photo ? "" : "hidden"}>Tirar</button></span></div>
+        <input type="file" id="pf-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden></div>
       <div class="field"><label for="pf-name">Nome</label><input class="input" id="pf-name" maxlength="32" value="${esc(me.name)}"><small style="color:var(--texto-3)">É o nome que os outros veem. Podes usar espaços e acentos.</small></div>
       <div class="field"><label>Cor</label><div class="swatches" role="radiogroup" aria-label="Cor">${COLORS.map((c) => `<button type="button" role="radio" aria-checked="${c === color}" class="${c === color ? "on" : ""}" data-color="${c}" style="background:${c}" aria-label="Cor ${c}"></button>`).join("")}</div></div>
       <div class="field"><label for="pf-user">Nome de utilizador</label>
@@ -749,10 +751,24 @@
       const nameIn = $("#pf-name", el), userIn = $("#pf-user", el), st = $("#pf-user-st", el), err = $("#pf-err", el);
       const norm = (u) => u.trim().replace(/^@/, "").toLowerCase();
       let seq = 0, timer = 0, free = true;
-      nameIn.oninput = () => { $("#pf-name-prev", el).textContent = nameIn.value || " "; $("#pf-av", el).textContent = initials(nameIn.value || "?"); };
+      const drawAv = () => {
+        const av = $("#pf-av", el);
+        av.style.background = color; av.classList.toggle("has-photo", !!photo);
+        av.innerHTML = photo ? `<img src="${photo}" alt="">` : esc(initials(nameIn.value || "?"));
+        $("#pf-rm", el).hidden = !photo; $("#pf-pick", el).textContent = photo ? "Mudar a foto" : "Escolher foto";
+      };
+      nameIn.oninput = () => { $("#pf-name-prev", el).textContent = nameIn.value || " "; drawAv(); };
+      const pick = () => $("#pf-file", el).click();
+      $("#pf-photo", el).onclick = pick; $("#pf-pick", el).onclick = pick;
+      $("#pf-rm", el).onclick = () => { photo = null; drawAv(); };
+      $("#pf-file", el).onchange = async (e) => {
+        const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+        try { photo = await squarePhoto(f); drawAv(); }
+        catch { err.textContent = "Não consegui abrir essa imagem. Tenta um PNG ou JPG."; err.hidden = false; }
+      };
       el.addEventListener("click", (e) => {
         const b = e.target.closest("[data-color]"); if (!b) return;
-        color = b.dataset.color; $("#pf-av", el).style.background = color;
+        color = b.dataset.color; drawAv();
         el.querySelectorAll("[data-color]").forEach((x) => { x.classList.toggle("on", x === b); x.setAttribute("aria-checked", x === b); });
       });
       userIn.oninput = () => {
@@ -778,15 +794,35 @@
         btn.disabled = true; btn.textContent = "A guardar…";
         try {
           if (name !== me.name) me.name = await api.set_display_name({ name });
-          if (color !== me.color) { await api.set_profile({ color }); me.color = color; }
+          if (color !== me.color || photo !== (me.photo || null)) { await api.set_profile({ color, photo }); me.color = color; me.photo = photo; }
           if (userChanged) {
             const pw = $("#pf-pw", el).value;
             me.username = me.username ? await api.change_username({ newUsername: u, password: pw }) : await api.server_register({ username: u, password: pw });
           }
-          Object.assign(S.people.me || {}, { name: me.name, color: me.color, username: me.username });
+          Object.assign(S.people.me || {}, { name: me.name, color: me.color, username: me.username, photo: me.photo });
+          for (const list of Object.values(S.allMembers || {})) for (const m of list) if (m.id === "me") Object.assign(m, { name: me.name, color: me.color, photo: me.photo });
           close(); render(); toast("Perfil guardado.");
         } catch (x) { err.textContent = String(x.message || x); err.hidden = false; btn.disabled = false; btn.textContent = "Guardar"; }
       };
+    });
+  }
+
+  // Corta ao centro em quadrado e reduz para 256 px (fica leve para guardar e enviar).
+  function squarePhoto(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const n = Math.min(img.naturalWidth, img.naturalHeight), out = 256;
+        const c = document.createElement("canvas"); c.width = c.height = out;
+        c.getContext("2d").drawImage(img, (img.naturalWidth - n) / 2, (img.naturalHeight - n) / 2, n, n, 0, 0, out, out);
+        URL.revokeObjectURL(url);
+        let d = c.toDataURL("image/webp", 0.85);
+        if (!d.startsWith("data:image/webp")) d = c.toDataURL("image/jpeg", 0.85);
+        resolve(d);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("imagem inválida")); };
+      img.src = url;
     });
   }
 
