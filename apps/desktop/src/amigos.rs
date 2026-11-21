@@ -63,6 +63,16 @@ struct Pessoa {
     ultimo: u64,
     #[serde(default)]
     perfil: Option<Perfil>,
+    /// Quando mudou por ação minha (aqui ou noutro dispositivo da conta), em ms.
+    #[serde(default)]
+    mudou: u64,
+}
+
+impl Pessoa {
+    /// Momento da última mudança, venha de um aviso ou de um dispositivo meu.
+    fn marca(&self) -> u64 {
+        self.ultimo.max(self.mudou)
+    }
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -70,6 +80,15 @@ struct Dados {
     /// Último número lido da caixa de pedidos.
     seq: u64,
     pessoas: BTreeMap<String, Pessoa>,
+    /// Último número lido da caixa da conta (outros dispositivos).
+    #[serde(default)]
+    seq_conta: u64,
+    /// Já pus a lista toda na caixa da conta (na primeira vez com sincronização).
+    #[serde(default)]
+    publicado: bool,
+    /// Quem saiu da lista e quando (para avisos antigos não o trazerem de volta).
+    #[serde(default)]
+    apagados: BTreeMap<String, u64>,
 }
 
 struct Ativos {
@@ -172,8 +191,9 @@ impl Ativos {
         {
             let mut d = self.dados.lock().unwrap();
             let atual = d.pessoas.get(&k).cloned();
-            if atual.as_ref().is_some_and(|p| p.ultimo >= a.corpo.em) {
-                return; // repetido ou mais antigo do que o último
+            let marca = atual.as_ref().map(Pessoa::marca).or_else(|| d.apagados.get(&k).copied()).unwrap_or(0);
+            if marca >= a.corpo.em {
+                return; // repetido, ou mais antigo do que a última mudança
             }
             let rel = atual.as_ref().map(|p| p.rel);
             let novo = match (a.corpo.aviso, rel) {
@@ -211,6 +231,7 @@ impl Ativos {
                         desde,
                         ultimo: 0,
                         perfil: None,
+                        mudou: 0,
                     });
                     p.rel = rel;
                     p.desde = desde;
@@ -238,6 +259,109 @@ impl Ativos {
         }
         self.mudou();
         self.acordar.notify_one();
+    }
+
+    /// Mudei alguém da lista neste dispositivo: conto aos outros dispositivos da conta.
+    fn partilhar(&self, k: &str) {
+        let em = now_ms();
+        let dados = {
+            let mut d = self.dados.lock().unwrap();
+            match d.pessoas.get_mut(k) {
+                Some(p) => {
+                    p.mudou = em.max(p.ultimo + 1);
+                    let mut copia = p.clone();
+                    copia.perfil = None; // o perfil vem do próprio amigo
+                    serde_json::to_value(copia).ok()
+                }
+                None => {
+                    d.apagados.insert(k.to_string(), em);
+                    None
+                }
+            }
+        };
+        self.guardar();
+        if let Some(srv) = self.servidor.clone() {
+            crate::sincronia::publicar_depois(srv, self.id.clone(), crate::sincronia::Item::Pessoa { chave: k.to_string(), dados, em });
+        }
+    }
+
+    /// Aplica uma mudança feita noutro dispositivo da conta. Devolve `true` se mudou algo.
+    fn aplicar_conta(&self, chave: &str, dados: Option<Value>, em: u64) -> bool {
+        if unhex32(chave).is_none() || chave == hex(self.id.public().as_bytes()) {
+            return false;
+        }
+        let mut d = self.dados.lock().unwrap();
+        let marca = d.pessoas.get(chave).map(Pessoa::marca).or_else(|| d.apagados.get(chave).copied()).unwrap_or(0);
+        if marca >= em {
+            return false;
+        }
+        match dados.and_then(|v| serde_json::from_value::<Pessoa>(v).ok()) {
+            Some(mut p) => {
+                p.perfil = d.pessoas.get(chave).and_then(|x| x.perfil.clone());
+                p.mudou = em;
+                d.apagados.remove(chave);
+                d.pessoas.insert(chave.to_string(), p);
+            }
+            None => {
+                d.pessoas.remove(chave);
+                d.apagados.insert(chave.to_string(), em);
+            }
+        }
+        true
+    }
+
+    /// Lê a caixa da conta (o que os outros dispositivos mudaram na lista) sem parar.
+    async fn ler_conta(self: Arc<Self>) {
+        let Some(srv) = self.servidor.clone() else { return };
+        // primeira vez com sincronização: a lista deste dispositivo vai para a caixa
+        let por_publicar: Option<Vec<(String, Pessoa)>> = {
+            let d = self.dados.lock().unwrap();
+            (!d.publicado).then(|| d.pessoas.iter().map(|(k, p)| (k.clone(), p.clone())).collect())
+        };
+        if let Some(lista) = por_publicar {
+            let mut tudo = true;
+            for (k, mut p) in lista {
+                p.perfil = None;
+                // O PC é a referência: a lista dele vale como sendo de agora. No telemóvel
+                // fica com a data real, para não estragar o que o PC já disse.
+                let em = if cfg!(mobile) { p.marca().max(1) } else { now_ms() };
+                let item = crate::sincronia::Item::Pessoa { chave: k, dados: serde_json::to_value(p).ok(), em };
+                if let Err(e) = crate::sincronia::publicar(&srv, &self.id, &item).await {
+                    eprintln!("amigos: lista não publicada: {e:#}");
+                    tudo = false;
+                    break;
+                }
+            }
+            if tudo {
+                self.dados.lock().unwrap().publicado = true;
+                self.guardar();
+            }
+        }
+        loop {
+            let desde = self.dados.lock().unwrap().seq_conta;
+            match crate::sincronia::ler(&srv, &self.id, desde, 25).await {
+                Ok((ultimo, itens)) => {
+                    let mut mudou = false;
+                    for it in itens {
+                        if let crate::sincronia::Item::Pessoa { chave, dados, em } = it {
+                            mudou |= self.aplicar_conta(&chave, dados, em);
+                        }
+                    }
+                    if ultimo != desde {
+                        self.dados.lock().unwrap().seq_conta = ultimo;
+                        self.guardar();
+                    }
+                    if mudou {
+                        self.mudou();
+                        self.acordar.notify_one();
+                    }
+                }
+                Err(e) => {
+                    eprintln!("amigos: caixa da conta: {e:#}");
+                    tokio::time::sleep(Duration::from_secs(15)).await;
+                }
+            }
+        }
     }
 
     /// Lê a caixa de pedidos sem parar (o servidor segura o pedido até haver novidades).
@@ -373,6 +497,7 @@ async fn ativos(app: &AppHandle, am: &Amigos, rede: &Rede, contas: &Contas) -> R
     {
         let mut t = a.tarefas.lock().unwrap();
         t.push(tauri::async_runtime::spawn(a.clone().ler_caixa()));
+        t.push(tauri::async_runtime::spawn(a.clone().ler_conta()));
         t.push(tauri::async_runtime::spawn(a.clone().perguntar()));
         t.push(tauri::async_runtime::spawn(a.clone().ouvir()));
     }
@@ -443,6 +568,7 @@ pub async fn send_friend_request(
             desde: now_ms(),
             ultimo: 0,
             perfil: None,
+            mudou: 0,
         });
         p.rel = if aviso == Aviso::Aceite { Rel::Amigo } else { Rel::Enviado };
         p.desde = now_ms();
@@ -453,6 +579,7 @@ pub async fn send_friend_request(
             p.nome = n;
         }
     }
+    a.partilhar(&k);
     a.mudou();
     a.acordar.notify_one();
     let d = a.dados.lock().unwrap();
@@ -480,6 +607,7 @@ async fn responder(a: &Ativos, user_id: &str, quero: Rel, aviso: Aviso, depois: 
             }
         }
     }
+    a.partilhar(user_id);
     a.mudou();
     a.acordar.notify_one();
     Ok(true)
@@ -541,11 +669,13 @@ pub async fn block_user(
             desde: now_ms(),
             ultimo: 0,
             perfil: None,
+            mudou: 0,
         });
         p.rel = Rel::Bloqueado;
         p.desde = now_ms();
     }
     a.online.lock().unwrap().remove(pk.as_bytes());
+    a.partilhar(&user_id);
     a.mudou();
     Ok(true)
 }
@@ -554,10 +684,14 @@ pub async fn block_user(
 pub async fn unblock_user(app: AppHandle, am: State<'_, Amigos>, rede: State<'_, Rede>, c: State<'_, Contas>, user_id: String) -> Res<bool> {
     let a = ativos(&app, &am, &rede, &c).await?;
     let mut d = a.dados.lock().unwrap();
-    if d.pessoas.get(&user_id).is_some_and(|p| p.rel == Rel::Bloqueado) {
+    let estava = d.pessoas.get(&user_id).is_some_and(|p| p.rel == Rel::Bloqueado);
+    if estava {
         d.pessoas.remove(&user_id);
     }
     drop(d);
+    if estava {
+        a.partilhar(&user_id);
+    }
     a.mudou();
     Ok(true)
 }

@@ -195,7 +195,9 @@ impl Conversas {
                         let from = if autor == meu { "me".to_string() } else { amigo.clone() };
                         let m = Msg { id: hex(&ev.id()), ts: ev.body.timestamp_ms, from: from.clone(), text: text.chars().take(MAX_TEXTO).collect() };
                         let json = Self::msg_json(&m);
-                        if self.juntar(&amigo, Some(seq), m) && from != "me" {
+                        // as minhas também: podem ter sido escritas noutro dispositivo da conta (se foram
+                        // escritas aqui, `juntar` já as tinha e devolve `false`)
+                        if self.juntar(&amigo, Some(seq), m) {
                             let _ = app.emit("message", json!({ "channelId": format!("dm-{amigo}"), "message": json }));
                         }
                         novas = true;

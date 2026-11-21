@@ -221,7 +221,11 @@
   }
 
   function hostCard(g) {
-    const owner = S.people[g.owner];
+    const owner = who(g.owner);
+    // grupo teu alojado no PC, visto do telemóvel
+    if (g.owner === "me" && g.host.route !== "este PC") return g.host.online
+      ? `<div class="host-card online"><i class="led"></i><b>Alojado no teu PC</b><span>Ligação ${esc(g.host.route)}</span></div>`
+      : `<div class="host-card offline"><i class="led"></i><b>O teu PC está desligado</b><span>A ver cópia local. Abre a Tasca no PC.</span></div>`;
     if (g.owner === "me") return `<div class="host-card online"><i class="led"></i><b>Alojado neste PC</b><span>És o anfitrião. Mantém a Tasca aberta.</span></div>`;
     if (!g.host.online) return `<div class="host-card offline"><i class="led"></i><b>${esc(owner.name)} está offline</b><span>Visto ${esc(g.host.lastSeen)}. A ver cópia local.</span></div>`;
     return `<div class="host-card online"><i class="led"></i><b>Alojado no PC de ${esc(owner.name)}</b><span>Ligação ${esc(g.host.route)}${g.host.ping != null ? ` · ${g.host.ping} ms` : ""}</span></div>`;
@@ -445,7 +449,7 @@
         <div class="typing">${S.typing && S.typing.channelId === c.id ? `<b>${esc(S.typing.who)}</b> está a escrever…` : ""}</div>
       </div>`;
     }
-    const offline = !g.host.online ? `<div class="banner">${I.warn}<div><b>${esc(S.people[g.owner].name)}</b>, o anfitrião, está offline. Estás a ver a tua cópia local. O que escreveres fica guardado e é enviado quando ele voltar, ou quando outro membro assumir o grupo.</div></div>` : "";
+    const offline = !g.host.online ? `<div class="banner">${I.warn}<div><b>${g.owner === "me" ? "O teu PC" : esc(who(g.owner).name)}</b>, o anfitrião, está offline. Estás a ver a tua cópia local. O que escreveres fica guardado e é enviado quando ele voltar, ou quando outro membro assumir o grupo.</div></div>` : "";
     const typing = S.typing && S.typing.channelId === c.id ? `<b>${esc(S.typing.who)}</b> está a escrever…` : "";
     return `
       <div class="main-head">${menuBtn()}
@@ -1291,7 +1295,7 @@
     const mine = g.owner === "me";
     modal(`<h2>${esc(g.name)}</h2>
       <div class="box">
-        <div class="row"><div class="txt"><b>Anfitrião</b><small>${mine ? "Este PC" : esc(S.people[g.owner].name)}</small></div></div>
+        <div class="row"><div class="txt"><b>Anfitrião</b><small>${mine ? "Este PC" : esc(who(g.owner).name)}</small></div></div>
         ${mine ? `<div class="row"><div class="txt"><b>Canais</b><small>Texto e voz podem estar na mesma categoria. Arrasta canais e categorias na lista para os ordenar.</small></div><span style="display:flex;gap:6px"><button class="btn ghost" data-act="new-category">Criar categoria</button><button class="btn" data-act="new-channel">Criar canal</button></span></div>` : ""}
         <div class="row"><div class="txt"><b>Notificações</b><small>Só menções</small></div><button class="btn">Mudar</button></div>
         ${mine ? `<div class="row"><div class="txt"><b>Transferir propriedade</b><small>Passa o grupo para o PC de outro membro. Ele tem de aceitar.</small></div><button class="btn" data-act="transfer" data-group-id="${g.id}">Transferir…</button></div>` : ""}
@@ -1773,7 +1777,14 @@
   // ---------------- eventos do núcleo ----------------
   api.on("message", ({ channelId, groupId, message }) => {
     if (S.typing && S.typing.channelId === channelId) S.typing = null;
-    if (channelId === S.channelId && S.view === "chat") { S.messages.push(message); render(); return; }
+    if (channelId === S.channelId && S.view === "chat") {
+      // a tua própria mensagem: se foi escrita aqui já está na lista
+      const ja = S.messages.find((x) => x.id === message.id);
+      if (ja) { if (ja.pending) { ja.pending = false; rerenderKeepInput(); } return; }
+      S.messages.push(message); render(); return;
+    }
+    // as tuas (escritas noutro dispositivo) não contam como não lidas
+    if (message && message.from === "me") return;
     // noutro canal: conta como não lida
     if (!S.groups || !S.allChannels) return;
     const c = groupId && (S.allChannels[groupId] || []).find((x) => x.id === channelId);
@@ -1806,6 +1817,10 @@
     g.host = { ...g.host, online, lastSeen: online ? g.host.lastSeen : "há pouco" };
     rerenderKeepInput();
   });
+  // perfil mudado noutro dispositivo da conta
+  api.on("profile_synced", () => setTimeout(async () => {
+    try { S.people = await api.list_people(); rerenderKeepInput(); } catch (x) { console.warn(x); }
+  }, 50));
   api.on("message_ack", ({ channelId, id }) => {
     const m = S.messages.find((x) => x.id === id);
     if (m && channelId === S.channelId) { m.pending = false; if (S.view === "chat") rerenderKeepInput(); }

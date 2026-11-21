@@ -37,6 +37,18 @@ Precisa do Android SDK, NDK, Java 17 e do alvo Rust `aarch64-linux-android`:
 - Microfone e câmara: o Android pergunta ao entrar na chamada / ligar a câmara.
 - "Lembrar a conta" guarda as palavras na pasta privada da app (no PC usa o cofre do sistema).
 
+## PC e telemóvel na mesma conta
+
+- O telemóvel tem uma chave própria no iroh (`contas/<chave>/dispositivo.key`) e, antes de
+  cada ligação, apresenta-se com um certificado assinado pela conta (`tasca_core::dispositivo`).
+  Assim não tira o lugar ao PC na rede quando os dois estão ligados. O PC continua a usar a
+  chave da conta, por isso é ele que hospeda os teus grupos e que os amigos encontram.
+- Amigos, grupos e perfil passam entre dispositivos pela caixa da conta no servidor
+  (`apps/desktop/src/sincronia.rs`), cifrada com uma chave que sai da identidade.
+- Mensagens privadas e de grupo que escreves num dispositivo aparecem logo no outro.
+- Os teus grupos ficam no PC: o telemóvel liga-se a ele como mais um membro. Com o PC
+  desligado, vês a cópia local e o que escreves vai pela caixa do grupo.
+
 ## Ainda não funciona no Android
 
 - Partilha de ecrã (o WebView do Android não a suporta; o botão está escondido).
@@ -45,4 +57,8 @@ Precisa do Android SDK, NDK, Java 17 e do alvo Rust `aarch64-linux-android`:
 - Abrir com o sistema e atualização automática (só no PC).
 - Guardar as 12 palavras num `.txt` (botão escondido; usa "Copiar").
 - Login com Google: usa o fluxo de desktop (redireciona para 127.0.0.1); não foi testado no telemóvel.
+- Criar grupos no telemóvel (o grupo vive no PC de quem o cria; cria-o no PC).
+- Mudar canais dos teus grupos a partir do telemóvel (só o PC anfitrião).
+- Amigos que só tenham o telemóvel ligado aparecem offline para os outros (os amigos
+  procuram o PC da conta).
 - Só é gerado APK para ARM 64 bits (quase todos os telemóveis desde 2017).

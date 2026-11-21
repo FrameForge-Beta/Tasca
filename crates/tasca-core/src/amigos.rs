@@ -206,6 +206,8 @@ pub struct Amigos {
     /// Perfis dos amigos que já recebi (hash → para não os pedir outra vez).
     perfis: Mutex<HashMap<[u8; 32], Perfil>>,
     novidades: broadcast::Sender<Novidade>,
+    /// Dispositivos (telemóveis) que se apresentaram com certificado da conta.
+    pub(crate) dispositivos: std::sync::Arc<crate::dispositivo::Conhecidos>,
 }
 
 impl Default for Amigos {
@@ -215,6 +217,7 @@ impl Default for Amigos {
             eu: Mutex::new((Estado { estado: "online".into(), mensagem: String::new() }, Perfil::default())),
             perfis: Default::default(),
             novidades: broadcast::channel(256).0,
+            dispositivos: Default::default(),
         }
     }
 }
@@ -318,7 +321,7 @@ impl Amigos {
     }
 
     async fn conversa(&self, conn: &Connection) -> Result<()> {
-        let quem = *conn.remote_id().as_bytes();
+        let quem = *self.dispositivos.conta_de(&conn.remote_id()).as_bytes();
         let (mut send, mut recv) = conn.accept_bi().await?;
         let Some(Msg::Ola { estado: o_dele, tenho }) = read_frame(&mut recv).await? else {
             bail!("esperava Ola");

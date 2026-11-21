@@ -241,3 +241,62 @@ async fn amigos_trocam_estado_e_perfil() {
     rui.amigos().definir_eu(Estado { estado: "offline".into(), mensagem: String::new() }, perfil("Rui"));
     assert_eq!(ana.perguntar_amigo(rui.addr()).await.unwrap(), None);
 }
+
+/// Segundo dispositivo da mesma conta (telemóvel): chave própria, apresentada com certificado.
+async fn telemovel(conta: &Identity) -> Node {
+    Node::spawn(
+        conta.clone(),
+        Store::open_in_memory().unwrap(),
+        NodeOptions { local_only: true, dispositivo: Some(Identity::generate().secret().clone()), ..Default::default() },
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn telemovel_do_dono_entra_no_grupo_do_pc() {
+    let pc = node().await;
+    let group = pc.create_group("Malta", "Tiago").unwrap();
+    let pc_chat = pc.open_hosted(group).unwrap();
+    let mut pc_rx = pc.subscribe(group);
+    let invite = pc.create_invite(group).await.unwrap();
+
+    let tel = telemovel(pc.identity()).await;
+    assert!(tel.e_dispositivo());
+    assert_ne!(tel.addr().id, pc.addr().id, "o telemóvel não usa a chave da conta no iroh");
+    let mut tel_rx = tel.subscribe(group);
+    let chat = tel.join(&invite, "Tiago").await.unwrap();
+
+    chat.send_message("geral", "do telemóvel").await.unwrap();
+    assert_eq!(next_text(&mut pc_rx).await, "do telemóvel");
+    assert_eq!(next_text(&mut tel_rx).await, "do telemóvel");
+    pc_chat.send_message("geral", "do PC").await.unwrap();
+    assert_eq!(next_text(&mut tel_rx).await, "do PC");
+
+    // o telemóvel sai: o PC (anfitrião) continua online
+    drop(chat);
+    tel.shutdown().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let me = *pc.identity().public().as_bytes();
+    let pres = pc.presence(group).borrow().clone();
+    assert!(pres.contains_key(&me), "o anfitrião continua online: {pres:?}");
+}
+
+#[tokio::test]
+async fn telemovel_e_reconhecido_pelos_amigos() {
+    use tasca_core::amigos::{Estado, Perfil};
+    let ana = node().await;
+    let rui = node().await;
+    ana.amigos().definir_lista([*rui.identity().public().as_bytes()]);
+    rui.amigos().definir_lista([*ana.identity().public().as_bytes()]);
+    rui.amigos().definir_eu(Estado { estado: "online".into(), mensagem: String::new() }, Perfil::default());
+    let tel_ana = telemovel(ana.identity()).await;
+    tel_ana.amigos().definir_lista([*rui.identity().public().as_bytes()]);
+    let e = tel_ana.perguntar_amigo(rui.addr()).await.unwrap();
+    assert!(e.is_some(), "o Rui responde ao telemóvel da Ana");
+
+    // um nó qualquer que diga ser da Ana não passa: sem certificado é só ele próprio
+    let intruso = node().await;
+    intruso.amigos().definir_lista([*rui.identity().public().as_bytes()]);
+    assert_eq!(intruso.perguntar_amigo(rui.addr()).await.unwrap(), None);
+}

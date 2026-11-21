@@ -16,15 +16,16 @@
 
 use std::{
     collections::HashMap,
+    path::PathBuf,
     sync::{Arc, Mutex as StdMutex},
     time::{Duration, Instant},
 };
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tasca_core::{
-    ChannelDef, ChannelKind, EventKind, GroupHandle, GroupId, Invite, Node, NodeOptions, SignedEvent, Store,
-    servidor::AccountServer,
+    ChannelDef, ChannelKind, EventKind, GroupHandle, GroupId, Identity, Invite, Node, NodeOptions, PublicKey, SignedEvent,
+    Store, event::now_ms, servidor::AccountServer,
 };
 use tauri::{AppHandle, Emitter, State, async_runtime::JoinHandle};
 use tokio::sync::Mutex;
@@ -46,6 +47,31 @@ pub(crate) struct Ativa {
     servidor: bool,
     ligacoes: StdMutex<HashMap<GroupId, Ligacao>>,
     tarefas: StdMutex<Vec<JoinHandle<()>>>,
+    /// Identidade da conta (para a caixa da conta).
+    id: Identity,
+    /// Servidor de contas (caixa da conta: grupos e perfil entre dispositivos).
+    srv: Option<AccountServer>,
+    sinc: StdMutex<Sinc>,
+    caminho_sinc: PathBuf,
+}
+
+/// O que este dispositivo já leu e publicou na caixa da conta (ver `sincronia.rs`).
+#[derive(Default, Serialize, Deserialize)]
+struct Sinc {
+    seq: u64,
+    grupos_publicados: bool,
+    perfil_publicado: bool,
+    /// Impressões digitais do último perfil publicado ou recebido.
+    perfil: u64,
+    foto: u64,
+    banner: u64,
+    /// Quando mudou cada parte (para não aplicar novidades mais velhas do que a minha).
+    #[serde(default)]
+    em_perfil: u64,
+    #[serde(default)]
+    em_foto: u64,
+    #[serde(default)]
+    em_banner: u64,
 }
 
 struct Ligacao {
@@ -235,12 +261,13 @@ impl Ativa {
                 if self.eu(&ev.body.author) {
                     // a minha mensagem voltou do anfitrião: está guardada no grupo
                     let _ = app.emit("message_ack", json!({ "channelId": channel_id, "id": hex(&ev.id()) }));
-                } else {
-                    let _ = app.emit(
-                        "message",
-                        json!({ "channelId": channel_id, "groupId": hex(&g.0), "message": self.mensagem(ev) }),
-                    );
                 }
+                // as minhas também vão como mensagem: podem ter sido escritas noutro
+                // dispositivo da conta (a interface ignora as que já tem)
+                let _ = app.emit(
+                    "message",
+                    json!({ "channelId": channel_id, "groupId": hex(&g.0), "message": self.mensagem(ev) }),
+                );
             }
             _ => {
                 let _ = app.emit("group_changed", json!({ "groupId": hex(&g.0) }));
@@ -349,6 +376,190 @@ impl Ativa {
     }
 }
 
+impl Ativa {
+    fn guardar_sinc(&self) {
+        let b = serde_json::to_vec(&*self.sinc.lock().unwrap());
+        if let Ok(b) = b {
+            if let Err(e) = std::fs::write(&self.caminho_sinc, b) {
+                eprintln!("sincronia: não consegui guardar: {e}");
+            }
+        }
+    }
+
+    fn item_grupo(&self, g: GroupId) -> Option<crate::sincronia::Item> {
+        let info = self.node.with_store(|s| s.group(g)).ok()??;
+        Some(crate::sincronia::Item::Grupo {
+            id: hex(&g.0),
+            nome: info.name,
+            dono: hex(info.owner.as_bytes()),
+            em: now_ms(),
+        })
+    }
+
+    /// Conta aos outros dispositivos da conta que estou neste grupo.
+    fn partilhar_grupo(&self, g: GroupId) {
+        if let (Some(srv), Some(item)) = (self.srv.clone(), self.item_grupo(g)) {
+            crate::sincronia::publicar_depois(srv, self.id.clone(), item);
+        }
+    }
+
+    /// Lê a caixa da conta: grupos e perfil vindos dos outros dispositivos.
+    async fn ler_conta(self: Arc<Self>, app: AppHandle) {
+        let Some(srv) = self.srv.clone() else { return };
+        if !self.sinc.lock().unwrap().grupos_publicados {
+            let grupos = self.node.with_store(|s| s.groups()).unwrap_or_default();
+            let mut tudo = true;
+            for info in grupos {
+                let Some(item) = self.item_grupo(info.id) else { continue };
+                if let Err(e) = crate::sincronia::publicar(&srv, &self.id, &item).await {
+                    eprintln!("sincronia: grupos não publicados: {e:#}");
+                    tudo = false;
+                    break;
+                }
+            }
+            if tudo {
+                self.sinc.lock().unwrap().grupos_publicados = true;
+                self.guardar_sinc();
+            }
+        }
+        loop {
+            let desde = self.sinc.lock().unwrap().seq;
+            match crate::sincronia::ler(&srv, &self.id, desde, 25).await {
+                Ok((ultimo, itens)) => {
+                    for it in itens {
+                        self.aplicar_conta(&app, it);
+                    }
+                    if ultimo != desde {
+                        self.sinc.lock().unwrap().seq = ultimo;
+                        self.guardar_sinc();
+                    }
+                }
+                Err(e) => {
+                    eprintln!("sincronia: caixa da conta: {e:#}");
+                    tokio::time::sleep(Duration::from_secs(15)).await;
+                }
+            }
+        }
+    }
+
+    fn aplicar_conta(self: &Arc<Self>, app: &AppHandle, it: crate::sincronia::Item) {
+        use crate::sincronia::{Item, marca};
+        match it {
+            Item::Grupo { id, nome, dono, .. } => {
+                let (Some(g), Some(dono)) = (unhex32(&id).map(GroupId), unhex32(&dono)) else { return };
+                let Ok(dono_pk) = PublicKey::from_bytes(&dono) else { return };
+                if self.node.with_store(|s| s.group(g)).ok().flatten().is_some() {
+                    return;
+                }
+                // grupo meu que este PC não tem: só o PC que o criou o pode hospedar
+                if dono == self.conta && !self.node.e_dispositivo() {
+                    return;
+                }
+                let nome: String = nome.chars().take(100).collect();
+                match self.node.with_store(|s| s.add_known_group(g, &nome, &dono_pk)) {
+                    Ok(true) => {
+                        if let Err(e) = self.arrancar(app, g, None) {
+                            eprintln!("grupo {g} vindo de outro dispositivo: {e}");
+                        }
+                        let _ = app.emit("group_changed", json!({ "groupId": hex(&g.0) }));
+                    }
+                    Ok(false) => {}
+                    Err(e) => eprintln!("grupo {g} vindo de outro dispositivo: {e:#}"),
+                }
+            }
+            Item::Perfil { cor, bio, em } => {
+                let cor: String = cor.chars().take(32).collect();
+                let bio: String = bio.chars().take(tasca_core::amigos::MAX_BIO).collect();
+                {
+                    let mut s = self.sinc.lock().unwrap();
+                    if em <= s.em_perfil {
+                        return; // é a minha, ou mais velha do que a minha
+                    }
+                    s.em_perfil = em;
+                    s.perfil = marca(&(cor.as_str(), bio.as_str()));
+                }
+                self.guardar_sinc();
+                let _ = app.emit("profile_synced", json!({ "color": cor, "bio": bio }));
+            }
+            Item::Imagem { campo, valor, em } => {
+                let valor = valor.filter(|v| v.starts_with("data:image/") || (campo == "banner" && v.starts_with('#')));
+                let m = marca(&valor);
+                {
+                    let mut guarda = self.sinc.lock().unwrap();
+                    let s = &mut *guarda;
+                    let (em_x, marca_x) = match campo.as_str() {
+                        "foto" => (&mut s.em_foto, &mut s.foto),
+                        "banner" => (&mut s.em_banner, &mut s.banner),
+                        _ => return,
+                    };
+                    if em <= *em_x {
+                        return;
+                    }
+                    *em_x = em;
+                    *marca_x = m;
+                }
+                self.guardar_sinc();
+                let chave = if campo == "foto" { "photo" } else { "banner" };
+                let _ = app.emit("profile_synced", json!({ chave: valor }));
+            }
+            Item::Pessoa { .. } => {} // amigos.rs
+        }
+    }
+
+    /// O perfil mudou aqui: publica na caixa da conta o que ainda lá não está. `forcar` =
+    /// a pessoa acabou de o mudar (senão só publica uma vez, no PC, para arrancar).
+    fn partilhar_perfil(&self, cor: &str, bio: &str, foto: &Option<String>, banner: &Option<String>, forcar: bool) {
+        use crate::sincronia::{Item, marca};
+        let Some(srv) = self.srv.clone() else { return };
+        let mut itens = Vec::new();
+        {
+            let mut s = self.sinc.lock().unwrap();
+            // o telemóvel acabado de entrar ainda tem o perfil por omissão: não o espalha
+            if !forcar && (s.perfil_publicado || cfg!(mobile)) {
+                return;
+            }
+            s.perfil_publicado = true;
+            let em = now_ms();
+            let m = marca(&(cor, bio));
+            if s.perfil != m {
+                s.perfil = m;
+                s.em_perfil = em;
+                itens.push(Item::Perfil { cor: cor.into(), bio: bio.into(), em });
+            }
+            let m = marca(foto);
+            if s.foto != m {
+                s.foto = m;
+                s.em_foto = em;
+                itens.push(Item::Imagem { campo: "foto".into(), valor: foto.clone(), em });
+            }
+            let m = marca(banner);
+            if s.banner != m {
+                s.banner = m;
+                s.em_banner = em;
+                itens.push(Item::Imagem { campo: "banner".into(), valor: banner.clone(), em });
+            }
+        }
+        self.guardar_sinc();
+        for it in itens {
+            crate::sincronia::publicar_depois(srv.clone(), self.id.clone(), it);
+        }
+    }
+}
+
+/// Chave própria deste dispositivo (só no telemóvel; ver `tasca_core::dispositivo`).
+fn chave_dispositivo(pasta: &std::path::Path) -> Res<tasca_core::SecretKey> {
+    let f = pasta.join("dispositivo.key");
+    if let Ok(b) = std::fs::read(&f) {
+        if let Ok(arr) = <[u8; 32]>::try_from(b.as_slice()) {
+            return Ok(tasca_core::SecretKey::from_bytes(&arr));
+        }
+    }
+    let k = Identity::generate().secret().clone();
+    std::fs::create_dir_all(pasta).map_err(|e| e.to_string())?;
+    std::fs::write(&f, k.to_bytes()).map_err(|e| format!("não consegui guardar a chave do dispositivo: {e}"))?;
+    Ok(k)
+}
+
 /// Fecha o nó (ao sair da app): avisa os outros PCs de que as ligações acabaram.
 pub(crate) async fn desligar(rede: &Rede) {
     if let Some(a) = rede.ativa.lock().await.take() {
@@ -369,24 +580,38 @@ pub(crate) async fn ativa(app: &AppHandle, rede: &Rede, contas: &Contas) -> Res<
     if let Some(velha) = g.take() {
         velha.parar().await;
     }
-    let caminho = pasta_contas(app)?.join(hex(&pk)).join("grupos.db");
+    let pasta = pasta_contas(app)?.join(hex(&pk));
+    let caminho = pasta.join("grupos.db");
     let store = Store::open(&caminho).map_err(txt)?;
     let servidor = AccountServer::from_env();
     let tem_servidor = servidor.is_some();
-    let node = Node::spawn(id, store, NodeOptions { servidor, ..Default::default() })
+    // o telemóvel tem chave própria e apresenta-se com certificado da conta: assim não
+    // tira o lugar ao PC na rede quando os dois estão ligados
+    let dispositivo = if cfg!(mobile) { Some(chave_dispositivo(&pasta)?) } else { None };
+    let node = Node::spawn(id.clone(), store, NodeOptions { servidor: servidor.clone(), dispositivo, ..Default::default() })
         .await
         .map_err(txt)?;
+    let caminho_sinc = pasta.join("sincronia.json");
+    let sinc: Sinc = std::fs::read(&caminho_sinc).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
     let a = Arc::new(Ativa {
         conta: pk,
         node,
         servidor: tem_servidor,
         ligacoes: Default::default(),
         tarefas: Default::default(),
+        id,
+        srv: servidor,
+        sinc: StdMutex::new(sinc),
+        caminho_sinc,
     });
     for info in a.node.with_store(|s| s.groups()).map_err(txt)? {
         if let Err(e) = a.arrancar(app, info.id, None) {
             eprintln!("grupo {}: {e}", info.id);
         }
+    }
+    if a.srv.is_some() {
+        let (a2, ap) = (a.clone(), app.clone());
+        a.tarefa(async move { a2.ler_conta(ap).await });
     }
     *g = Some(a.clone());
     Ok(a)
@@ -539,9 +764,13 @@ pub async fn send_message(
 #[tauri::command]
 pub async fn create_group(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>, name: String) -> Res<Value> {
     let a = ativa(&app, &rede, &c).await?;
+    if a.node.e_dispositivo() {
+        return Err("No telemóvel ainda não dá para criar grupos: o grupo vive no PC de quem o cria. Cria-o no PC e ele aparece aqui.".into());
+    }
     let nome = c.nome().await.unwrap_or_else(|| "Eu".into());
     let g = a.node.create_group(&name, &nome).map_err(txt)?;
     a.arrancar(&app, g, None)?;
+    a.partilhar_grupo(g);
     a.grupo_json(g)
 }
 
@@ -582,9 +811,13 @@ pub async fn import_local_group(
     categories: Option<Vec<String>>,
 ) -> Res<Value> {
     let a = ativa(&app, &rede, &c).await?;
+    if a.node.e_dispositivo() {
+        return Err("No telemóvel não dá para criar grupos.".into());
+    }
     let nome = c.nome().await.unwrap_or_else(|| "Eu".into());
     let g = a.node.create_group(&name, &nome).map_err(txt)?;
     a.arrancar(&app, g, None)?;
+    a.partilhar_grupo(g);
     let canais: Vec<ChannelDef> = channels.into_iter().map(canal_de_ui).collect();
     if canais.iter().any(|c| c.kind == ChannelKind::Text) {
         let cats = categories.unwrap_or_default();
@@ -640,6 +873,7 @@ pub async fn join_group(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Cont
     } else {
         a.arrancar(&app, g, Some(h))?;
     }
+    a.partilhar_grupo(g);
     a.grupo_json(g)
 }
 
@@ -937,6 +1171,7 @@ pub async fn publish_profile(
     photo: Option<String>,
     bio: Option<String>,
     banner: Option<String>,
+    sync: Option<bool>,
 ) -> Res<bool> {
     let a = ativa(&app, &rede, &c).await?;
     let nome = c.nome().await.unwrap_or_else(|| "Eu".into());
@@ -949,6 +1184,7 @@ pub async fn publish_profile(
             b.len() <= tasca_core::amigos::MAX_BANNER && (b.starts_with("data:image/") || b.starts_with('#'))
         }),
     };
+    a.partilhar_perfil(&novo.color, &cartao.bio, &novo.photo, &cartao.banner, sync == Some(true));
     crate::amigos::definir_meu_perfil(
         &a.node,
         tasca_core::amigos::Perfil {
