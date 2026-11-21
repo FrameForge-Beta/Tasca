@@ -92,22 +92,7 @@ rust {
     rootDirRel = "../../../"
 }
 
-// Parte Kotlin do rustls-platform-verifier (verificação HTTPS pelo Android). A versão tem de ser
-// igual à do crate rustls-platform-verifier-android no Cargo.lock, por isso lê-se de lá.
-val rustlsAndroidVersion: String = rootProject.file("../../../../Cargo.lock").readLines().let { linhas ->
-    val i = linhas.indexOfFirst { it.trim() == "name = \"rustls-platform-verifier-android\"" }
-    require(i >= 0) { "rustls-platform-verifier-android não está no Cargo.lock" }
-    linhas[i + 1].substringAfter('"').substringBefore('"')
-}
-
-repositories {
-    maven {
-        url = uri("https://github.com/rustls/rustls-platform-verifier/raw/maven-archive/android-release-support/maven/")
-    }
-}
-
 dependencies {
-    implementation("rustls:rustls-platform-verifier:$rustlsAndroidVersion")
     implementation("androidx.webkit:webkit:1.14.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.activity:activity-ktx:1.10.1")

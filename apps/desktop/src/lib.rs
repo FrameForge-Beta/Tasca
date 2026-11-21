@@ -96,21 +96,6 @@ fn sair_app(app: AppHandle) {
     app.exit(0);
 }
 
-/// No Android, o verificador de certificados HTTPS do rustls pergunta ao sistema (JVM).
-/// Tem de ser ligado antes de qualquer pedido de rede, senão o pedido fica pendurado.
-#[cfg(target_os = "android")]
-fn iniciar_tls_android() {
-    let ctx = ndk_context::android_context();
-    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) };
-    let r = vm.attach_current_thread(|env| -> Result<(), jni::errors::Error> {
-        let context = unsafe { jni::objects::JObject::from_raw(env, ctx.context().cast()) };
-        rustls_platform_verifier::android::init_with_env(env, context)
-    });
-    if let Err(e) = r {
-        eprintln!("não consegui preparar o HTTPS no Android: {e}");
-    }
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
@@ -202,8 +187,6 @@ pub fn run() {
             presenca::get_autostart,
         ])
         .setup(|app| {
-            #[cfg(target_os = "android")]
-            iniciar_tls_android();
             let app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 // deixa o ecrã de arranque desenhar-se antes de começar

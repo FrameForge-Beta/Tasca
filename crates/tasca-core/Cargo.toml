@@ -27,6 +27,10 @@ tracing = "0.1.44"
 url = { version = "2.5.8", optional = true }
 zeroize = "1.9.2"
 
+# Android: autoridades de certificação embutidas (ver `http_builder` em lib.rs).
+[target.'cfg(target_os = "android")'.dependencies]
+webpki-root-certs = "1"
+
 [features]
 default = ["google", "servidor"]
 # Login com Google e cópia da conta no Google Drive.

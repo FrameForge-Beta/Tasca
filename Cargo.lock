@@ -6385,10 +6385,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "getrandom 0.4.3",
- "jni 0.22.4",
  "keyring",
- "ndk-context",
- "rustls-platform-verifier",
  "serde",
  "serde_json",
  "tasca-core",
@@ -6439,6 +6436,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "webpki-root-certs",
  "zeroize",
 ]
 
