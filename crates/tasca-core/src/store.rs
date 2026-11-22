@@ -95,6 +95,9 @@ pub struct Store {
     conn: Connection,
     /// O que o AutoMod apanhou no último evento (o anfitrião trata do castigo e do alerta).
     automod: Option<AutoModCaso>,
+    /// Hora a usar nas regras enquanto se aplica um evento da caixa (a hora do servidor),
+    /// para todos os dispositivos chegarem ao mesmo resultado.
+    relogio: Option<u64>,
 }
 
 /// Uma mensagem apanhada pelo AutoMod.
@@ -298,7 +301,15 @@ impl Store {
                  PRIMARY KEY (group_id, pubkey)
              );",
         )?;
-        Ok(Self { conn, automod: None })
+        conn.execute_batch(
+            "-- épocas da caixa do grupo já fechadas (a chave mudou e a leitura passou à seguinte)
+             CREATE TABLE IF NOT EXISTS caixa_epocas (
+                 group_id BLOB NOT NULL,
+                 epoch    INTEGER NOT NULL,
+                 PRIMARY KEY (group_id, epoch)
+             );",
+        )?;
+        Ok(Self { conn, automod: None, relogio: None })
     }
 
     /// Cria um grupo novo hospedado neste PC, a partir de um `GroupCreated` assinado.
@@ -333,17 +344,29 @@ impl Store {
         ev: &SignedEvent,
         admitted_by_invite: bool,
     ) -> Result<Option<u64>> {
+        let group = ev.body.group.ok_or_else(|| anyhow!("evento sem grupo"))?;
+        let info = self.group(group)?.ok_or_else(|| anyhow!("grupo desconhecido"))?;
+        ensure!(info.hosted, "este grupo não é hospedado aqui");
+        self.validar_e_guardar(ev, admitted_by_invite)
+    }
+
+    /// A hora das regras: a do servidor ao aplicar a caixa, senão a deste dispositivo.
+    fn agora(&self) -> u64 {
+        self.relogio.unwrap_or_else(crate::event::now_ms)
+    }
+
+    /// Valida um evento novo com as regras do grupo, dá-lhe o próximo número e guarda-o.
+    fn validar_e_guardar(&mut self, ev: &SignedEvent, admitted_by_invite: bool) -> Result<Option<u64>> {
         ev.verify()?;
         let group = ev.body.group.ok_or_else(|| anyhow!("evento sem grupo"))?;
         let info = self
             .group(group)?
             .ok_or_else(|| anyhow!("grupo desconhecido"))?;
-        ensure!(info.hosted, "este grupo não é hospedado aqui");
         let author = ev.author()?;
         let a = ev.body.author;
         let member = self.is_member(group, &author)?;
         let dono = author == info.owner;
-        let agora = crate::event::now_ms();
+        let agora = self.agora();
         self.automod = None;
         // permissões do autor no grupo (ou num canal)
         let pode = |s: &Self, ch: Option<&str>, p: u64| -> Result<()> {
@@ -650,7 +673,7 @@ impl Store {
         for t in [
             "events", "members", "invites", "group_keys", "layouts", "profiles", "profile_cards", "group_state",
             "member_roles", "channel_perms", "bans", "timeouts", "nicks", "pins", "voice_mod", "group_invites",
-            "ex_members", "pending_events",
+            "ex_members", "pending_events", "caixa_epocas",
         ] {
             tx.execute(&format!("DELETE FROM {t} WHERE group_id = ?1"), params![group.0])?;
         }
@@ -999,7 +1022,7 @@ impl Store {
         let dono = info.owner.as_bytes() == who;
         let cargos_ = self.roles(group)?;
         let meus = self.member_roles(group, who)?;
-        let castigo = self.castigo(group, who)? > crate::event::now_ms();
+        let castigo = self.castigo(group, who)? > self.agora();
         let mut listas: Vec<Vec<Excecao>> = Vec::new();
         if let Some(ch) = channel {
             let (canais, _) = self.layout(group)?;
@@ -1100,7 +1123,7 @@ impl Store {
 
     /// Os últimos textos de alguém num canal (o mais recente no fim), nos últimos 2 minutos.
     fn textos_recentes(&self, group: GroupId, who: &[u8; 32], ch: &str, n: usize) -> Result<Vec<String>> {
-        let desde = crate::event::now_ms().saturating_sub(120_000) as i64;
+        let desde = self.agora().saturating_sub(120_000) as i64;
         let mut stmt = self.conn.prepare(
             "SELECT data FROM events WHERE group_id = ?1 AND author = ?2 AND ts > ?3 ORDER BY seq DESC LIMIT 30",
         )?;
@@ -1322,6 +1345,217 @@ impl Store {
         let mut stmt = self.conn.prepare("SELECT data FROM pending_events WHERE group_id = ?1 ORDER BY ts")?;
         let rows = stmt.query_map(params![group.0], |r| r.get::<_, Vec<u8>>(0))?;
         rows.map(|r| Ok(postcard::from_bytes(&r?)?)).collect()
+    }
+}
+
+
+// ---------------- grupo na caixa do servidor ----------------
+
+impl Store {
+    /// Aplica um evento lido da caixa do grupo, com as mesmas regras que o anfitrião usava.
+    /// Todos os dispositivos leem a caixa pela mesma ordem e com a mesma hora (`em`, a do
+    /// servidor), por isso chegam todos ao mesmo estado sem precisar do PC do dono.
+    ///
+    /// `convite`: a chave pública do convite com que alguém entra (prova já confirmada).
+    /// Devolve o número local do evento, ou `None` se já o tinha ou não muda nada.
+    pub fn aplicar_caixa(&mut self, ev: &SignedEvent, em: u64, convite: Option<[u8; 32]>) -> Result<Option<u64>> {
+        ev.verify()?;
+        let group = ev.group_id();
+        let id = ev.id();
+        if self.event_by_id(group, &id)?.is_some() {
+            self.conn.execute("DELETE FROM pending_events WHERE group_id = ?1 AND id = ?2", params![group.0, id])?;
+            return Ok(None);
+        }
+        if let EventKind::GroupCreated { .. } = &ev.body.kind {
+            return self.criar_da_caixa(ev);
+        }
+        self.automod = None;
+        self.relogio = Some(em);
+        let r = (|| {
+            let by_invite = match (&ev.body.kind, convite) {
+                (EventKind::MemberJoined { .. }, Some(h)) => self.convite_aberto(group, &h, em)?,
+                _ => false,
+            };
+            let r = self.validar_e_guardar(ev, by_invite)?;
+            if let (Some(_), true, Some(h)) = (r, by_invite, convite) {
+                self.conn.execute(
+                    "UPDATE group_invites SET uses = uses + 1 WHERE group_id = ?1 AND hash = ?2",
+                    params![group.0, h],
+                )?;
+            }
+            Ok(r)
+        })();
+        self.relogio = None;
+        // AutoMod: o castigo aplica-se igual em todos os dispositivos.
+        if let Some(c) = &self.automod {
+            if c.bloqueio.timeout_secs > 0 {
+                let ate = em + c.bloqueio.timeout_secs as u64 * 1000;
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO timeouts (group_id, pubkey, until) VALUES (?1, ?2, ?3)",
+                    params![group.0, c.autor, ate as i64],
+                )?;
+            }
+        }
+        self.conn.execute("DELETE FROM pending_events WHERE group_id = ?1 AND id = ?2", params![group.0, id])?;
+        if let Ok(Some(_)) = &r {
+            if matches!(ev.body.kind, EventKind::Kick { .. } | EventKind::Ban { .. }) {
+                // quem saiu ainda tem a chave: falta rodá-la. Depois de banir, os convites
+                // abertos não recebem a chave nova (quem foi banido pode ter um).
+                let banido = matches!(ev.body.kind, EventKind::Ban { .. });
+                let antes = self.rodar_pendente(group)?.is_some_and(|r| r.2);
+                self.set_estado(group, "rodar", &(em, ev.body.author, banido || antes))?;
+            }
+        }
+        r
+    }
+
+    /// Registo antigo (assinado pelo anfitrião, de antes de o grupo viver na caixa): entra
+    /// sem voltar a validar, se ainda não o tivermos.
+    pub fn inserir_registo(&mut self, ev: &SignedEvent) -> Result<Option<u64>> {
+        ev.verify()?;
+        let group = ev.group_id();
+        let id = ev.id();
+        if self.event_by_id(group, &id)?.is_some() {
+            return Ok(None);
+        }
+        if let EventKind::GroupCreated { .. } = &ev.body.kind {
+            return self.criar_da_caixa(ev);
+        }
+        ensure!(self.last_seq(group)? > 0, "grupo desconhecido");
+        let tx = self.conn.transaction()?;
+        let seq = last_seq(&tx, group)? + 1;
+        insert_event(&tx, group, seq, ev)?;
+        apply(&tx, group, ev)?;
+        tx.execute("DELETE FROM pending_events WHERE group_id = ?1 AND id = ?2", params![group.0, id])?;
+        tx.commit()?;
+        Ok(Some(seq))
+    }
+
+    /// O `GroupCreated` lido da caixa: o grupo passa a existir aqui.
+    fn criar_da_caixa(&mut self, ev: &SignedEvent) -> Result<Option<u64>> {
+        let EventKind::GroupCreated { name, .. } = &ev.body.kind else { bail!("não é GroupCreated") };
+        ensure!(ev.body.group.is_none(), "GroupCreated não pode indicar grupo");
+        check_name(name)?;
+        let group = ev.group_id();
+        let tx = self.conn.transaction()?;
+        if last_seq(&tx, group)? > 0 {
+            return Ok(None);
+        }
+        tx.execute(
+            "INSERT OR IGNORE INTO groups (id, name, owner, hosted) VALUES (?1, ?2, ?3, 0)",
+            params![group.0, name, ev.body.author],
+        )?;
+        let dono: Vec<u8> = tx.query_row("SELECT owner FROM groups WHERE id = ?1", params![group.0], |r| r.get(0))?;
+        ensure!(dono == ev.body.author, "o grupo tem outro dono");
+        insert_event(&tx, group, 1, ev)?;
+        apply(&tx, group, ev)?;
+        tx.commit()?;
+        Ok(Some(1))
+    }
+
+    /// Convite publicado, não revogado, não expirado e com usos à hora `em`.
+    fn convite_aberto(&self, group: GroupId, hash: &[u8; 32], em: u64) -> Result<bool> {
+        let c: Option<(i64, i64, i64, i64)> = self
+            .conn
+            .query_row(
+                "SELECT max_uses, expires, uses, revoked FROM group_invites WHERE group_id = ?1 AND hash = ?2",
+                params![group.0, hash],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .optional()?;
+        Ok(c.is_some_and(|(max, exp, uses, rev)| rev == 0 && (exp == 0 || exp as u64 > em) && (max == 0 || uses < max)))
+    }
+
+    /// Chaves públicas dos convites ainda abertos (para lhes dar a chave nova do grupo).
+    pub fn convites_abertos(&self, group: GroupId) -> Result<Vec<[u8; 32]>> {
+        Ok(self.group_invites(group)?.into_iter().map(|c| c.hash).collect())
+    }
+
+    fn set_estado<T: serde::Serialize>(&self, group: GroupId, k: &str, v: &T) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO group_state (group_id, k, data) VALUES (?1, ?2, ?3)",
+            params![group.0, k, postcard::to_stdvec(v)?],
+        )?;
+        Ok(())
+    }
+
+    /// Falta rodar a chave do grupo (alguém foi expulso ou banido):
+    /// `(quando, quem expulsou, houve banimento)`.
+    pub fn rodar_pendente(&self, group: GroupId) -> Result<Option<(u64, [u8; 32], bool)>> {
+        Ok(self.estado::<(u64, [u8; 32], bool)>(group, "rodar").ok().flatten())
+    }
+
+    /// Uma chave nova lida da caixa vale? Só depois de expulsar alguém, e de quem pode expulsar.
+    pub fn chave_nova_valida(&self, group: GroupId, autor: &[u8; 32], em: u64) -> Result<bool> {
+        if self.rodar_pendente(group)?.is_none() {
+            return Ok(false);
+        }
+        let Some(info) = self.group(group)? else { return Ok(false) };
+        if info.owner.as_bytes() == autor {
+            return Ok(true);
+        }
+        if !self.is_member(group, &pubkey(autor)?)? {
+            return Ok(false);
+        }
+        let _ = em;
+        Ok(self.perms(group, autor, None)? & (cargos::EXPULSAR | cargos::BANIR) != 0)
+    }
+
+    /// A chave mudou: fecha a época `epoch` (a leitura passa à seguinte).
+    pub fn fechar_epoca(&self, group: GroupId, epoch: u32) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO caixa_epocas (group_id, epoch) VALUES (?1, ?2)",
+            params![group.0, epoch],
+        )?;
+        self.conn.execute("DELETE FROM group_state WHERE group_id = ?1 AND k = 'rodar'", params![group.0])?;
+        Ok(())
+    }
+
+    /// Todas as chaves do grupo, da mais antiga para a mais nova: `(época, chave, lido, fechada)`.
+    pub fn epocas(&self, group: GroupId) -> Result<Vec<(u32, ChaveCaixa, u64, bool)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT k.epoch, k.key, k.read, EXISTS(SELECT 1 FROM caixa_epocas e WHERE e.group_id = k.group_id AND e.epoch = k.epoch)
+             FROM group_keys k WHERE k.group_id = ?1 ORDER BY k.epoch",
+        )?;
+        let rows = stmt.query_map(params![group.0], |r| {
+            Ok((r.get::<_, u32>(0)?, r.get::<_, Vec<u8>>(1)?, r.get::<_, i64>(2)? as u64, r.get::<_, bool>(3)?))
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            let (e, k, rd, f) = r?;
+            let k: [u8; 32] = k.try_into().map_err(|_| anyhow!("chave do grupo inválida"))?;
+            out.push((e, ChaveCaixa::from_bytes(k), rd, f));
+        }
+        Ok(out)
+    }
+
+    /// Até onde já se leu a caixa de uma época.
+    pub fn set_lido(&self, group: GroupId, epoch: u32, read: u64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE group_keys SET read = ?3 WHERE group_id = ?1 AND epoch = ?2",
+            params![group.0, epoch, read as i64],
+        )?;
+        Ok(())
+    }
+
+    /// Passagem para o grupo na caixa (uma vez por grupo): volta a ler as caixas desde o
+    /// início, para aplicar o que ficou à espera do anfitrião. Devolve `true` se ainda não
+    /// tinha sido feita.
+    pub fn migrar_para_caixa(&self, group: GroupId) -> Result<bool> {
+        if self.estado::<bool>(group, "na_caixa")?.is_some() {
+            return Ok(false);
+        }
+        self.conn.execute("UPDATE group_keys SET read = 0 WHERE group_id = ?1", params![group.0])?;
+        Ok(true)
+    }
+
+    pub fn migracao_feita(&self, group: GroupId) -> Result<()> {
+        self.set_estado(group, "na_caixa", &true)
+    }
+
+    /// Os meus eventos que ainda não voltaram da caixa (para os voltar a enviar).
+    pub fn meus_pendentes(&self, group: GroupId, eu: &[u8; 32]) -> Result<Vec<SignedEvent>> {
+        Ok(self.pending(group)?.into_iter().filter(|e| &e.body.author == eu).collect())
     }
 }
 

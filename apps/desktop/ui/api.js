@@ -543,14 +543,14 @@
       return clone(g);
     },
     async join_group({ invite }) {
-      if (!/^tasca1[0-9a-z]{8,}/i.test(invite.trim())) throw new Error("Este código não parece um convite da Tasca. Os convites começam por «tasca1».");
+      if (!/tasca[12][0-9a-z]{8,}/i.test(invite.trim())) throw new Error("Este código não parece um convite da Tasca.");
       await wait(900);
-      throw new Error("Não foi possível chegar ao anfitrião. Ele pode estar offline; tenta mais tarde.");
+      throw new Error("Não foi possível entrar agora. Tenta outra vez.");
     },
     async create_invite({ groupId, maxUses, expiresSecs }) {
       const rnd = Array.from(crypto.getRandomValues(new Uint8Array(24))).map((b) => "0123456789abcdefghjkmnpqrstvwxyz"[b % 32]).join("");
       const g = mod(groupId); g.invites.push({ hash: rnd.slice(0, 16), by: "me", maxUses: maxUses || 0, uses: 0, expires: expiresSecs ? Date.now() + expiresSecs * 1000 : null, ts: Date.now() });
-      return { code: "tasca1" + rnd, expires: expiresSecs ? Math.round(expiresSecs / 3600) + " h" : "nunca", uses: maxUses ? String(maxUses) : "ilimitado" };
+      return { code: "tasca2" + rnd, expires: expiresSecs ? Math.round(expiresSecs / 3600) + " h" : "nunca", uses: maxUses ? String(maxUses) : "ilimitado" };
     },
     // ---- cargos e moderação (simulado; no Tauri: moderacao.rs) ----
     async list_roles({ groupId }) {

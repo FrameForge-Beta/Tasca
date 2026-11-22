@@ -410,7 +410,7 @@ pub fn automod(
                     && anteriores.len() + 1 >= n
                     && anteriores.iter().rev().take(n - 1).all(|a| a.trim() == t)
             }
-            TipoRegra::Convites => baixo.contains("tasca1"),
+            TipoRegra::Convites => baixo.contains("tasca1") || baixo.contains("tasca2"),
             TipoRegra::Emojis(n) => texto.chars().filter(|c| e_emoji(*c)).count() as u32 > *n,
             TipoRegra::Maiusculas(pct) => {
                 let letras: Vec<char> = texto.chars().filter(|c| c.is_alphabetic()).collect();

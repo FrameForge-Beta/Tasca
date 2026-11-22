@@ -35,10 +35,20 @@ const MAX_ESCRITAS_MIN: usize = 240;
 const MAX_LEITURA: i64 = 500;
 const MAX_ESPERA: u64 = 25;
 
+/// Quanto tempo vale um bloco de presença (os dispositivos renovam-no a cada 30 s).
+const PRESENCA_VALIDADE: Duration = Duration::from_secs(90);
+const MAX_PRESENCA_BLOCO: usize = 2048;
+const MAX_PRESENCAS_CAIXA: usize = 2000;
+
+/// Presença numa caixa: lugar → (bloco, hora, quando chegou).
+type Presencas = HashMap<[u8; 16], (Vec<u8>, u64, Instant)>;
+
 #[derive(Default)]
 pub struct Estado {
     avisos: Mutex<HashMap<[u8; 32], Arc<Notify>>>,
     escritas: Mutex<HashMap<std::net::IpAddr, Vec<Instant>>>,
+    /// Quem está online em cada caixa. Só em memória: some ao fim de 90 s sem renovar.
+    presencas: Mutex<HashMap<[u8; 32], Presencas>>,
 }
 
 impl Estado {
@@ -230,4 +240,74 @@ pub async fn ler(
     }
     let _ = tokio::time::timeout(Duration::from_secs(espera), notificado).await;
     Ok(Json(Entradas { entradas: entradas(&st, &id, &ver, q.desde)? }))
+}
+
+#[derive(Deserialize)]
+pub struct Lugar {
+    lugar: String,
+}
+
+/// Deixa (ou renova) um bloco de presença cifrado. O servidor não sabe de quem é: só
+/// guarda o bloco no lugar indicado durante 90 segundos.
+pub async fn presenca_escrever(
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+    Query(q): Query<Lugar>,
+    headers: HeaderMap,
+    dados: Bytes,
+) -> Result<StatusCode, ApiError> {
+    let id = parse_id(&id)?;
+    let ver = verificador(&headers)?;
+    let lugar: [u8; 16] = hex::decode(&q.lugar)
+        .ok()
+        .and_then(|v| v.try_into().ok())
+        .ok_or_else(|| ApiError(StatusCode::BAD_REQUEST, "Pedido inválido.".into()))?;
+    if dados.is_empty() || dados.len() > MAX_PRESENCA_BLOCO {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "Pedido inválido.".into()));
+    }
+    {
+        let conn = st.db.lock().unwrap();
+        if !confere(&conn, &id, &ver)? {
+            return Err(ApiError(StatusCode::NOT_FOUND, "Conversa não encontrada.".into()));
+        }
+    }
+    let mut m = st.caixas.presencas.lock().unwrap();
+    if m.len() > 50_000 {
+        m.retain(|_, p| {
+            p.retain(|_, v| v.2.elapsed() < PRESENCA_VALIDADE);
+            !p.is_empty()
+        });
+    }
+    let p = m.entry(id).or_default();
+    p.retain(|_, v| v.2.elapsed() < PRESENCA_VALIDADE);
+    if p.len() >= MAX_PRESENCAS_CAIXA && !p.contains_key(&lugar) {
+        return Err(ApiError(StatusCode::TOO_MANY_REQUESTS, "Demasiadas pessoas online.".into()));
+    }
+    p.insert(lugar, (dados.to_vec(), crate::now() as u64 * 1000, Instant::now()));
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Os blocos de presença que ainda valem.
+pub async fn presenca_ler(
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Entradas>, ApiError> {
+    let id = parse_id(&id)?;
+    let ver = verificador(&headers)?;
+    {
+        let conn = st.db.lock().unwrap();
+        if !confere(&conn, &id, &ver)? {
+            return Ok(Json(Entradas { entradas: Vec::new() }));
+        }
+    }
+    let mut m = st.caixas.presencas.lock().unwrap();
+    let entradas = match m.get_mut(&id) {
+        Some(p) => {
+            p.retain(|_, v| v.2.elapsed() < PRESENCA_VALIDADE);
+            p.values().map(|(b, em, _)| Entrada { seq: 0, dados: b64(b), em: *em }).collect()
+        }
+        None => Vec::new(),
+    };
+    Ok(Json(Entradas { entradas }))
 }

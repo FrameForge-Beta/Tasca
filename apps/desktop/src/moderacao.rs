@@ -1,8 +1,8 @@
 //! Cargos, permissões, moderação e definições do grupo (ver `tasca_core::cargos`).
 //!
-//! Tudo o que aqui se faz é um evento assinado por quem o faz. O anfitrião do grupo só o
-//! aceita se a pessoa tiver a permissão; quando o anfitrião está desligado, o evento fica
-//! na caixa do servidor até ele voltar.
+//! Tudo o que aqui se faz é um evento assinado por quem o faz. Cada dispositivo do grupo
+//! só o aceita se a pessoa tiver a permissão (ver `tasca_core::store`), por isso funciona
+//! sem o PC do dono ligado.
 
 use std::time::Duration;
 
@@ -45,16 +45,23 @@ where
     Fut: std::future::Future<Output = anyhow::Result<[u8; 32]>>,
 {
     let h = a.handle(g)?;
-    let ligado = h.is_connected() || h.is_hosted();
-    if !ligado && !a.tem_servidor() {
+    let ligado = h.is_connected() || h.is_hosted() || a.tem_servidor();
+    if !ligado {
         return Err("O anfitrião do grupo está desligado. Tenta quando ele voltar.".into());
     }
     let id = tokio::time::timeout(Duration::from_secs(20), f(h)).await.map_err(|_| "Demorou demasiado.".to_string())?.map_err(erro)?;
     if ligado {
-        // espera que o evento volte do anfitrião (aceite) até 3 s
-        for _ in 0..30 {
+        // espera que o evento volte do grupo (aceite) até 5 s
+        for _ in 0..50 {
             if a.node.with_store(|s| s.event_by_id(g, &id)).ok().flatten().is_some() {
                 return Ok(true);
+            }
+            if let Some(motivo) = a.node.motivo_recusa(&id) {
+                let mut c = motivo.chars();
+                return Err(match c.next() {
+                    Some(p) => p.to_uppercase().chain(c).collect::<String>() + ".",
+                    None => "Não foi possível.".into(),
+                });
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
