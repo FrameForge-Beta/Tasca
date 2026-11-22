@@ -31,7 +31,8 @@
     let left = x, top = y;
     if (anchor) { const r = anchor.getBoundingClientRect(); left = r.right + 4; top = r.top - 6; if (left + w > innerWidth - 8) left = r.left - w - 4; }
     if (left + w > innerWidth - 8) left = innerWidth - w - 8;
-    if (top + h > innerHeight - 8) top = Math.max(8, innerHeight - h - 8);
+    // Sem espaço por baixo do cursor: abre para cima. Se nem assim couber, encosta e deixa rolar.
+    if (top + h > innerHeight - 8) top = !anchor && y - h >= 8 ? y - h : Math.max(8, innerHeight - h - 8);
     el.style.left = Math.max(8, left) + "px"; el.style.top = Math.max(8, top) + "px";
     const menu = { el, items }; stack.push(menu);
     el.addEventListener("input", (e) => {

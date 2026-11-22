@@ -186,6 +186,11 @@
       if (can(P.BANIR)) mod.push({ label: "Banir " + nameOf(p.id), danger: true, onClick: () => ban(p.id) });
       if (mod.length) items.push("-", ...mod);
     }
+    // Para outra pessoa, tudo o que é de moderar fica num só submenu, para o menu não ficar enorme.
+    if (!self && items.length > 1) {
+      while (items[0] === "-") items.shift();
+      return [{ label: "Moderar", items }];
+    }
     return items;
   });
 

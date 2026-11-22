@@ -139,13 +139,15 @@
   // ---------------- câmara e partilha de ecrã (a sério) ----------------
   // O teu vídeo aparece na chamada e vai para os outros PCs pelo anfitrião (voz.js).
   const media = { cam: null, screen: null };
-  // Um <video> fixo por stream, que muda de quadrado a cada render. Criar um novo a cada
+  // <video> fixos por stream, que mudam de quadrado a cada render. Criar um novo a cada
   // render deixava o vídeo preto no Android (o WebView não chega a mostrar a primeira imagem).
-  const localVid = {};
-  function localVideo(k) {
-    let v = localVid[k];
+  // Há um por sítio onde o stream aparece (a chamada e a miniatura do painel ao mesmo tempo),
+  // senão o mesmo <video> saltava de um lado para o outro e um deles ficava vazio.
+  const localVid = { cam: [], screen: [] };
+  function localVideo(k, i) {
+    let v = localVid[k][i];
     if (!v) {
-      v = localVid[k] = document.createElement("video");
+      v = localVid[k][i] = document.createElement("video");
       v.autoplay = true; v.muted = true; v.playsInline = true;
       v.setAttribute("playsinline", ""); v.setAttribute("muted", "");
     }
@@ -154,14 +156,15 @@
     return v;
   }
   function attachMedia() {
-    document.querySelectorAll("[data-stream]").forEach((slot) => {
-      const k = slot.dataset.stream;
-      if (!media[k]) return;
-      const v = localVideo(k);
-      if (v.parentNode !== slot) slot.appendChild(v);
-      if (v.paused) v.play().catch(() => {});
-    });
-    for (const k of Object.keys(localVid)) if (!media[k] && localVid[k].srcObject) { localVid[k].srcObject = null; localVid[k].remove(); }
+    for (const k of ["cam", "screen"]) {
+      const slots = media[k] ? [...document.querySelectorAll(`[data-stream="${k}"]`)] : [];
+      slots.forEach((slot, i) => {
+        const v = localVideo(k, i);
+        if (v.parentNode !== slot) slot.appendChild(v);
+        if (v.paused) v.play().catch(() => {});
+      });
+      for (const v of localVid[k].splice(slots.length)) { v.srcObject = null; v.remove(); }
+    }
     // vídeo dos outros: o mesmo <canvas> passa para o quadrado novo a cada render
     if (window.vozAudio) document.querySelectorAll("[data-remote]").forEach((slot) => {
       const c = vozAudio.video.canvas(slot.dataset.remote);
@@ -385,7 +388,7 @@
     const share = S.sharing ? `
       <div class="dock-share">
         <button class="dock-thumb" data-voice="${c.id}" aria-label="Ver a tua partilha">${fakeScreen("screen", "me")}</button>
-        <div class="dock-share-txt"><b>A partilhar</b><small>${esc(S.sharing.source)} · ${esc(S.sharing.quality.replace(" · ", " "))}</small></div>
+        <div class="dock-share-txt" title="${esc(S.sharing.source)} · ${esc(S.sharing.quality)}"><b>A partilhar</b><small>${esc(S.sharing.source)}</small></div>
         <button class="icon-btn danger" data-act="share" aria-label="Parar partilha" title="Parar partilha">${I.screenOff}</button>
       </div>` : "";
     const tgl = (act, on, icon, offIcon, label, cls = "") =>
@@ -970,7 +973,7 @@
       const muted = !!(vs(x.who).muted || vs(x.who).deaf);
       const speaking = x.kind !== "screen" && S.speaking.includes(x.who) && !muted;
       const inner = x.kind === "avatar" ? `<span class="tile-bg" style="--c:${p.color}"></span>${avatar(p)}` : fakeScreen(x.kind === "screen" ? "screen" : "cam", x.who);
-      const badge = x.kind === "screen" ? `<span class="live">${x.meta ? `<b>${esc(x.meta)}</b>` : ""}AO VIVO</span>` : "";
+      const badge = x.kind === "screen" ? `<span class="live">${x.meta ? `<b>${esc(x.meta)}</b>` : ""}<span>AO VIVO</span></span>` : "";
       const host = x.kind !== "screen" && callHost(g) === x.who ? '<span class="host-tag" title="Aloja a chamada">ALOJA</span>' : "";
       return `<button ${x.kind !== "screen" ? `data-spk="${x.who}"` : `data-who="${x.who}"`} class="vtile ${speaking ? "speaking" : ""} ${x.kind !== "avatar" ? "has-video" : ""} ${extra}" ${items.length > 1 ? `data-focus="${x.id}" aria-label="${S.focus === x.id ? "Voltar à grelha" : "Pôr em destaque: " + esc(x.label)}"` : `aria-label="${esc(x.label)}"`} ${extra.includes("grid-cell") ? 'style="width:var(--tw);"' : ""}>${inner}${badge}${host}
         <span class="lbl">${x.kind === "screen" ? I.screen.replace("<svg", '<svg style="color:inherit"') : voiceIc(x.who)}${esc(x.label)}</span></button>`;
@@ -1111,6 +1114,8 @@
         try { st = await navigator.mediaDevices.getDisplayMedia({ video: { height: { ideal: h }, frameRate: { ideal: fps } }, audio }); }
         catch (x) { if (x && x.name === "NotAllowedError") return; close(); return toast(mediaError(x, "o ecrã")); } // cancelado na janela do Windows
         close();
+        // tira a barra do Windows «… está a partilhar · Parar partilha»; a Tasca já mostra a partilha
+        try { window.__TAURI__ && window.__TAURI__.core.invoke("esconder_barra_partilha").catch(() => {}); } catch {}
         stopShare(true);
         const track = st.getVideoTracks()[0];
         const surf = (track.getSettings && track.getSettings().displaySurface) || "";

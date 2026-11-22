@@ -321,7 +321,7 @@
           { label: "Volume", range: { value: vol, min: 0, max: 200, step: 5, fmt: (v) => v + "%", onInput: (v) => setVolume(id, v) } },
           { label: "Silenciar", hint: "Só para ti, nas chamadas", checked: !!(S.settings.userMuted || {})[id], icon: IC.mute, onClick: () => toggleMuted(id) });
         if (inCall) items.push(
-          { label: "Não ver o vídeo", hint: "Mostra só a foto desta pessoa", checked: !!local("userNoVideo"), onClick: () => toggleLocal("userNoVideo", id, (on) => on ? "Já não vês o vídeo de " + p.name + "." : "Voltas a ver o vídeo de " + p.name + ".") });
+          { label: "Não ver o vídeo", checked: !!local("userNoVideo"), onClick: () => toggleLocal("userNoVideo", id, (on) => on ? "Já não vês o vídeo de " + p.name + "." : "Voltas a ver o vídeo de " + p.name + ".") });
         items.push("-");
         if (rel === "amigo") items.push({ label: "Remover amigo", onClick: () => removeFriend(id) });
         else if (rel === "recebido") items.push({ label: "Aceitar pedido de amizade", onClick: () => act(() => api.accept_friend({ userId: id }), "Agora são amigos.") }, { label: "Recusar pedido", onClick: () => act(() => api.decline_friend({ userId: id }), "Pedido recusado.") });

@@ -11,6 +11,7 @@
 
 mod amigos;
 mod avisos;
+mod barra_partilha;
 mod contas;
 mod dms;
 mod grupos;
@@ -244,6 +245,7 @@ pub fn run() {
             presenca::idle_seconds,
             presenca::set_autostart,
             presenca::get_autostart,
+            barra_partilha::esconder_barra_partilha,
         ])
         .setup(|app| {
             let app = app.handle().clone();
