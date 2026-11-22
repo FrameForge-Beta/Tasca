@@ -209,22 +209,33 @@
   }
 
   // ---------------- render ----------------
+  // Só troca o HTML quando muda mesmo. Refazer tudo a cada atualização (presença, quem fala,
+  // estado da chamada) fazia as imagens e os avatares piscarem no telemóvel.
+  function setHtml(el, html) {
+    if (!el) return false;
+    if (el.__html === html && el.childNodes.length) return false;
+    el.innerHTML = html; el.__html = html;
+    return true;
+  }
   function render() {
     const app = $("#app");
     app.className = "app" + (S.showMembers && S.view === "chat" && !S.home ? "" : " no-members") +
       (S.navOpen ? " show-nav" : "") + (S.membersOpen && S.view === "chat" && !S.home ? " show-members" : "") +
       (S.view === "voice" && !S.callSidebar ? " call" : "") + (S.view === "settings" ? " no-sidebar" : "");
-    $("#rail").innerHTML = renderRail();
+    setHtml($("#rail"), renderRail());
     const tbp = document.getElementById("tb-plugins"); if (tbp) tbp.classList.toggle("on", S.view === "settings" && S.settingsTab === "plugins");
     document.body.classList.add("ready");
-    $("#sidebar").innerHTML = S.view === "settings" ? "" : renderSidebar();
+    setHtml($("#sidebar"), S.view === "settings" ? "" : renderSidebar());
     $("#sidebar").hidden = S.view === "settings";
     if (S.view === "settings") app.style.gridTemplateColumns = window.innerWidth > 720 ? "72px minmax(0,1fr)" : "";
     else app.style.gridTemplateColumns = "";
     // a barra de separadores das definições (no telemóvel) não volta ao início a cada toque
     const snav = $(".settings nav"), snavX = snav ? snav.scrollLeft : 0;
-    $("#main").innerHTML = renderMain();
-    const snav2 = $(".settings nav");
+    // a conversa fica onde estava se estavas a ler mais acima (antes saltava sempre para o fim)
+    const oldList = $(".messages"), samePage = lastPage === pageKey();
+    const keepTop = oldList && samePage && oldList.scrollHeight - oldList.scrollTop - oldList.clientHeight > 120 ? oldList.scrollTop : null;
+    const mainChanged = setHtml($("#main"), renderMain());
+    const snav2 = mainChanged && $(".settings nav");
     if (snav2) {
       snav2.scrollLeft = snavX;
       const on = snav2.querySelector("button.on");
@@ -238,9 +249,15 @@
     loadImages();
     syncNotify();
     fitCallGrid();
-    $("#members").innerHTML = S.view === "chat" && !S.home ? renderMembers() : "";
-    const list = $(".messages");
-    if (list) list.scrollTop = list.scrollHeight;
+    setHtml($("#members"), S.view === "chat" && !S.home ? renderMembers() : "");
+    const list = mainChanged && $(".messages");
+    if (list) {
+      list.scrollTop = keepTop != null ? keepTop : list.scrollHeight;
+      // imagens e emojis que acabam de carregar não empurram a conversa para cima
+      list.addEventListener("load", () => {
+        if (list.scrollHeight - list.scrollTop - list.clientHeight < 240) list.scrollTop = list.scrollHeight;
+      }, true);
+    }
     if (S.view === "settings" && S.settingsTab === "voz") { if (!meter && DEV.loaded) startMicMeter(); }
     else stopMicMeter();
     attachMedia();
@@ -249,11 +266,13 @@
   // Troca de página (canal, conversa, amigos, definições, chamada): a página nova entra a deslizar.
   let lastPage = null, pageTimer = 0;
   const PAGE_DEPTH = { friends: 0, chat: 1, voicepre: 2, voice: 3, settings: 4 };
+  const pageKey = () => [S.view === "voicepre" ? "voice" : S.view, S.home, S.groupId, S.channelId, S.view === "settings" ? S.settingsTab : ""].join("|");
   function pageTransition() {
-    const key = [S.view, S.home, S.groupId, S.channelId, S.view === "settings" ? S.settingsTab : ""].join("|");
+    const key = pageKey();
     if (lastPage && key !== lastPage) {
       const main = $("#main");
       const prevView = lastPage.split("|")[0];
+      // entrar na chamada a partir da página dela não é outra página: sem animação
       main.classList.remove("enter", "back"); void main.offsetWidth;
       main.classList.add("enter");
       if ((PAGE_DEPTH[S.view] ?? 1) < (PAGE_DEPTH[prevView] ?? 1)) main.classList.add("back");
@@ -297,7 +316,7 @@
     for (const c of S.channels) { if (!cats.includes(c.cat)) cats.push(c.cat); }
     const own = g.owner === "me";
     const editBtn = (c) => own ? `<button class="chan-edit" data-edit-chan="${c.id}" aria-label="Editar ${esc(c.name)}" title="Editar canal">${I.gear}</button>` : "";
-    const drag = (attr) => (own ? `draggable="true" ${attr}` : "");
+    const drag = (attr) => (own && !window.TASCA_MOBILE ? `draggable="true" ${attr}` : "");
     const body = cats.map((cat) => `
       <div class="cat" ${drag(`data-drag-cat="${esc(cat)}"`)}><span>${esc(cat)}</span>${own ? `<button class="icon-btn cat-edit" style="width:22px;height:22px" data-edit-cat="${esc(cat)}" aria-label="Editar categoria ${esc(cat)}" title="Editar categoria">${I.gear}</button><button class="icon-btn" style="width:22px;height:22px" data-act="new-channel" data-cat="${esc(cat)}" aria-label="Criar canal em ${esc(cat)}" title="Criar canal">${I.plus}</button>` : ""}</div>
       ${S.channels.filter((c) => c.cat === cat).map((c) => {
@@ -890,14 +909,14 @@
 
   // Chamada: ocupa a janela toda. Cada pessoa e cada ecrã partilhado é um quadrado na grelha.
   // Clicar num quadrado põe-no em destaque; clicar outra vez volta à grelha.
-  function callGrid(n, w, h) {
-    // escolhe o número de colunas que dá quadrados 16:9 maiores
-    let best = { cols: 1, rows: n, size: 0 };
+  function callGrid(n, w, h, ar = 16 / 9) {
+    // escolhe o número de colunas que dá quadrados (16:9 no PC) maiores
+    let best = { cols: 1, rows: n, size: 0, ar };
     for (let cols = 1; cols <= n; cols++) {
       const rows = Math.ceil(n / cols);
       const cw = (w - (cols - 1) * 8) / cols, ch = (h - (rows - 1) * 8) / rows;
-      const tw = Math.min(cw, ch * 16 / 9);
-      if (tw > best.size) best = { cols, rows, size: tw };
+      const tw = Math.min(cw, ch * ar);
+      if (tw > best.size) best = { cols, rows, size: tw, ar };
     }
     return best;
   }
@@ -980,8 +999,12 @@
     const el = document.getElementById("call-grid");
     if (!el) return;
     const n = +el.dataset.n || 1;
-    const { cols, size } = callGrid(n, el.clientWidth - 24 - 2, el.clientHeight - 2);
+    const w = el.clientWidth - 24 - 2, h = el.clientHeight - 2;
+    // telemóvel ao alto: quadrados mais altos, para não ficar um retângulo pequeno no meio do ecrã
+    const ar = w < h ? (n === 1 ? 3 / 4 : n === 2 ? 4 / 3 : 1) : 16 / 9;
+    const { cols, size } = callGrid(n, w, h, ar);
     el.style.setProperty("--tw", Math.floor(size) + "px");
+    el.style.setProperty("--ar", String(ar));
     el.style.setProperty("--cols", cols);
   }
   window.addEventListener("resize", fitCallGrid);
@@ -2378,7 +2401,7 @@
     if (t.id === "custom-status") { S.customStatus = t.value; const w = $(".me .who small"); if (w) w.textContent = t.value || STATUS.find((x) => x[0] === S.myStatus)[1]; return; }
     if (t.id === "dm-q") {
       S.dmQuery = t.value; const pos = t.selectionStart;
-      const ch = $(".channels"); $("#sidebar").innerHTML = renderSidebar(); attachMedia();
+      const ch = $(".channels"); setHtml($("#sidebar"), renderSidebar()); attachMedia();
       const n = $("#dm-q"); n.focus(); n.setSelectionRange(pos, pos); return;
     }
     if (t.id === "plugin-q") {

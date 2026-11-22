@@ -583,7 +583,7 @@ button.vtile { cursor: pointer; }
   flex: 1; min-height: 0; display: flex; flex-wrap: wrap; align-content: center; justify-content: center;
   gap: 8px; padding: 0 12px; overflow: hidden;
 }
-.call-grid .vtile { width: var(--tw, 300px); max-width: 100%; aspect-ratio: 16 / 9; height: auto; }
+.call-grid .vtile { width: var(--tw, 300px); max-width: 100%; aspect-ratio: var(--ar, 16 / 9); height: auto; }
 .callview .vtile { overflow: hidden; border-radius: var(--r-m); background: var(--painel); }
 .callview .vtile .av { width: clamp(48px, 18%, 104px); height: auto; aspect-ratio: 1; font-size: clamp(18px, 3vw, 38px); z-index: 1; }
 .callview .vtile.speaking { border-color: var(--oliva); box-shadow: 0 0 0 1px var(--oliva); }
