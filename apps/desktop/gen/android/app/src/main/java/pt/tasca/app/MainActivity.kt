@@ -30,9 +30,17 @@ class MainActivity : TauriActivity() {
   }
 
   // Atualizações dentro da app (ver Atualizador.kt).
+  private var atualizador: Atualizador? = null
+
+  // Ao sair da app, uma versão nova já descarregada instala-se sozinha (se der).
+  override fun onStop() {
+    super.onStop()
+    atualizador?.saiu()
+  }
+
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
-    webView.addJavascriptInterface(Atualizador(this, webView), "TascaAndroid")
+    atualizador = Atualizador(this, webView).also { webView.addJavascriptInterface(it, "TascaAndroid") }
     webView.addJavascriptInterface(ServicoJs(applicationContext), "TascaServico")
     webView.addJavascriptInterface(EcraJs(this), "TascaEcra")
     webView.addJavascriptInterface(Saida(applicationContext), "TascaAudio")

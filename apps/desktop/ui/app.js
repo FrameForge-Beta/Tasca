@@ -261,6 +261,7 @@
     if (S.view === "settings" && S.settingsTab === "voz") { if (!meter && DEV.loaded) startMicMeter(); }
     else stopMicMeter();
     attachMedia();
+    syncUpdateOnExit();
   }
 
   // Troca de página (canal, conversa, amigos, definições, chamada): a página nova entra a deslizar.
@@ -2683,17 +2684,41 @@
       const rel = await r.json();
       const latest = String(rel.tag_name || "").replace(/^v/, "");
       const apk = (rel.assets || []).some((a) => a.name === "Tasca.apk");
-      if (apk && newer(latest, appVersion)) offerUpdate(latest);
-      else if (manual) toast(`Já tens a versão mais recente (${appVersion}).`);
+      if (apk && newer(latest, appVersion)) {
+        if (window.TascaAndroid && window.TascaAndroid.preparar) autoUpdate(latest, manual);
+        else offerUpdate(latest);
+      } else if (manual) toast(`Já tens a versão mais recente (${appVersion}).`);
     } catch (x) {
       console.warn("atualizações:", x);
       if (manual) toast("Não consegui ver se há versão nova. Tenta daqui a pouco.");
     }
   }
-  function offerUpdate(latest) {
+  // Atualizar sozinha (Atualizador.kt): descarrega em segundo plano; se o Android deixar
+  // (a última atualização foi feita pela própria app, Android 12+), instala quando saíres
+  // da app e não estiveres numa chamada. Senão, pergunta uma vez.
+  var updReady = null;
+  function syncUpdateOnExit() {
+    if (updReady && window.TascaAndroid && window.TascaAndroid.instalarAoSair) try { TascaAndroid.instalarAoSair(!S.voice); } catch {}
+  }
+  function autoUpdate(latest, manual) {
+    if (updReady === latest) { if (manual) offerUpdate(latest, true); return; }
+    window.tascaAtualizacao = ({ estado, erro }) => {
+      if (estado === "pronto") {
+        updReady = latest;
+        let sozinha = false;
+        try { sozinha = TascaAndroid.sozinha(); } catch {}
+        if (sozinha && !manual) { syncUpdateOnExit(); toast(`A versão ${latest} está pronta. Instala-se sozinha quando saíres da app.`); }
+        else offerUpdate(latest, true);
+      } else if (estado === "erro" && manual) toast("A transferência falhou: " + (erro || "erro desconhecido"));
+    };
+    if (manual) toast("A transferir a versão " + latest + "…");
+    TascaAndroid.preparar();
+  }
+  function offerUpdate(latest, ready) {
     if (document.getElementById("upd-go")) return;
     modal(`<h2>Há uma versão nova</h2>
-      <p>Tens a ${esc(appVersion)} e já saiu a ${esc(latest)}. Carrega em Atualizar e depois em «Instalar» quando o Android perguntar. As contas e as conversas ficam.</p>
+      <p>Tens a ${esc(appVersion)} e já saiu a ${esc(latest)}${ready ? ", já transferida" : ""}. Carrega em Atualizar e confirma quando o Android perguntar. As contas e as conversas ficam.</p>
+      ${ready ? `<p style="color:var(--texto-2);font-size:13px">Depois desta, no Android 12 ou mais recente, as atualizações instalam-se sozinhas quando sais da app.</p>` : ""}
       <div class="actions"><button class="btn" data-close>Agora não</button><button class="btn primary" id="upd-go">Atualizar</button></div>`, (m, close) => {
       m.querySelector("#upd-go").onclick = () => {
         // a app descarrega e abre o instalador; sem isso (versões antigas), vai pelo browser
@@ -2702,7 +2727,7 @@
           b.disabled = true; b.textContent = "A transferir…";
           window.tascaAtualizacao = ({ estado, pct, erro }) => {
             if (estado === "a_transferir") b.textContent = `A transferir… ${pct}%`;
-            else if (estado === "a_instalar") { b.textContent = "A abrir o instalador…"; setTimeout(close, 1500); }
+            else if (estado === "a_instalar") { b.textContent = "A instalar…"; setTimeout(close, 1500); }
             else if (estado === "permissao") {
               b.disabled = false; b.textContent = "Atualizar";
               toast("Autoriza a Tasca a instalar apps e carrega outra vez em Atualizar.");
