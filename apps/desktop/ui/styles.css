@@ -625,6 +625,7 @@ button.vtile { cursor: pointer; }
    ============================================================ */
 .app { gap: 8px; padding: 8px; background: var(--rail); }
 .app > .sidebar, .app > .main, .app > .members { border-radius: 14px; overflow: hidden; }
+#nav-scrim { display: none; }
 .app > .main { border: 1px solid var(--linha); }
 .rail { padding-block: 4px; gap: 10px; }
 
@@ -792,7 +793,7 @@ button.vtile { cursor: pointer; }
 .dock-share-txt { flex: 1; min-width: 0; line-height: 1.2; }
 .dock-share-txt b { display: block; font-size: 12.5px; color: var(--texto); }
 .dock-share-txt small { display: block; font-size: 11.5px; color: var(--texto-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dock-tgls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.dock-tgls { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; }
 .dock-tgl { height: 34px; border-radius: 9px; display: grid; place-items: center; color: var(--texto-2); background: rgba(16, 12, 10, 0.22); }
 .dock-tgl svg { width: 18px; height: 18px; }
 .dock-tgl:hover { color: var(--texto); background: rgba(16, 12, 10, 0.35); }
@@ -1077,6 +1078,7 @@ body.has-titlebar .app.call { padding: 0; }
 .dd-opt > svg { width: 16px; height: 16px; flex: none; color: var(--azulejo); }
 
 /* ---------- vídeo real (câmara e ecrã) ---------- */
+.live-slot { position: absolute; inset: 0; }
 .live-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #0E0B09; }
 .live-video.mirror { object-fit: cover; transform: scaleX(-1); }
 .dock-thumb .live-video { object-fit: cover; }
@@ -1380,7 +1382,11 @@ details.row.adv .btn { justify-self: start; }
    Telemóvel (app Android): toque e ecrã pequeno.
    O layout de ecrã estreito (max-width: 720px) já faz o resto.
    ============================================================ */
-.mobile .only-desktop, .mobile [data-act="share"] { display: none !important; }
+.mobile .only-desktop, .mobile:not(.can-share) [data-act="share"] { display: none !important; }
+.live-video.native-share { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 30px 12px 40px; text-align: center; color: var(--texto-2); }
+.live-video.native-share svg { width: 28px; height: 28px; color: var(--texto); }
+.live-video.native-share b { color: var(--texto); font-size: 13px; }
+.live-video.native-share small { font-size: 12px; max-width: 26ch; }
 .mobile body { -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
 .mobile button, .mobile .rail-btn, .mobile [data-chan], .mobile [data-voice] { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 /* alvos de toque maiores */
@@ -1523,7 +1529,10 @@ details.row.adv .btn { justify-self: start; }
     opacity: 0; pointer-events: none; transition: opacity .28s var(--ease-out);
   }
   .app.show-nav::after { opacity: var(--scrim, 1); pointer-events: auto; }
-  .app.dragging::after { opacity: var(--scrim, 0); }
+  /* o fundo da gaveta é o #nav-scrim (o gesto mexe-lhe direto); o ::after fica para os membros */
+  .app.show-nav:not(.show-members)::after { opacity: 0; pointer-events: none; }
+  #nav-scrim { display: block; position: fixed; inset: 0; z-index: 34; background: rgba(10, 8, 6, .55); opacity: 0; pointer-events: none; transition: opacity .28s var(--ease-out); will-change: opacity; }
+  .app.show-nav > #nav-scrim { opacity: 1; pointer-events: auto; }
 
   /* membros: desliza da direita, com fundo escuro */
   .members, .app.no-members .members, .app.show-members .members {
@@ -1576,7 +1585,8 @@ details.row.adv .btn { justify-self: start; }
   .scrim > .modal::before { content: ""; position: absolute; top: 6px; left: 50%; width: 40px; height: 5px; margin-left: -20px; border-radius: 3px; background: var(--linha); }
   .scrim.closing > .modal { animation-name: sheet-out; }
   .composer { padding-bottom: calc(10px + var(--safe-b)); }
-  .toasts { left: 12px; right: 12px; bottom: calc(84px + var(--safe-b)); justify-items: center; }
+  /* avisos em cima: em baixo tapavam a barra da chamada e a caixa de escrever */
+  .toasts { left: 12px; right: 12px; top: 62px; bottom: auto; justify-items: center; }
   .main.enter > * { animation-duration: .24s; }
 
   /* amigos: a página cabe no ecrã */
