@@ -143,6 +143,35 @@ impl Ativa {
             .ok_or_else(|| "Grupo desconhecido.".into())
     }
 
+    /// Notificação do sistema para uma mensagem nova de outra pessoa.
+    fn avisar(&self, app: &AppHandle, g: GroupId, canal: &str, channel_id: &str, ev: &SignedEvent) {
+        // só mensagens recentes (não o histórico que chega ao sincronizar)
+        if now_ms().saturating_sub(ev.body.timestamp_ms) > 10 * 60 * 1000 {
+            return;
+        }
+        let (texto, anexos) = match &ev.body.kind {
+            EventKind::Message { text, .. } => (text.clone(), 0),
+            EventKind::Post { text, files, .. } => (text.clone(), files.len()),
+            _ => return,
+        };
+        let texto = if texto.trim().is_empty() && anexos > 0 { format!("📎 {anexos} anexo(s)") } else { texto };
+        let (grupo, autor, nome_canal) = self.node.with_store(|s| {
+            let grupo = s.group(g).ok().flatten().map(|i| i.name).unwrap_or_default();
+            let autor = s
+                .members(g)
+                .ok()
+                .and_then(|l| l.into_iter().find(|(k, _)| *k.as_bytes() == ev.body.author).map(|(_, n)| n))
+                .unwrap_or_else(|| "Alguém".into());
+            let nome_canal = s
+                .layout(g)
+                .ok()
+                .and_then(|(cs, _)| cs.into_iter().find(|c| c.id == canal).map(|c| c.name))
+                .unwrap_or_else(|| canal.to_string());
+            (grupo, autor, nome_canal)
+        });
+        crate::avisos::mensagem(app, channel_id, Some(&hex(&g.0)), &format!("{autor} · #{nome_canal} ({grupo})"), &texto);
+    }
+
     pub(crate) fn tem_servidor(&self) -> bool {
         self.servidor
     }
@@ -276,6 +305,9 @@ impl Ativa {
                     crate::mensagens::guardar_copias(self, g, ev);
                 }
                 let channel_id = format!("{}/{channel}", hex(&g.0));
+                if !self.eu(&ev.body.author) {
+                    self.avisar(app, g, channel, &channel_id, ev);
+                }
                 if self.eu(&ev.body.author) {
                     // a minha mensagem voltou do anfitrião: está guardada no grupo
                     let _ = app.emit("message_ack", json!({ "channelId": channel_id, "id": hex(&ev.id()) }));

@@ -205,6 +205,7 @@
     $("#main").innerHTML = renderMain();
     pageTransition();
     loadImages();
+    syncNotify();
     fitCallGrid();
     $("#members").innerHTML = S.view === "chat" && !S.home ? renderMembers() : "";
     const list = $(".messages");
@@ -646,7 +647,7 @@
     try { await api.react_message({ channelId: S.channelId, id: m.id, emoji: e, on }); }
     catch (x) { toast("A reação não seguiu: " + (x.message || x)); }
   }
-  function confirmDelete(m) {
+  function confirmDeleteMsg(m) {
     modal(`<h2>Apagar mensagem?</h2><p>${mineMsg(m) ? "Desaparece para toda a gente no grupo." : "És o dono do grupo: a mensagem desaparece para toda a gente."}</p>
       <div class="quote">${fmt((m.text || "").slice(0, 300))}</div>
       <div class="actions"><button class="btn ghost" data-close>Cancelar</button><button class="btn danger" id="do-del">Apagar</button></div>`,
@@ -669,7 +670,7 @@
       { label: "Responder", icon: I.reply, onClick: () => startReply(m) });
     if (m.text) items.push({ label: "Copiar texto", icon: I.copy, onClick: () => copyText(m.text) });
     if (!S.home && mineMsg(m) && m.text !== undefined) items.push({ label: "Editar", icon: I.edit, onClick: () => startEdit(m) });
-    if (!S.home && canDelete(m)) items.push("-", { label: "Apagar mensagem", danger: true, icon: I.trash, onClick: () => confirmDelete(m) });
+    if (!S.home && canDelete(m)) items.push("-", { label: "Apagar mensagem", danger: true, icon: I.trash, onClick: () => confirmDeleteMsg(m) });
     return items;
   }
   // Telemóvel: tocar e manter numa mensagem abre uma folha com reações e ações.
@@ -759,6 +760,27 @@
     });
   }
   window.tascaFind = openSearch;
+  // O núcleo decide os avisos do sistema com isto (ver avisos.rs).
+  let lastNotify = "";
+  function syncNotify() {
+    if (api.isMock || !S.settings) return;
+    const st = {
+      focused: document.hasFocus() && !document.hidden,
+      channelId: S.view === "chat" ? S.channelId : null,
+      dnd: myStatus() === "dnd",
+      enabled: perm("notifications"),
+      preview: S.settings.notifPreview !== false,
+      groupModes: S.settings.groupNotify || {},
+      mutedChannels: [...mutedChans],
+      username: (S.me && S.me.username) || null,
+    };
+    const k = JSON.stringify(st);
+    if (k === lastNotify) return;
+    lastNotify = k;
+    api.set_notify_state({ state: st }).catch(() => {});
+  }
+  for (const ev of ["focus", "blur"]) window.addEventListener(ev, () => setTimeout(syncNotify, 50));
+  document.addEventListener("visibilitychange", syncNotify);
   // Tocar e manter numa mensagem (telemóvel).
   {
     let lp = null;
@@ -1038,6 +1060,10 @@
     const ok = S.settings.termsAccepted === termsVersion();
     return `<p class="lede">O que a Tasca pode usar neste PC. Desligar aqui desliga mesmo: a funcionalidade deixa de funcionar até a voltares a ligar.</p>
       <div class="section"><h2>Permissões</h2><div class="box">${PERMS.map(([k, l, d]) => `<div class="row"><div class="txt"><b>${l}</b><small>${d}</small></div>${sw("perms." + k, perm(k), l)}</div>`).join("")}</div>
+      <div class="section"><h2>Avisos de mensagens</h2><div class="box">
+        <div class="row"><div class="txt"><b>Mostrar o texto da mensagem</b><small>Desligado, o aviso diz só quem escreveu e onde.</small></div>${sw("notifPreview", S.settings.notifPreview !== false, "Mostrar o texto da mensagem")}</div>
+        ${window.TascaServico ? `<div class="row"><div class="txt"><b>Receber com a app fechada</b><small>Deixa uma notificação discreta «Tasca ligada» para o Android não adormecer a app. Gasta um pouco mais de bateria.</small></div>${sw("bgService", (() => { try { return TascaServico.ligado(); } catch { return true; } })(), "Receber com a app fechada")}</div>` : ""}
+      </div><small class="hint" style="display:block;margin-top:6px">Cada grupo pode avisar de tudo, só de menções ou de nada: no menu do grupo. Um canal silencia-se com o botão direito (ou tocando e mantendo) no nome dele.</small></div>
       <p class="lede" style="font-size:13px">O Windows também tem as suas permissões. Se o microfone ou a câmara não funcionarem com isto ligado, vê Definições do Windows > Privacidade e segurança.</p></div>
       <div class="section"><h2>Termos e regras</h2><div class="box">
         <div class="row"><div class="txt"><b>${ok ? "Aceitaste os termos e regras da Tasca" : "Ainda não aceitaste os termos"}</b><small>Versão de ${esc(termsVersion())}.</small></div><button class="btn" data-act="read-terms">Ler</button></div>
@@ -1643,6 +1669,7 @@
     });
   }
 
+  const groupMode = (gid) => (S.settings.groupNotify || {})[gid] || "all";
   function openGroupMenu() {
     const g = group();
     const mine = g.owner === "me";
@@ -1650,7 +1677,7 @@
       <div class="box">
         <div class="row"><div class="txt"><b>Anfitrião</b><small>${mine ? "Este PC" : esc(who(g.owner).name)}</small></div></div>
         ${mine ? `<div class="row"><div class="txt"><b>Canais</b><small>Texto e voz podem estar na mesma categoria. Arrasta canais e categorias na lista para os ordenar.</small></div><span style="display:flex;gap:6px"><button class="btn ghost" data-act="new-category">Criar categoria</button><button class="btn" data-act="new-channel">Criar canal</button></span></div>` : ""}
-        <div class="row"><div class="txt"><b>Notificações</b><small>Só menções</small></div><button class="btn">Mudar</button></div>
+        <div class="row"><div class="txt"><b>Avisos deste grupo</b><small>Quando a Tasca está em segundo plano.</small></div><div class="seg vs-seg" role="radiogroup" aria-label="Avisos deste grupo">${[["all", "Tudo"], ["mentions", "Menções"], ["none", "Nada"]].map(([k, l]) => `<button role="radio" aria-checked="${groupMode(g.id) === k}" class="${groupMode(g.id) === k ? "on" : ""}" data-gnotify="${g.id}|${k}">${l}</button>`).join("")}</div></div>
         ${mine ? `<div class="row"><div class="txt"><b>Transferir propriedade</b><small>Passa o grupo para o PC de outro membro. Ele tem de aceitar.</small></div><button class="btn" data-act="transfer" data-group-id="${g.id}">Transferir…</button></div>` : ""}
         <div class="row"><div class="txt"><b>${mine ? "Apagar grupo" : "Sair do grupo"}</b><small>${mine ? "Apaga o grupo deste PC. Os membros ficam com a cópia deles." : "Apaga a tua cópia local."}</small></div><button class="btn danger">${mine ? "Apagar" : "Sair"}</button></div>
       </div>
@@ -1915,6 +1942,12 @@
     if (d.medit) { const m = findMsg(d.medit); if (m) startEdit(m); return; }
     if (d.mmore) { const m = findMsg(d.mmore); if (!m) return; const r = t.getBoundingClientRect(); return tascaMenu.open(r.left, r.bottom + 4, msgItems(m)); }
     if (d.jump) return jumpTo(d.jump);
+    if (d.gnotify) {
+      const [gid, k] = d.gnotify.split("|");
+      await patch({ groupNotify: { ...(S.settings.groupNotify || {}), [gid]: k } });
+      t.parentElement.querySelectorAll("button").forEach((b) => { const on = b === t; b.classList.toggle("on", on); b.setAttribute("aria-checked", on); });
+      syncNotify(); return toast(k === "all" ? "Avisos de todas as mensagens." : k === "mentions" ? "Só avisos quando te mencionam." : "Sem avisos deste grupo.");
+    }
     if (d.viewFile) return viewImage(d.viewFile);
     if (d.saveFile) return saveFile(d.saveFile);
     if (d.unattach) { S.attach.splice(+d.unattach, 1); return rerenderKeepInput(); }
@@ -2252,7 +2285,8 @@
     if (t.dataset.setting && t.type === "checkbox" && t.dataset.setting.startsWith("perms.")) {
       await patch(pathPatch(t.dataset.setting, t.checked)); return applyPerm(t.dataset.setting.slice(6), t.checked);
     }
-    if (t.dataset.setting && t.type === "checkbox") { await patch(pathPatch(t.dataset.setting, t.checked)); if (t.dataset.setting === "callSounds") applyTheme(); return; }
+    if (t.dataset.setting === "bgService") { try { TascaServico.definir(t.checked); } catch {} return toast(t.checked ? "A Tasca fica ligada em segundo plano." : "Com a app fechada, as mensagens só chegam quando a abrires."); }
+    if (t.dataset.setting && t.type === "checkbox") { await patch(pathPatch(t.dataset.setting, t.checked)); syncNotify(); if (t.dataset.setting === "callSounds") applyTheme(); return; }
     if (t.dataset.setting && t.tagName === "SELECT") {
       await patch(pathPatch(t.dataset.setting, t.value));
       if (t.dataset.setting === "inputDevice") startMicMeter();

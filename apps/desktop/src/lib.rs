@@ -10,6 +10,7 @@
 //! listados em `ui/api.js` (plugins, cópias) ainda usam dados de teste no próprio JavaScript.
 
 mod amigos;
+mod avisos;
 mod contas;
 mod dms;
 mod grupos;
@@ -109,7 +110,10 @@ fn sair_app(app: AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
+        .manage(avisos::Avisos::default());
     #[cfg(desktop)]
     let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -159,6 +163,7 @@ pub fn run() {
             grupos::list_channels,
             grupos::list_categories,
             grupos::list_messages,
+            avisos::set_notify_state,
             mensagens::send_message,
             mensagens::edit_message,
             mensagens::delete_message,
@@ -210,6 +215,14 @@ pub fn run() {
         ])
         .setup(|app| {
             let app = app.handle().clone();
+            #[cfg(mobile)]
+            {
+                let a = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                    avisos::pedir_autorizacao(&a);
+                });
+            }
             tauri::async_runtime::spawn(async move {
                 // deixa o ecrã de arranque desenhar-se antes de começar
                 tokio::time::sleep(Duration::from_millis(400)).await;
