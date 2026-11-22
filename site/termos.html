@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Termos e regras da Tasca</title>
+<meta name="description" content="Os termos de utilização e as regras da casa da Tasca.">
+<meta property="og:title" content="Termos e regras da Tasca">
+<meta property="og:description" content="Os termos de utilização e as regras da casa da Tasca.">
+<meta property="og:image" content="https://rubenfernandes2004.github.io/Tasca/tasca-banner-1200x630.png">
+<meta name="theme-color" content="#1C1714">
+<link rel="icon" href="tasca-icon.svg" type="image/svg+xml">
+<link rel="alternate icon" href="favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<div data-topo></div>
+
+<main id="conteudo">
+<div class="cabeca padrao">
+  <div class="contentor" style="position:relative">
+    <span class="sobre-titulo">Termos e regras</span>
+    <h1>As regras da casa</h1>
+    <p>São os mesmos termos que aceitas na app. Versão de <span id="termos-versao">…</span>.</p>
+  </div>
+</div>
+<section style="padding-top:16px">
+  <div class="contentor prosa" style="margin:0 auto">
+    <div class="aviso">Estes termos ainda são um rascunho e podem mudar antes de a Tasca abrir a mais pessoas. Quando mudarem de forma importante, a app pede-te para os aceitares outra vez.</div>
+    <div id="termos"><p class="carregar">A carregar…</p></div>
+  </div>
+</section>
+</main>
+
+<div data-rodape></div>
+<script src="assets/site.js"></script>
+<script src="assets/termos.js"></script><script>(function(){var t=window.TASCA_TERMOS,c=document.getElementById("termos");if(!t){c.innerHTML='<p>Não foi possível carregar os termos. Vê-os no <a href="https://github.com/RubenFernandes2004/Tasca/blob/main/apps/desktop/ui/termos.js">GitHub</a>.</p>';return;}c.innerHTML=t.html;var v=document.getElementById("termos-versao");if(v)v.textContent=new Date(t.versao+"T12:00:00Z").toLocaleDateString("pt-PT",{day:"numeric",month:"long",year:"numeric"});})();</script>
+</body>
+</html>

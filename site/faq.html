@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Perguntas frequentes sobre a Tasca</title>
+<meta name="description" content="Respostas às perguntas mais comuns sobre a Tasca: preço, privacidade, anfitriões, Android, plugins e mais.">
+<meta property="og:title" content="Perguntas frequentes sobre a Tasca">
+<meta property="og:description" content="Respostas às perguntas mais comuns sobre a Tasca: preço, privacidade, anfitriões, Android, plugins e mais.">
+<meta property="og:image" content="https://rubenfernandes2004.github.io/Tasca/tasca-banner-1200x630.png">
+<meta name="theme-color" content="#1C1714">
+<link rel="icon" href="tasca-icon.svg" type="image/svg+xml">
+<link rel="alternate icon" href="favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<div data-topo></div>
+
+<main id="conteudo">
+<div class="cabeca padrao">
+  <div class="contentor" style="position:relative">
+    <span class="sobre-titulo">Perguntas frequentes</span>
+    <h1>Perguntas e respostas</h1>
+    <p>Não encontras a tua? Vê o <a href="manual.html">manual</a> ou <a href="https://github.com/RubenFernandes2004/Tasca/issues/new">pergunta no GitHub</a>.</p>
+  </div>
+</div>
+
+<section style="padding-top:16px">
+  <div class="contentor prosa" style="margin:0 auto">
+    <h2 style="margin-top:0">Geral</h2>
+    <details class="pergunta"><summary>A Tasca é grátis?</summary><div class="resp"><p>Sim, e sem anúncios. O código é aberto, com licença MIT ou Apache 2.0. Como os grupos vivem nos PCs de quem os usa, a Tasca não precisa de grandes servidores para pagar.</p></div></details>
+    <details class="pergunta"><summary>Em que é que é diferente das apps de chat habituais?</summary><div class="resp"><p>Nas apps habituais, as conversas ficam nos servidores de uma empresa. Na Tasca, cada grupo vive no PC de quem o criou, as ligações vão diretamente entre PCs e as mensagens são cifradas de ponta a ponta. E a Tasca foi feita para ser mudada com plugins.</p></div></details>
+    <details class="pergunta"><summary>Em que sistemas funciona?</summary><div class="resp"><p>Windows 10 e 11 (64 bits) e Android 8 ou mais recente. Linux e macOS estão a caminho.</p></div></details>
+    <details class="pergunta"><summary>Preciso de email ou número de telefone?</summary><div class="resp"><p>Não. Só escolhes um nome, um @ID e uma palavra-passe.</p></div></details>
+
+    <h2>Privacidade e segurança</h2>
+    <details class="pergunta"><summary>Alguém consegue ler as minhas mensagens?</summary><div class="resp"><p>Só as pessoas da conversa. As mensagens são cifradas de ponta a ponta antes de saírem do teu dispositivo. O servidor de contas e os relays só veem dados cifrados. Lê <a href="como-funciona.html#seguranca">Segurança</a> para os detalhes.</p></div></details>
+    <details class="pergunta"><summary>Perdi a palavra-passe. E agora?</summary><div class="resp"><p>Usa as 12 palavras de recuperação no ecrã de entrar e escolhe uma palavra-passe nova. Se perdeste as duas coisas, ninguém consegue recuperar a conta, nem nós: é o preço de ninguém mais ter a chave.</p></div></details>
+    <details class="pergunta"><summary>Porque é que o Windows diz que a app pode ser perigosa?</summary><div class="resp"><p>É o SmartScreen, que avisa sobre programas novos sem um certificado comercial. Carrega em «Mais informações» e «Executar mesmo assim». O instalador é criado pelo GitHub a partir do código público e as atualizações são assinadas.</p></div></details>
+    <details class="pergunta"><summary>A Tasca recolhe dados ou mostra anúncios?</summary><div class="resp"><p>Não. Não vende dados nem mostra publicidade. O microfone, a câmara e o ecrã só são usados quando os ligas.</p></div></details>
+
+    <h2>Grupos e anfitriões</h2>
+    <details class="pergunta"><summary>O que acontece se o anfitrião desligar o PC?</summary><div class="resp"><p>Continuas a ver o histórico, que está guardado no teu dispositivo. As mensagens que escreveres ficam na caixa cifrada do grupo e chegam a todos quando o anfitrião voltar. As chamadas precisam do anfitrião ligado.</p></div></details>
+    <details class="pergunta"><summary>O meu PC tem de estar sempre ligado se eu criar um grupo?</summary><div class="resp"><p>Para os membros entrarem e falarem em chamada, sim. Liga «Abrir com o Windows» para a Tasca arrancar minimizada quando ligas o PC. Se não der, passa o grupo para alguém que tenha o PC ligado mais vezes.</p></div></details>
+    <details class="pergunta"><summary>Quantas pessoas cabem num grupo?</summary><div class="resp"><p>Não há um limite fixo. Para texto, dezenas de pessoas funcionam bem. Para chamadas, depende da internet do anfitrião, porque é ele quem reencaminha a voz e o vídeo.</p></div></details>
+    <details class="pergunta"><summary>Consigo mudar o grupo para outro PC?</summary><div class="resp"><p>Sim: Opções do grupo &gt; Transferir propriedade. Podes passá-lo para outro membro, ou para ti noutro PC.</p></div></details>
+    <details class="pergunta"><summary>O que é um relay?</summary><div class="resp"><p>Quando dois PCs não se conseguem ligar diretamente (por causa do router ou da operadora), a ligação passa por um relay. O relay só passa dados cifrados; não consegue ler nada.</p></div></details>
+
+    <h2>Telemóvel</h2>
+    <details class="pergunta"><summary>Porque não está na Google Play?</summary><div class="resp"><p>Ainda não. Por agora o APK vem diretamente do GitHub. A app avisa quando há uma versão nova.</p></div></details>
+    <details class="pergunta"><summary>Posso usar a mesma conta no PC e no telemóvel?</summary><div class="resp"><p>Sim. Entra com o mesmo @ID e palavra-passe. Amigos, grupos, perfil e mensagens sincronizam-se entre os dois.</p></div></details>
+    <details class="pergunta"><summary>E no iPhone?</summary><div class="resp"><p>Ainda não há versão para iOS.</p></div></details>
+
+    <h2>Plugins e futuro</h2>
+    <details class="pergunta"><summary>Quando chega a loja de plugins?</summary><div class="resp"><p>Está em desenvolvimento. Os primeiros ganchos para plugins já existem na app; segue as <a href="novidades.html">novidades</a>.</p></div></details>
+    <details class="pergunta"><summary>Os plugins são seguros?</summary><div class="resp"><p>Os da loja vão ser revistos e assinados pela equipa e só têm as permissões que aceitares. Plugins carregados à mão mostram um aviso: instala só os que confias.</p></div></details>
+    <details class="pergunta"><summary>Posso ajudar?</summary><div class="resp"><p>Claro. Reporta problemas, sugere ideias ou contribui com código no <a href="https://github.com/RubenFernandes2004/Tasca">GitHub</a>. Falar da Tasca aos teus amigos também ajuda muito.</p></div></details>
+  </div>
+</section>
+</main>
+
+<div data-rodape></div>
+<script src="assets/site.js"></script>
+
+</body>
+</html>
