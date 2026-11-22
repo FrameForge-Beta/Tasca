@@ -892,7 +892,7 @@
 
   function renderMembers() {
     if (!S.showMembers && !S.membersOpen) return "";
-    const g = group();
+    const g = group(); if (!g) return "";
     const roles = (GP() && GP().roles[g.id]) || [];
     const hoisted = roles.filter((r) => r.hoist && r.id !== "todos");
     const groups = [];
@@ -2726,7 +2726,9 @@
     const box = document.createElement("div");
     box.id = "start-error";
     box.style.cssText = "position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:#1C1714;color:#F6EEE1;font-family:Inter,system-ui,sans-serif;padding:24px";
-    const msg = String((e && (e.message || e)) || "erro desconhecido");
+    // primeira linha da pilha (função e linha) para se saber onde foi
+    const onde = e && e.stack ? String(e.stack).split("\n").slice(1, 3).map((l) => l.trim().replace(/\(?(https?|file|tauri|asset):\/\/[^/]*\/?/g, "(")).join("\n") : "";
+    const msg = String((e && (e.message || e)) || "erro desconhecido") + (onde ? "\n\n" + onde : "");
     box.innerHTML = '<div style="max-width:520px;text-align:center"><h2 style="margin:0 0 12px">A Tasca não conseguiu arrancar</h2>' +
       '<p style="opacity:.8;margin:0 0 16px">Manda este erro a quem te está a ajudar:</p>' +
       '<pre style="white-space:pre-wrap;text-align:left;background:#27201B;border-radius:10px;padding:12px;user-select:text"></pre>' +
