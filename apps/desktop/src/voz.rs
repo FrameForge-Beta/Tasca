@@ -271,20 +271,24 @@ pub async fn join_voice(
             return Ok(info);
         }
     }
-    let f = filtro(modo(noise.as_deref())).await;
-    let mut captura = Captura::new(f).map_err(|e| e.to_string())?;
-    captura.sensibilidade = sensitivity.unwrap_or(0).min(100);
-    let chamada = match &privada {
-        Some((k, Some(pk))) => {
-            let onde = voz.toques.lock().unwrap().remove(k).map(|(e, _)| e);
-            a.node.ligar_privado(*pk, onde).await
+    // O modelo da supressão de ruído carrega ao mesmo tempo que se procura a sala.
+    let onde = match &privada {
+        Some((k, Some(_))) => voz.toques.lock().unwrap().remove(k).map(|(e, _)| e),
+        _ => None,
+    };
+    let entrar = async {
+        match &privada {
+            Some((_, Some(pk))) => a.node.ligar_privado(*pk, onde).await,
+            _ => a.node.entrar_voz(g, &sala).await,
         }
-        _ => a.node.entrar_voz(g, &sala).await,
-    }
-    .map_err(|e| {
+    };
+    let (f, chamada) = tokio::join!(filtro(modo(noise.as_deref())), entrar);
+    let chamada = chamada.map_err(|e| {
         eprintln!("voz: {e:#}");
         format!("Não consegui entrar na chamada: {e}")
     })?;
+    let mut captura = Captura::new(f).map_err(|e| e.to_string())?;
+    captura.sensibilidade = sensitivity.unwrap_or(0).min(100);
     // O dono do grupo (se estiver ligado) mostra aos outros em que sala estás.
     if let (None, Ok(h)) = (&privada, a.handle(g)) {
         let s = sala.clone();

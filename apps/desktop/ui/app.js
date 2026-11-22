@@ -336,7 +336,7 @@
         }
         const on = S.voice && S.voice.channelId === c.id;
         const ppl = (c.inVoice || []).map((id) => S.people[id]);
-        return `<div class="chan-wrap ${isMuted(c.id) ? "muted" : ""}" ${drag(`data-drag-chan="${c.id}"`)}><button class="chan ${on && S.view === "voice" ? "on" : ""}" data-voice="${c.id}">${c.private ? LOCK : I.speaker}<span class="label">${esc(c.name)}</span>${ppl.length ? `<span class="pill" style="background:var(--caixa);color:var(--texto-2)">${ppl.length}</span>` : ""}</button>${editBtn(c)}</div>
+        return `<div class="chan-wrap ${isMuted(c.id) ? "muted" : ""}" ${drag(`data-drag-chan="${c.id}"`)}><button class="chan ${on && S.view === "voice" ? "on" : ""} ${S.joining === c.id ? "joining" : ""}" data-voice="${c.id}">${c.private ? LOCK : I.speaker}<span class="label">${esc(c.name)}</span>${ppl.length ? `<span class="pill" style="background:var(--caixa);color:var(--texto-2)">${ppl.length}</span>` : ""}</button>${editBtn(c)}</div>
           ${ppl.length ? `<ul class="voice-people">${ppl.map((p) => `<li data-spk="${p.id}" class="${S.speaking.includes(p.id) && !(p.id === "me" && S.muted) ? "speaking" : ""}">${avatar(p, "")}${esc(p.name)}${(p.id === "me" || (S.voice && S.voice.channelId === c.id)) && voiceIc(p.id) ? `<span class="muted-ic">${voiceIc(p.id)}</span>` : ""}</li>`).join("")}</ul>` : ""}`;
       }).join("")}`).join("");
     return `
@@ -1956,15 +1956,19 @@
     if (S.voice && S.voice.channelId === id) { S.view = "voice"; S.navOpen = false; render(); return; }
     if (!String(id).startsWith("dm-") && !canG("LIGAR", id)) { const m = "Não tens permissão para entrar nesta sala."; if (opts.quiet) return m; return toast(m); }
     if (S.voice) sfx.leave();
+    if (S.joining === id) return;
     let info;
+    S.joining = id; render();
     try { info = await api.join_voice({ channelId: id, noise: noiseMode(), sensitivity: S.settings.sensitivity ?? 40 }); }
     catch (e) {
+      S.joining = null; render();
       const g = S.groups.find((x) => (S.allChannels[x.id] || []).some((y) => y.id === id));
       let msg = String(e.message || e);
       void g;
       if (opts.quiet) return msg;
       return toast(msg);
     }
+    S.joining = null;
     sfx.join();
     const dmCall = String(id).startsWith("dm-");
     S.voice = { channelId: id, groupId: dmCall ? null : S.groupId, ...info };
@@ -1978,11 +1982,12 @@
     startVad();
     // telemóvel: volta à saída de som que escolheste da última vez (por defeito o altifalante)
     if (window.TascaAudio) setTimeout(() => { if (S.voice) setAudioOut(store.get("audio-out", "altifalante"), true); }, 1200);
-    if (!dmCall) {
-      S.channels = await api.list_channels({ groupId: S.groupId });
-      S.allChannels[S.groupId] = S.channels;
-    }
     S.view = "voice"; S.navOpen = false; render();
+    // a lista de quem está em cada sala atualiza-se a seguir, sem atrasar a entrada
+    if (!dmCall) {
+      const gid = S.groupId;
+      api.list_channels({ groupId: gid }).then((l) => { S.allChannels[gid] = l; if (S.groupId === gid) { S.channels = l; render(); } }).catch(() => {});
+    }
     return null;
   }
   // ---------------- saída de som no telemóvel (Saida.kt) ----------------
