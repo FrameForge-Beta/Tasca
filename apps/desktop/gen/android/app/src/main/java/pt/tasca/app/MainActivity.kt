@@ -1,18 +1,42 @@
 package pt.tasca.app
 
+import android.content.Intent
+import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.view.View
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
+  // Partilha de ecrã (ver Ecra.kt): o Android pergunta "Começar a gravar?" e devolve a autorização aqui.
+  private var pedidoEcra = Triple(720, 30, 2_500_000)
+  private val autorizarEcra = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+    val dados: Intent? = r.data
+    if (r.resultCode == RESULT_OK && dados != null) {
+      val (altura, fps, bitrate) = pedidoEcra
+      try { Ecra.iniciar(applicationContext, r.resultCode, dados, altura, fps, bitrate) }
+      catch (e: Exception) { Ecra.avisar("erro", "O Android não deixou partilhar o ecrã.") }
+    } else Ecra.avisar("cancelado", "")
+  }
+
+  fun pedirEcra(altura: Int, fps: Int, bitrate: Int) {
+    pedidoEcra = Triple(altura, fps, bitrate)
+    val mpm = getSystemService(MediaProjectionManager::class.java)
+    try { autorizarEcra.launch(mpm.createScreenCaptureIntent()) }
+    catch (e: Exception) { Ecra.avisar("erro", "Este telemóvel não deixa partilhar o ecrã.") }
+  }
+
   // Atualizações dentro da app (ver Atualizador.kt).
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
     webView.addJavascriptInterface(Atualizador(this, webView), "TascaAndroid")
     webView.addJavascriptInterface(ServicoJs(applicationContext), "TascaServico")
+    webView.addJavascriptInterface(EcraJs(this), "TascaEcra")
+    webView.addJavascriptInterface(Saida(applicationContext), "TascaAudio")
+    Ecra.web = webView
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {

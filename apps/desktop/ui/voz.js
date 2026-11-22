@@ -109,6 +109,20 @@
     core.invoke("video_send", buf).catch((e) => console.warn("vídeo:", e)).finally(() => V.emVoo--);
   }
 
+  // Imagem já codificada fora do browser (partilha de ecrã nativa do Android, Ecra.kt).
+  // Devolve false quando a ligação vai atrasada, para quem manda pedir uma imagem chave.
+  function sendRaw(kind, codecId, bytes, key) {
+    if (!core) return false;
+    if (V.emVoo > 4 && !key) return false;
+    const buf = new Uint8Array(2 + bytes.length);
+    buf[0] = (key ? 1 : 0) | (kind === "screen" ? 2 : 0);
+    buf[1] = codecId;
+    buf.set(bytes, 2);
+    V.emVoo++;
+    core.invoke("video_send", buf).catch((e) => console.warn("vídeo:", e)).finally(() => V.emVoo--);
+    return true;
+  }
+
   async function publish(kind, stream, o) {
     const track = stream && stream.getVideoTracks()[0];
     if (!core || !track) return;
@@ -216,7 +230,7 @@
 
   window.vozAudio = {
     start, stop,
-    video: { publish, unpublish, canvas, subscribe, clear: limparVideo },
+    video: { publish, unpublish, sendRaw, canvas, subscribe, clear: limparVideo },
     get active() { return !!A.ctx; },
     set transmit(f) { A.transmit = f; },
     set onFrame(f) { A.onFrame = f; },

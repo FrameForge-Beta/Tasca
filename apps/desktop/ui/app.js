@@ -129,11 +129,29 @@
   // ---------------- câmara e partilha de ecrã (a sério) ----------------
   // O teu vídeo aparece na chamada e vai para os outros PCs pelo anfitrião (voz.js).
   const media = { cam: null, screen: null };
+  // Um <video> fixo por stream, que muda de quadrado a cada render. Criar um novo a cada
+  // render deixava o vídeo preto no Android (o WebView não chega a mostrar a primeira imagem).
+  const localVid = {};
+  function localVideo(k) {
+    let v = localVid[k];
+    if (!v) {
+      v = localVid[k] = document.createElement("video");
+      v.autoplay = true; v.muted = true; v.playsInline = true;
+      v.setAttribute("playsinline", ""); v.setAttribute("muted", "");
+    }
+    v.className = "live-video" + (k === "cam" ? " mirror" : "");
+    if (v.srcObject !== media[k]) v.srcObject = media[k] || null;
+    return v;
+  }
   function attachMedia() {
-    document.querySelectorAll("video[data-stream]").forEach((v) => {
-      const st = media[v.dataset.stream];
-      if (st && v.srcObject !== st) { v.srcObject = st; v.play().catch(() => {}); }
+    document.querySelectorAll("[data-stream]").forEach((slot) => {
+      const k = slot.dataset.stream;
+      if (!media[k]) return;
+      const v = localVideo(k);
+      if (v.parentNode !== slot) slot.appendChild(v);
+      if (v.paused) v.play().catch(() => {});
     });
+    for (const k of Object.keys(localVid)) if (!media[k] && localVid[k].srcObject) { localVid[k].srcObject = null; localVid[k].remove(); }
     // vídeo dos outros: o mesmo <canvas> passa para o quadrado novo a cada render
     if (window.vozAudio) document.querySelectorAll("[data-remote]").forEach((slot) => {
       const c = vozAudio.video.canvas(slot.dataset.remote);
@@ -150,14 +168,14 @@
       const [h, fps] = q.startsWith("720") ? [720, 30] : q.includes("60") ? [1080, 60] : [1080, 30];
       v.publish("screen", media.screen, { height: h, fps, bitrate: h === 720 ? 2_500_000 : fps === 60 ? 6_000_000 : 4_000_000 });
     } else v.unpublish("screen");
-    api.set_video_state({ camera: !!media.cam, screen: !!media.screen }).catch(() => {});
+    api.set_video_state({ camera: !!media.cam, screen: !!media.screen || !!(S.sharing && S.sharing.native) }).catch(() => {});
   }
   // Estado de voz de alguém na chamada onde estou (micro, som, câmara, ecrã).
   const vs = (id) => (id === "me" ? { muted: S.muted, deaf: S.deaf, camera: S.camera, screen: !!S.sharing } : (S.voiceStates && S.voiceStates[id]) || {});
   const voiceIc = (id) => { const v = vs(id); return v.deaf ? I.headOff : v.muted ? I.micOff : ""; };
   function mediaError(x, what) {
     const n = x && x.name;
-    if (n === "NotAllowedError") return `O Windows não deixou a Tasca usar ${what}. Vê Definições do Windows > Privacidade e segurança.`;
+    if (n === "NotAllowedError") return `O ${window.TASCA_MOBILE ? "Android" : "Windows"} não deixou a Tasca usar ${what}. ${window.TASCA_MOBILE ? "Vê Definições > Apps > Tasca > Permissões." : "Vê Definições do Windows > Privacidade e segurança."}`;
     if (n === "NotFoundError" || n === "OverconstrainedError") return what === "a câmara" ? "Não encontrei nenhuma câmara ligada." : `Não encontrei ${what}.`;
     if (n === "NotReadableError") return `${what[0].toUpperCase() + what.slice(1)} está a ser usada por outra app.`;
     return `Não consegui usar ${what}: ${x && x.message || x}`;
@@ -184,32 +202,62 @@
     if (media.screen) media.screen.getTracks().forEach((t) => t.stop());
     media.screen = null;
     if (!S.sharing) return;
+    if (S.sharing.native && window.TascaEcra) try { TascaEcra.parar(); } catch {}
     S.sharing = null; sfx.shareStop(); api.stop_screen_share().catch(() => {});
     syncVideo();
     if (!quiet) toast("Deixaste de partilhar o ecrã.");
   }
 
   // ---------------- render ----------------
+  // Só troca o HTML quando muda mesmo. Refazer tudo a cada atualização (presença, quem fala,
+  // estado da chamada) fazia as imagens e os avatares piscarem no telemóvel.
+  function setHtml(el, html) {
+    if (!el) return false;
+    if (el.__html === html && el.childNodes.length) return false;
+    el.innerHTML = html; el.__html = html;
+    return true;
+  }
   function render() {
     const app = $("#app");
     app.className = "app" + (S.showMembers && S.view === "chat" && !S.home ? "" : " no-members") +
       (S.navOpen ? " show-nav" : "") + (S.membersOpen && S.view === "chat" && !S.home ? " show-members" : "") +
       (S.view === "voice" && !S.callSidebar ? " call" : "") + (S.view === "settings" ? " no-sidebar" : "");
-    $("#rail").innerHTML = renderRail();
+    setHtml($("#rail"), renderRail());
     const tbp = document.getElementById("tb-plugins"); if (tbp) tbp.classList.toggle("on", S.view === "settings" && S.settingsTab === "plugins");
     document.body.classList.add("ready");
-    $("#sidebar").innerHTML = S.view === "settings" ? "" : renderSidebar();
+    setHtml($("#sidebar"), S.view === "settings" ? "" : renderSidebar());
     $("#sidebar").hidden = S.view === "settings";
     if (S.view === "settings") app.style.gridTemplateColumns = window.innerWidth > 720 ? "72px minmax(0,1fr)" : "";
     else app.style.gridTemplateColumns = "";
-    $("#main").innerHTML = renderMain();
+    // a barra de separadores das definições (no telemóvel) não volta ao início a cada toque
+    const snav = $(".settings nav"), snavX = snav ? snav.scrollLeft : 0;
+    // a conversa fica onde estava se estavas a ler mais acima (antes saltava sempre para o fim)
+    const oldList = $(".messages"), samePage = lastPage === pageKey();
+    const keepTop = oldList && samePage && oldList.scrollHeight - oldList.scrollTop - oldList.clientHeight > 120 ? oldList.scrollTop : null;
+    const mainChanged = setHtml($("#main"), renderMain());
+    const snav2 = mainChanged && $(".settings nav");
+    if (snav2) {
+      snav2.scrollLeft = snavX;
+      const on = snav2.querySelector("button.on");
+      if (on && snav2.scrollWidth > snav2.clientWidth) {
+        const l = on.getBoundingClientRect().left - snav2.getBoundingClientRect().left + snav2.scrollLeft, r = l + on.offsetWidth;
+        if (l < snav2.scrollLeft + 8 || r > snav2.scrollLeft + snav2.clientWidth - 8)
+          snav2.scrollTo({ left: Math.max(0, l - (snav2.clientWidth - on.offsetWidth) / 2), behavior: snav ? "smooth" : "auto" });
+      }
+    }
     pageTransition();
     loadImages();
     syncNotify();
     fitCallGrid();
-    $("#members").innerHTML = S.view === "chat" && !S.home ? renderMembers() : "";
-    const list = $(".messages");
-    if (list) list.scrollTop = list.scrollHeight;
+    setHtml($("#members"), S.view === "chat" && !S.home ? renderMembers() : "");
+    const list = mainChanged && $(".messages");
+    if (list) {
+      list.scrollTop = keepTop != null ? keepTop : list.scrollHeight;
+      // imagens e emojis que acabam de carregar não empurram a conversa para cima
+      list.addEventListener("load", () => {
+        if (list.scrollHeight - list.scrollTop - list.clientHeight < 240) list.scrollTop = list.scrollHeight;
+      }, true);
+    }
     if (S.view === "settings" && S.settingsTab === "voz") { if (!meter && DEV.loaded) startMicMeter(); }
     else stopMicMeter();
     attachMedia();
@@ -218,11 +266,13 @@
   // Troca de página (canal, conversa, amigos, definições, chamada): a página nova entra a deslizar.
   let lastPage = null, pageTimer = 0;
   const PAGE_DEPTH = { friends: 0, chat: 1, voicepre: 2, voice: 3, settings: 4 };
+  const pageKey = () => [S.view === "voicepre" ? "voice" : S.view, S.home, S.groupId, S.channelId, S.view === "settings" ? S.settingsTab : ""].join("|");
   function pageTransition() {
-    const key = [S.view, S.home, S.groupId, S.channelId, S.view === "settings" ? S.settingsTab : ""].join("|");
+    const key = pageKey();
     if (lastPage && key !== lastPage) {
       const main = $("#main");
       const prevView = lastPage.split("|")[0];
+      // entrar na chamada a partir da página dela não é outra página: sem animação
       main.classList.remove("enter", "back"); void main.offsetWidth;
       main.classList.add("enter");
       if ((PAGE_DEPTH[S.view] ?? 1) < (PAGE_DEPTH[prevView] ?? 1)) main.classList.add("back");
@@ -266,7 +316,7 @@
     for (const c of S.channels) { if (!cats.includes(c.cat)) cats.push(c.cat); }
     const own = g.owner === "me";
     const editBtn = (c) => own ? `<button class="chan-edit" data-edit-chan="${c.id}" aria-label="Editar ${esc(c.name)}" title="Editar canal">${I.gear}</button>` : "";
-    const drag = (attr) => (own ? `draggable="true" ${attr}` : "");
+    const drag = (attr) => (own && !window.TASCA_MOBILE ? `draggable="true" ${attr}` : "");
     const body = cats.map((cat) => `
       <div class="cat" ${drag(`data-drag-cat="${esc(cat)}"`)}><span>${esc(cat)}</span>${own ? `<button class="icon-btn cat-edit" style="width:22px;height:22px" data-edit-cat="${esc(cat)}" aria-label="Editar categoria ${esc(cat)}" title="Editar categoria">${I.gear}</button><button class="icon-btn" style="width:22px;height:22px" data-act="new-channel" data-cat="${esc(cat)}" aria-label="Criar canal em ${esc(cat)}" title="Criar canal">${I.plus}</button>` : ""}</div>
       ${S.channels.filter((c) => c.cat === cat).map((c) => {
@@ -333,7 +383,7 @@
     return `<div class="dock-call" style="--g:${g.color || "var(--vinho)"}">
       <button class="dock-where" data-voice="${c.id}" title="Abrir a chamada">
         <span class="sig" aria-label="Qualidade da ligação">${bars}</span>
-        <span class="dock-where-txt"><b>Em chamada</b><small>${esc(g.name)} · ${esc(c.name)} · ${S.voice.ping} ms</small></span>
+        <span class="dock-where-txt"><b>Em chamada</b><small>${esc(g.name)} · ${esc(c.name)} · ${pingTxt()}</small></span>
       </button>
       ${share}
       <div class="dock-tgls">
@@ -420,6 +470,13 @@
     const n = (c.inVoice || []).length;
     return `<button class="call-pill" data-voice="${esc(c.id)}"><span class="cp-dot"></span><span class="cp-txt"><b>Em chamada</b><small>${esc(c.name)}${n ? " · " + n + (n === 1 ? " pessoa" : " pessoas") : ""}</small></span><span class="cp-mic ${S.muted ? "off" : ""}" data-act="mute" role="button" aria-label="${S.muted ? "Ligar microfone" : "Desligar microfone"}">${S.muted ? I.micOff : I.mic}</span><span class="cp-go">Voltar</span></button>`;
   };
+  // Abre ou fecha a gaveta sem refazer a página (a animação fica lisa).
+  function setNav(open) {
+    S.navOpen = !!open;
+    const a = $("#app"); if (a) a.classList.toggle("show-nav", S.navOpen);
+  }
+  // Ping da chamada: quem aloja não tem ping (o áudio passa pelo próprio dispositivo).
+  const pingTxt = () => (S.voice && S.voice.hosting ? "estás a alojar" : (S.voice ? S.voice.ping : "?") + " ms");
   const menuBtn = () => `<button class="icon-btn menu-btn" data-act="nav" aria-label="Grupos e canais">${I.menu}</button>`;
 
   // Sem grupos nem conversas (conta nova).
@@ -835,8 +892,9 @@
 
   // vídeo de teste: no Tauri isto passa a ser um <video> com o stream que chega do núcleo
   function fakeScreen(kind, who) {
-    if (who === "me" && kind === "screen" && media.screen) return `<video class="live-video" data-stream="screen" autoplay muted playsinline></video>`;
-    if (who === "me" && kind === "cam" && media.cam) return `<video class="live-video mirror" data-stream="cam" autoplay muted playsinline></video>`;
+    if (who === "me" && kind === "screen" && media.screen) return `<div class="live-slot" data-stream="screen"></div>`;
+    if (who === "me" && kind === "screen" && S.sharing && S.sharing.native) return `<div class="live-video native-share">${I.screen}<b>Os outros estão a ver o teu ecrã</b></div>`;
+    if (who === "me" && kind === "cam" && media.cam) return `<div class="live-slot" data-stream="cam"></div>`;
     if (who !== "me" && !api.isMock) return `<div class="live-video" data-remote="${esc(who)}:${kind}"></div>`;
     if (kind === "screen" && who === "rui") {
       return `<div class="fake fake-game"><div class="hud"><span>VOLTA 2/3</span><span>3.º</span></div><div class="road"></div><div class="kart"></div></div>`;
@@ -851,14 +909,14 @@
 
   // Chamada: ocupa a janela toda. Cada pessoa e cada ecrã partilhado é um quadrado na grelha.
   // Clicar num quadrado põe-no em destaque; clicar outra vez volta à grelha.
-  function callGrid(n, w, h) {
-    // escolhe o número de colunas que dá quadrados 16:9 maiores
-    let best = { cols: 1, rows: n, size: 0 };
+  function callGrid(n, w, h, ar = 16 / 9) {
+    // escolhe o número de colunas que dá quadrados (16:9 no PC) maiores
+    let best = { cols: 1, rows: n, size: 0, ar };
     for (let cols = 1; cols <= n; cols++) {
       const rows = Math.ceil(n / cols);
       const cw = (w - (cols - 1) * 8) / cols, ch = (h - (rows - 1) * 8) / rows;
-      const tw = Math.min(cw, ch * 16 / 9);
-      if (tw > best.size) best = { cols, rows, size: tw };
+      const tw = Math.min(cw, ch * ar);
+      if (tw > best.size) best = { cols, rows, size: tw, ar };
     }
     return best;
   }
@@ -906,14 +964,15 @@
       <div class="callview">
         ${narrow() ? `<div class="call-top m">
           <button class="icon-btn" data-act="call-min" aria-label="Minimizar a chamada" title="Minimizar">${I.chevron}</button>
-          <span class="title">${I.speaker}<span><b>${esc(c.name)}</b><small>${esc(g.name)} · ${S.voice.connected === false ? "a ligar outra vez…" : S.voice.ping + " ms"}</small></span></span>
+          <span class="title">${I.speaker}<span><b>${esc(c.name)}</b><small>${esc(g.name)} · ${S.voice.connected === false ? "a ligar outra vez…" : pingTxt()}</small></span></span>
+          ${window.TascaAudio ? `<button class="icon-btn" data-act="audio-out" aria-label="Saída de som" title="Saída de som">${S.audioOut && S.audioOut !== "altifalante" ? I.head : I.speaker}</button>` : ""}
           <button class="icon-btn" data-act="invite-call" aria-label="Convidar pessoas">${I.invite}</button>
           <button class="icon-btn" data-act="voice-quick" aria-label="Definições de voz">${I.gear}</button>
         </div>` : `<div class="call-top">
           <button class="icon-btn ${S.callSidebar ? "on" : ""}" data-act="call-sidebar" aria-label="${S.callSidebar ? "Esconder grupos e canais" : "Mostrar grupos e canais"}" title="${S.callSidebar ? "Esconder grupos e canais" : "Mostrar grupos e canais"}">${I.menu}</button>
           <span class="title">${I.speaker}${esc(c.name)}<small>${esc(g.name)}</small></span>
           <span class="call-chips">
-            <span class="chip" title="Ligação ao anfitrião: ${esc(S.voice.route)}"><i class="dot"></i>Ping ${S.voice.ping} ms</span>
+            <span class="chip" title="Ligação ao anfitrião: ${esc(S.voice.route)}"><i class="dot"></i>${S.voice.hosting ? "Estás a alojar" : `Ping ${S.voice.ping} ms`}</span>
             <span class="chip ${up > 5 ? "warn" : ""}" title="Quanto estás a enviar"><i class="dot"></i>${up.toFixed(1).replace(".", ",")} Mbps</span>
           </span>
           <button class="icon-btn" data-chan-open="${esc(c.id)}" data-act="call-chat" aria-label="Abrir o chat do grupo" title="Abrir o chat (a chamada continua)">${I.hash}</button>
@@ -940,14 +999,71 @@
     const el = document.getElementById("call-grid");
     if (!el) return;
     const n = +el.dataset.n || 1;
-    const { cols, size } = callGrid(n, el.clientWidth - 24 - 2, el.clientHeight - 2);
+    const w = el.clientWidth - 24 - 2, h = el.clientHeight - 2;
+    // telemóvel ao alto: quadrados mais altos, para não ficar um retângulo pequeno no meio do ecrã
+    const ar = w < h ? (n === 1 ? 3 / 4 : n === 2 ? 4 / 3 : 1) : 16 / 9;
+    const { cols, size } = callGrid(n, w, h, ar);
     el.style.setProperty("--tw", Math.floor(size) + "px");
+    el.style.setProperty("--ar", String(ar));
     el.style.setProperty("--cols", cols);
   }
   window.addEventListener("resize", fitCallGrid);
 
   // O Windows mostra a sua própria janela para escolher o ecrã ou a janela.
+  // Telemóvel: o WebView não tem getDisplayMedia, a captura é nativa (Ecra.kt).
+  const nativeShare = () => !!(window.TASCA_MOBILE && window.TascaEcra);
+  let nativeQ = null;
+  function openNativeShare() {
+    const quals = ["720p · 30 fps", "1080p · 30 fps"];
+    const def = quals.includes(S.settings.shareQuality) ? S.settings.shareQuality : quals[0];
+    modal(`<h2>Partilhar ecrã</h2>
+      <p>A seguir o Android pergunta se queres começar a partilhar. Os outros veem tudo o que aparece no teu ecrã, até saíres da partilha.</p>
+      <div class="field"><label>Qualidade</label><div class="seg" role="radiogroup" aria-label="Qualidade">${quals.map((q) => `<button role="radio" aria-checked="${q === def}" class="${q === def ? "on" : ""}" data-q="${q}">${q}</button>`).join("")}</div>
+        <small style="color:var(--texto-3)">Mais qualidade gasta mais dados e mais bateria.</small></div>
+      <div class="actions"><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="do-share">${I.screen}Partilhar</button></div>`,
+    (el, close) => {
+      let q = def;
+      el.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-q]"); if (!b) return;
+        el.querySelectorAll("[data-q]").forEach((x) => { x.classList.toggle("on", x === b); x.setAttribute("aria-checked", x === b); });
+        q = b.dataset.q;
+      });
+      $("#do-share", el).onclick = () => {
+        close();
+        const h = q.startsWith("720") ? 720 : 1080;
+        nativeQ = q;
+        try { TascaEcra.iniciar(h, 30, h === 720 ? 2_500_000 : 4_000_000); } catch (x) { toast("Este telemóvel não deixa partilhar o ecrã."); }
+      };
+    });
+  }
+  // Respostas de Ecra.kt
+  window.tascaEcra = {
+    estado(s, t) {
+      if (s === "comecou") {
+        if (!S.voice) { try { TascaEcra.parar(); } catch {} return; }
+        stopShare(true);
+        const q = nativeQ || "720p · 30 fps";
+        S.sharing = { source: "Ecrã do telemóvel", quality: q, audio: false, native: true };
+        api.start_screen_share({ source: S.sharing.source, quality: q, audio: false }).catch(() => {});
+        sfx.shareStart(); syncVideo(); render(); toast("Estás a partilhar o ecrã.");
+      } else if (s === "parou") {
+        if (S.sharing && S.sharing.native) { stopShare(); render(); }
+      } else if (s === "erro") {
+        if (S.sharing && S.sharing.native) { stopShare(true); render(); }
+        toast(t || "Não deu para partilhar o ecrã.");
+      }
+    },
+    imagem(b64, key) {
+      if (!S.sharing || !S.sharing.native || !S.voice || !window.vozAudio) return;
+      const bin = atob(b64), bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      if (!vozAudio.video.sendRaw("screen", 1, bytes, !!key)) try { TascaEcra.chave(); } catch {}
+    },
+  };
+  if (nativeShare()) document.documentElement.classList.add("can-share");
+
   function openSharePicker() {
+    if (nativeShare()) return openNativeShare();
     const quals = ["720p · 30 fps", "1080p · 30 fps", "1080p · 60 fps"];
     const def = quals.includes(S.settings.shareQuality) ? S.settings.shareQuality : quals[1];
     modal(`<h2>Partilhar ecrã</h2>
@@ -1033,12 +1149,13 @@
     ["Tasca", [["plugins", "Plugins"], ["rede", "Rede e relay"], ["backups", "Cópias de segurança"], ["grupos", "Grupos que aloja"], ["sobre", "Sobre"]]],
   ];
   function renderSettings() {
-    const nav = SET_TABS.map(([cat, items]) => `<div class="cat"><span>${cat}</span></div>${items.map(([k, l]) => `<button class="${S.settingsTab === k ? "on" : ""}" data-set-tab="${k}">${l}</button>`).join("")}`).join("");
+    if (window.TASCA_MOBILE && S.settingsTab === "grupos") S.settingsTab = "conta";
+    const nav = SET_TABS.map(([cat, items]) => [cat, items.filter(([k]) => !(window.TASCA_MOBILE && k === "grupos"))]).map(([cat, items]) => `<div class="cat"><span>${cat}</span></div>${items.map(([k, l]) => `<button class="${S.settingsTab === k ? "on" : ""}" data-set-tab="${k}">${l}</button>`).join("")}`).join("");
     const T = { plugins: renderPlugins, conta: setConta, privacidade: setPrivacidade, aparencia: setAparencia, voz: setVoz, rede: setRede, backups: setBackups, grupos: setGrupos, sobre: setSobre }[S.settingsTab];
     return `<div class="settings">
       <nav aria-label="Secções das definições">${nav}</nav>
       <div class="page"><div class="page-inner">
-        <div style="display:flex;align-items:center;gap:12px">${menuBtn()}<h1 style="flex:1">${SET_TABS.flatMap((x) => x[1]).find((x) => x[0] === S.settingsTab)[1]}</h1>
+        <div class="set-head" style="display:flex;align-items:center;gap:12px">${window.TASCA_MOBILE ? "" : menuBtn()}<h1 style="flex:1">${SET_TABS.flatMap((x) => x[1]).find((x) => x[0] === S.settingsTab)[1]}</h1>
           <button class="icon-btn" data-act="close-settings" aria-label="Fechar definições" title="Fechar (Esc)">${I.close}</button></div>
         ${T()}
       </div></div></div>`;
@@ -1067,7 +1184,7 @@
     const ok = S.settings.termsAccepted === termsVersion();
     return `<p class="lede">O que a Tasca pode usar neste PC. Desligar aqui desliga mesmo: a funcionalidade deixa de funcionar até a voltares a ligar.</p>
       <div class="section"><h2>Permissões</h2><div class="box">${PERMS.map(([k, l, d]) => `<div class="row"><div class="txt"><b>${l}</b><small>${d}</small></div>${sw("perms." + k, perm(k), l)}</div>`).join("")}</div>
-      <p class="lede" style="font-size:13px">O Windows também tem as suas permissões. Se o microfone ou a câmara não funcionarem com isto ligado, vê Definições do Windows > Privacidade e segurança.</p></div>
+      <p class="lede" style="font-size:13px">${window.TASCA_MOBILE ? "O Android também tem as suas permissões. Se o microfone ou a câmara não funcionarem com isto ligado, vê Definições do Android > Apps > Tasca > Permissões." : "O Windows também tem as suas permissões. Se o microfone ou a câmara não funcionarem com isto ligado, vê Definições do Windows > Privacidade e segurança."}</p></div>
       <div class="section"><h2>Avisos de mensagens</h2><div class="box">
         <div class="row"><div class="txt"><b>Mostrar o texto da mensagem</b><small>Desligado, o aviso diz só quem escreveu e onde.</small></div>${sw("notifPreview", S.settings.notifPreview !== false, "Mostrar o texto da mensagem")}</div>
         ${window.TascaServico ? `<div class="row"><div class="txt"><b>Receber com a app fechada</b><small>Deixa uma notificação discreta «Tasca ligada» para o Android não adormecer a app. Gasta um pouco mais de bateria.</small></div>${sw("bgService", (() => { try { return TascaServico.ligado(); } catch { return true; } })(), "Receber com a app fechada")}</div>` : ""}
@@ -1536,10 +1653,15 @@
     const rota = (g) => g.owner === "me" && g.host.route === "este PC" ? "Alojado aqui" : !g.host.online ? "Anfitrião offline" : `${esc(g.host.route || "")}${g.host.ping != null ? ` · ${g.host.ping} ms` : ""}`;
     return `<p class="lede">Os dispositivos ligam-se diretamente sempre que dá. Quando não dá (CGNAT, firewall), o tráfego vai cifrado por um relay do iroh, que não o consegue ler.</p>
       <div class="section"><h2>Ligação a cada grupo</h2><div class="box">${S.groups.map((g) => `<div class="row"><span class="rail-btn on" style="width:36px;height:36px;border-radius:10px;font-size:12px;--g:${g.color || "var(--vinho)"}">${esc(g.short)}</span><div class="txt"><b>${esc(g.name)}</b><small>${rota(g)}</small></div></div>`).join("") || `<div class="row"><div class="txt"><small>Ainda não estás em nenhum grupo.</small></div></div>`}</div></div>
-      ${S.voice ? `<div class="section"><h2>Chamada</h2><div class="box"><div class="row"><div class="txt"><b>${esc(S.voice.route || "")}</b><small>${S.voice.hosting ? "Estás a alojar a chamada: o áudio dos outros passa por este dispositivo." : `Ping ${S.voice.ping ?? "?"} ms até quem aloja a chamada.`}</small></div></div></div></div>` : ""}`;
+      ${S.voice ? `<div class="section"><h2>Chamada</h2><div class="box"><div class="row"><div class="txt">${S.voice.hosting ? `<b>Estás a alojar a chamada</b><small>O áudio e o vídeo dos outros passam por este dispositivo.</small>` : `<b>${esc((S.voice.route || "").replace(/^./, (x) => x.toUpperCase()))}</b><small>Ping ${S.voice.ping ?? "?"} ms até quem aloja a chamada.</small>`}</div></div></div></div>` : ""}`;
   }
   function setBackups() {
     const hosted = S.groups.filter((g) => g.owner === "me");
+    if (window.TASCA_MOBILE) return `<p class="lede">O telemóvel guarda uma cópia dos teus grupos. Os grupos que alojas vivem no teu computador: é aí que convém fazer a cópia de segurança.</p>
+      <div class="section"><div class="box">
+        <div class="row"><div class="txt"><b>Guardar cópia agora</b><small>Guarda a cópia deste telemóvel na pasta Transferências. O ficheiro não vai cifrado: guarda-o num sítio seguro.</small></div><button class="btn primary" data-act="backup-now">Guardar cópia</button></div>
+        <div class="row"><div class="txt"><b>A tua conta</b><small>A conta (chave e amigos) já fica cifrada no servidor da Tasca e, se quiseres, no teu Google Drive: vê A minha conta.</small></div></div>
+      </div></div>`;
     return `<p class="lede">Os grupos que alojas vivem neste PC. Uma cópia guarda todo o histórico, membros e canais num ficheiro, para não perderes nada se o disco falhar.</p>
       <div class="section"><div class="box">
         <div class="row"><div class="txt"><b>Guardar cópia agora</b><small>Vai para a pasta Transferências. Inclui ${hosted.length ? hosted.map((g) => esc(g.name)).join(", ") + " e a tua cópia dos outros grupos" : "a tua cópia de todos os grupos"}. Guarda-a num sítio seguro: o ficheiro não vai cifrado.</small></div><button class="btn primary" data-act="backup-now">Guardar cópia</button></div>
@@ -1824,12 +1946,38 @@
     syncVideo();
     if (!micAllowed()) { S.muted = true; api.set_voice_state({ muted: true, deaf: S.deaf }); toast("Entraste só a ouvir: o microfone está desligado nas permissões."); }
     startVad();
+    // telemóvel: volta à saída de som que escolheste da última vez (por defeito o altifalante)
+    if (window.TascaAudio) setTimeout(() => { if (S.voice) setAudioOut(store.get("audio-out", "altifalante"), true); }, 1200);
     if (!dmCall) {
       S.channels = await api.list_channels({ groupId: S.groupId });
       S.allChannels[S.groupId] = S.channels;
     }
     S.view = "voice"; S.navOpen = false; render();
     return null;
+  }
+  // ---------------- saída de som no telemóvel (Saida.kt) ----------------
+  const OUT_NAMES = { altifalante: "Altifalante", telefone: "Telefone (encostado ao ouvido)", fios: "Auriculares com fios", bluetooth: "Bluetooth" };
+  function setAudioOut(id, quiet) {
+    let ok = false;
+    try { ok = TascaAudio.escolher(id); } catch {}
+    if (!ok && quiet) { try { S.audioOut = TascaAudio.atual(); } catch {} return render(); }
+    if (!ok) return toast("Essa saída de som já não está disponível.");
+    S.audioOut = id;
+    if (!quiet) store.set("audio-out", id);
+    render();
+  }
+  function openAudioOut() {
+    let outs = [];
+    try { outs = JSON.parse(TascaAudio.saidas()); } catch {}
+    if (!outs.length) return toast("Não encontrei saídas de som.");
+    modal(`<h2>Saída de som</h2>
+      <div class="ms-list">${outs.map((o) => `<button class="${o.on ? "on" : ""}" data-out="${esc(o.id)}">${o.id === "altifalante" ? I.speaker : I.head}<span style="flex:1">${esc(o.nome || OUT_NAMES[o.id] || o.id)}</span>${o.on ? I.check : ""}</button>`).join("")}</div>`,
+    (el, close) => {
+      el.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-out]"); if (!b) return;
+        haptic(); close(); setAudioOut(b.dataset.out);
+      });
+    });
   }
   async function leaveVoice() {
     sfx.leave();
@@ -2003,6 +2151,7 @@
         return openSharePicker();
       case "call-sidebar": S.callSidebar = !S.callSidebar; return render();
       case "call-min": { if (!S.voice.groupId) { S.view = "chat"; return openDm(S.voice.channelId); } S.view = "chat"; if (S.groupId !== S.voice.groupId) { await openGroup(S.voice.groupId); return; } if (!channel() || channel().kind !== "text") { const t = S.channels.find((x) => x.kind === "text"); if (t) return openChannel(t.id); } return render(); }
+      case "audio-out": return openAudioOut();
       case "invite-call": { if (!S.voice.groupId) return toast("As chamadas privadas são só entre os dois."); if (S.groupId !== S.voice.groupId) await openGroup(S.voice.groupId); return openInvite(); }
       case "voice-quick": return openVoiceSettings();
       case "voicepre-back": S.view = S.prevView && S.prevView !== "voicepre" ? S.prevView : "chat"; return render();
@@ -2031,7 +2180,7 @@
         if (window.innerWidth <= 1100) S.membersOpen = !S.membersOpen;
         else { S.showMembers = !S.showMembers; store.set("members", S.showMembers); }
         return render();
-      case "nav": S.navOpen = !S.navOpen; return render();
+      case "nav": return setNav(!S.navOpen);
       case "copy-key": return S.me.username ? copy("@" + S.me.username, null, "ID copiado.") : openProfile();
       case "my-card": S.statusOpen = false; render(); return window.tascaAmigos && window.tascaAmigos.openFullProfile("me");
       case "switch-account": S.statusOpen = false; if (S.voice) await leaveVoice(); await api.select_account({ id: null }); return location.reload();
@@ -2252,7 +2401,7 @@
     if (t.id === "custom-status") { S.customStatus = t.value; const w = $(".me .who small"); if (w) w.textContent = t.value || STATUS.find((x) => x[0] === S.myStatus)[1]; return; }
     if (t.id === "dm-q") {
       S.dmQuery = t.value; const pos = t.selectionStart;
-      const ch = $(".channels"); $("#sidebar").innerHTML = renderSidebar(); attachMedia();
+      const ch = $(".channels"); setHtml($("#sidebar"), renderSidebar()); attachMedia();
       const n = $("#dm-q"); n.focus(); n.setSelectionRange(pos, pos); return;
     }
     if (t.id === "plugin-q") {
@@ -2609,12 +2758,23 @@
     // fecha para a esquerda); a lista de membros fecha a deslizar para a direita.
     let t0 = null;
     const appEl = () => $("#app");
+    // Durante o gesto mexe-se só na gaveta e no fundo escuro (transform/opacity, direto no
+    // elemento). Mudar uma variável CSS na .app obrigava o telemóvel a recalcular a página
+    // toda a cada movimento do dedo, e a gaveta engasgava.
+    let scrimEl = null;
+    const scrim = () => {
+      if (!scrimEl || !scrimEl.isConnected) { scrimEl = document.createElement("div"); scrimEl.id = "nav-scrim"; appEl().appendChild(scrimEl); }
+      scrimEl.style.transition = "none";
+      return scrimEl;
+    };
+    scrim().style.transition = "";
+    const navEls = () => [$("#rail"), $("#sidebar")].filter(Boolean);
     const navW = () => Math.min(372, window.innerWidth - 44) + 16;
     document.addEventListener("touchstart", (e) => {
       const t = e.touches[0];
       const alvo = e.target;
       const ignora = e.touches.length > 1 || S.view === "voice" || !estreito() ||
-        (alvo.closest && alvo.closest("input[type=range], .call-strip, .seg, .scrim, .ctx-menu, textarea, .emoji-pop, .pcard, .fr-tabs, .reactions, pre, code"));
+        (alvo.closest && alvo.closest("input[type=range], .call-strip, .seg, .scrim, .ctx-menu, textarea, .emoji-pop, .pcard, .fr-tabs, .reactions, pre, code, .settings nav, .att-chips, .ms-reacts, .call-grid"));
       t0 = ignora ? null : { x: t.clientX, y: t.clientY, at: Date.now(), drag: null, open: !!S.navOpen, members: !!S.membersOpen };
     }, { passive: true });
     document.addEventListener("touchmove", (e) => {
@@ -2634,9 +2794,9 @@
       if (t0.drag === "nav") {
         const w = navW();
         const x = t0.open ? Math.min(0, dx) : Math.min(0, -w + dx);
-        a.style.setProperty("--navx", x + "px");
-        a.style.setProperty("--scrim", String(Math.max(0, Math.min(1, 1 + x / w))));
-        if (!t0.open && !a.classList.contains("show-nav-drag")) a.classList.add("show-nav-drag");
+        for (const el of navEls()) el.style.transform = `translate3d(${x}px,0,0)`;
+        scrim().style.opacity = String(Math.max(0, Math.min(1, 1 + x / w)));
+        void a;
       } else if (t0.drag === "members") {
         const m = $("#members"); if (m) { m.style.transition = "none"; m.style.transform = `translateX(${Math.max(0, dx)}px)`; }
       }
@@ -2648,15 +2808,19 @@
       const drag = t0.drag, was = t0;
       t0 = null;
       const a = appEl();
-      a.classList.remove("dragging", "show-nav-drag");
-      a.style.removeProperty("--navx"); a.style.removeProperty("--scrim");
+      if (drag === "nav") {
+        // o fundo escuro passa do elemento do gesto para o da .app sem saltar
+        for (const el of navEls()) el.style.transform = "";
+        if (scrimEl) { scrimEl.style.transition = ""; scrimEl.style.opacity = ""; }
+      }
+      a.classList.remove("dragging");
       const m = $("#members"); if (m) { m.style.transition = ""; m.style.transform = ""; }
       if (!drag) return;
       const fast = ms < 300 && Math.abs(dx) > 40;
       if (drag === "nav") {
         const far = Math.abs(dx) > navW() * 0.35;
-        if (!was.open && dx > 0 && (far || fast)) { S.navOpen = true; haptic(); render(); }
-        else if (was.open && dx < 0 && (far || fast)) { S.navOpen = false; render(); }
+        if (!was.open && dx > 0 && (far || fast)) { haptic(); setNav(true); }
+        else if (was.open && dx < 0 && (far || fast)) setNav(false);
       } else if (drag === "members" && dx > 0 && (dx > 90 || fast)) { S.membersOpen = false; render(); }
       void dy;
     }, { passive: true });
@@ -2664,6 +2828,7 @@
 
   // Tocar fora da gaveta ou da lista de membros (no fundo escuro) fecha-as.
   document.addEventListener("click", (e) => {
+    if (e.target && e.target.id === "nav-scrim") { setNav(false); return; }
     if (e.target && e.target.id === "app") {
       if (S.membersOpen) { S.membersOpen = false; render(); }
       else if (S.navOpen && window.innerWidth <= 720) { S.navOpen = false; render(); }
