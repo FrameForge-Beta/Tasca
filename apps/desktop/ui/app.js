@@ -79,8 +79,10 @@
     const t = document.createElement("div");
     t.className = "toast"; t.textContent = text;
     $("#toasts").appendChild(t);
-    setTimeout(() => t.remove(), 3200);
+    setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 220); }, 3200);
   }
+  // vibração curta ao tocar (só no telemóvel)
+  function haptic(ms = 8) { if (window.TASCA_MOBILE && navigator.vibrate) { try { navigator.vibrate(ms); } catch {} } }
   const store = {
     get(k, d) { try { const v = localStorage.getItem("tasca:" + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
     set(k, v) { try { localStorage.setItem("tasca:" + k, JSON.stringify(v)); } catch {} },
@@ -185,8 +187,8 @@
   function render() {
     const app = $("#app");
     app.className = "app" + (S.showMembers && S.view === "chat" && !S.home ? "" : " no-members") +
-      (S.navOpen ? " show-nav" : "") + (S.membersOpen ? " show-members" : "") +
-      (S.view === "voice" && !S.callSidebar ? " call" : "");
+      (S.navOpen ? " show-nav" : "") + (S.membersOpen && S.view === "chat" && !S.home ? " show-members" : "") +
+      (S.view === "voice" && !S.callSidebar ? " call" : "") + (S.view === "settings" ? " no-sidebar" : "");
     $("#rail").innerHTML = renderRail();
     const tbp = document.getElementById("tb-plugins"); if (tbp) tbp.classList.toggle("on", S.view === "settings" && S.settingsTab === "plugins");
     document.body.classList.add("ready");
@@ -195,6 +197,7 @@
     if (S.view === "settings") app.style.gridTemplateColumns = window.innerWidth > 720 ? "72px minmax(0,1fr)" : "";
     else app.style.gridTemplateColumns = "";
     $("#main").innerHTML = renderMain();
+    pageTransition();
     fitCallGrid();
     $("#members").innerHTML = S.view === "chat" && !S.home ? renderMembers() : "";
     const list = $(".messages");
@@ -202,6 +205,22 @@
     if (S.view === "settings" && S.settingsTab === "voz") { if (!meter && DEV.loaded) startMicMeter(); }
     else stopMicMeter();
     attachMedia();
+  }
+
+  // Troca de página (canal, conversa, amigos, definições, chamada): a página nova entra a deslizar.
+  let lastPage = null, pageTimer = 0;
+  const PAGE_DEPTH = { friends: 0, chat: 1, voicepre: 2, voice: 3, settings: 4 };
+  function pageTransition() {
+    const key = [S.view, S.home, S.groupId, S.channelId, S.view === "settings" ? S.settingsTab : ""].join("|");
+    if (lastPage && key !== lastPage) {
+      const main = $("#main");
+      const prevView = lastPage.split("|")[0];
+      main.classList.remove("enter", "back"); void main.offsetWidth;
+      main.classList.add("enter");
+      if ((PAGE_DEPTH[S.view] ?? 1) < (PAGE_DEPTH[prevView] ?? 1)) main.classList.add("back");
+      clearTimeout(pageTimer); pageTimer = setTimeout(() => main.classList.remove("enter", "back"), 320);
+    }
+    lastPage = key;
   }
 
   function renderRail() {
@@ -380,10 +399,19 @@
   function renderMain() {
     if (S.view === "settings") return renderSettings();
     if (S.view === "voice") return renderVoice();
+    if (S.view === "voicepre") return renderVoicePre();
     if (S.view === "friends" && window.tascaAmigos) return window.tascaAmigos.renderFriends();
     return renderChat();
   }
 
+  const narrow = () => window.innerWidth <= 720;
+  // telemóvel: com a chamada a decorrer, uma barra por cima da caixa de escrita leva de volta
+  const callPill = () => {
+    if (!S.voice || !narrow()) return "";
+    const c = findChannel(S.voice.channelId); if (!c) return "";
+    const n = (c.inVoice || []).length;
+    return `<button class="call-pill" data-voice="${esc(c.id)}"><span class="cp-dot"></span><span class="cp-txt"><b>Em chamada</b><small>${esc(c.name)}${n ? " · " + n + (n === 1 ? " pessoa" : " pessoas") : ""}</small></span><span class="cp-mic ${S.muted ? "off" : ""}" data-act="mute" role="button" aria-label="${S.muted ? "Ligar microfone" : "Desligar microfone"}">${S.muted ? I.micOff : I.mic}</span><span class="cp-go">Voltar</span></button>`;
+  };
   const menuBtn = () => `<button class="icon-btn menu-btn" data-act="nav" aria-label="Grupos e canais">${I.menu}</button>`;
 
   // Sem grupos nem conversas (conta nova).
@@ -397,6 +425,7 @@
       </div>`;
   }
 
+  let seen = new Set(), seenCh = null;
   function renderChat() {
     const dm = S.home ? S.dms.find((d) => d.id === S.channelId) : null;
     const c = dm ? { id: dm.id, name: who(dm.with).name } : channel();
@@ -413,16 +442,19 @@
       const file = m.file ? `<div class="attach"><span class="ext">${esc(m.file.ext)}</span><div><b>${esc(m.file.name)}</b><small>${esc(m.file.size)} · enviado diretamente por ${esc(p.name)}</small></div></div>` : "";
       const state = ""; // a enviar: a mensagem só fica mais escura (classe "pending")
       const mine = m.from === "me";
-      const cls = `msg ${mine ? "mine" : ""} ${first ? "first" : ""} ${m.mentionsMe ? "mentioned" : ""} ${m.pending ? "pending" : ""} ${m.failed ? "failed" : ""}`;
+      const fresh = seenCh === S.channelId && !seen.has(String(m.id));
+      const cls = `msg ${mine ? "mine" : ""} ${first ? "first" : ""} ${m.mentionsMe ? "mentioned" : ""} ${m.pending ? "pending" : ""} ${m.failed ? "failed" : ""} ${fresh ? "new" : ""}`;
       const fail = m.failed ? `<div class="msg-fail"><small>Não foi enviada. Volta a tentar.</small><button class="retry" data-retry="${esc(m.id)}" aria-label="Tentar enviar outra vez" title="Tentar enviar outra vez">${I.retry}</button></div>` : "";
       if (first) {
         const tag = p.bot ? '<span class="tag bot">plugin</span>' : g.owner === p.id ? '<span class="tag">anfitrião</span>' : "";
-        out += `<div class="${cls}"><button type="button" class="msg-av" data-person="${esc(p.id)}" aria-label="Perfil de ${esc(p.name)}">${avatar(p)}</button><div><div class="bubble"><div class="meta"><button type="button" class="author" data-person="${esc(p.id)}" style="--a:${p.color}">${esc(p.name)}</button>${tag}<span class="time">${esc(m.at)}</span></div><div class="body">${fmt(m.text)}${state}</div>${file}</div>${reacts}${fail}</div></div>`;
+        out += `<div class="${cls}" data-mid="${esc(m.id)}"><button type="button" class="msg-av" data-person="${esc(p.id)}" aria-label="Perfil de ${esc(p.name)}">${avatar(p)}</button><div><div class="bubble"><div class="meta"><button type="button" class="author" data-person="${esc(p.id)}" style="--a:${p.color}">${esc(p.name)}</button>${tag}<span class="time">${esc(m.at)}</span></div><div class="body">${fmt(m.text)}${state}</div>${file}</div>${reacts}${fail}</div></div>`;
       } else {
-        out += `<div class="${cls}"><span class="gutter">${esc(m.at)}</span><div><div class="bubble"><div class="body">${fmt(m.text)}${state}</div>${file}</div>${reacts}${fail}</div></div>`;
+        out += `<div class="${cls}" data-mid="${esc(m.id)}"><span class="gutter">${esc(m.at)}</span><div><div class="bubble"><div class="body">${fmt(m.text)}${state}</div>${file}</div>${reacts}${fail}</div></div>`;
       }
       return out;
     }).join("");
+    // as que já estavam no ecrã não voltam a animar
+    seen = new Set(S.messages.map((m) => String(m.id))); seenCh = S.channelId;
     if (dm) {
       const p = who(dm.with);
       const st = { online: "online", away: "ausente", dnd: "não incomodar", offline: "offline" }[p.status] || "offline";
@@ -438,7 +470,7 @@
         <div class="welcome">${avatar(p).replace('class="av ', 'class="av big ')}<h2>${esc(p.name)}</h2><p>Esta conversa é só entre ti e ${esc(p.name)}, cifrada de ponta a ponta: o servidor da Tasca guarda-a para chegar mesmo com um de vocês offline, mas não a consegue ler.</p></div>
         ${rows}
       </div>
-      <div class="composer">
+      <div class="composer">${callPill()}
         <form id="composer">
           <button type="button" class="icon-btn" data-act="attach" aria-label="Anexar ficheiro" title="Anexar ficheiro">${I.clip}</button>
           <label class="sr" for="msg-input">Mensagem</label>
@@ -449,7 +481,7 @@
         <div class="typing">${S.typing && S.typing.channelId === c.id ? `<b>${esc(S.typing.who)}</b> está a escrever…` : ""}</div>
       </div>`;
     }
-    const offline = !g.host.online ? `<div class="banner">${I.warn}<div><b>${g.owner === "me" ? "O teu PC" : esc(who(g.owner).name)}</b>, o anfitrião, está offline. Estás a ver a tua cópia local. O que escreveres fica guardado e é enviado quando ele voltar, ou quando outro membro assumir o grupo.</div></div>` : "";
+    const offline = !g.host.online ? `<div class="banner ${S.bannerOpen ? "open" : ""}" data-banner-toggle role="button" tabindex="0" aria-expanded="${!!S.bannerOpen}">${I.warn}<span class="banner-short"><b>Anfitrião offline</b> · a ver a tua cópia local</span><div class="banner-long"><b>${g.owner === "me" ? "O teu PC" : esc(who(g.owner).name)}</b>, o anfitrião, está offline. Estás a ver a tua cópia local. O que escreveres fica guardado e é enviado quando ele voltar, ou quando outro membro assumir o grupo.</div></div>` : "";
     const typing = S.typing && S.typing.channelId === c.id ? `<b>${esc(S.typing.who)}</b> está a escrever…` : "";
     return `
       <div class="main-head">${menuBtn()}
@@ -463,7 +495,7 @@
         <div class="welcome"><div class="tile"><span>#</span></div><h2>Bem-vindo a #${esc(c.name)}</h2><p>Este é o início do canal #${esc(c.name)} em ${esc(g.name)}. As mensagens ficam guardadas no PC do anfitrião e numa cópia em cada membro.</p></div>
         ${rows}
       </div>
-      <div class="composer">
+      <div class="composer">${callPill()}
         <form id="composer">
           <button type="button" class="icon-btn" data-act="attach" aria-label="Anexar ficheiro" title="Anexar ficheiro">${I.clip}</button>
           <label class="sr" for="msg-input">Mensagem</label>
@@ -562,7 +594,12 @@
     const up = (S.camera ? 1.2 : 0) + (S.sharing ? (S.sharing.quality.startsWith("1080p · 60") ? 6 : S.sharing.quality.startsWith("1080") ? 4 : 2.5) : 0) + 0.06;
     return `
       <div class="callview">
-        <div class="call-top">
+        ${narrow() ? `<div class="call-top m">
+          <button class="icon-btn" data-act="call-min" aria-label="Minimizar a chamada" title="Minimizar">${I.chevron}</button>
+          <span class="title">${I.speaker}<span><b>${esc(c.name)}</b><small>${esc(g.name)} · ${S.voice.connected === false ? "a ligar outra vez…" : S.voice.ping + " ms"}</small></span></span>
+          <button class="icon-btn" data-act="invite-call" aria-label="Convidar pessoas">${I.invite}</button>
+          <button class="icon-btn" data-act="voice-quick" aria-label="Definições de voz">${I.gear}</button>
+        </div>` : `<div class="call-top">
           <button class="icon-btn ${S.callSidebar ? "on" : ""}" data-act="call-sidebar" aria-label="${S.callSidebar ? "Esconder grupos e canais" : "Mostrar grupos e canais"}" title="${S.callSidebar ? "Esconder grupos e canais" : "Mostrar grupos e canais"}">${I.menu}</button>
           <span class="title">${I.speaker}${esc(c.name)}<small>${esc(g.name)}</small></span>
           <span class="call-chips">
@@ -571,7 +608,7 @@
           </span>
           <button class="icon-btn" data-chan-open="${esc(c.id)}" data-act="call-chat" aria-label="Abrir o chat do grupo" title="Abrir o chat (a chamada continua)">${I.hash}</button>
           ${fsBtn()}
-        </div>
+        </div>`}
         ${body}
         <div class="call-controls">
           <div class="ctl-group">
@@ -581,7 +618,7 @@
           </div>
           <div class="ctl-group">
             <button class="ctl ${S.sharing ? "on-media" : ""}" data-act="share" aria-pressed="${!!S.sharing}" title="${S.sharing ? "Parar partilha" : "Partilhar ecrã"}" aria-label="${S.sharing ? "Parar partilha" : "Partilhar ecrã"}">${S.sharing ? I.screenOff : I.screen}</button>
-            <button class="ctl" data-act="settings-voz" title="Definições de voz e vídeo" aria-label="Definições de voz e vídeo">${I.gear}</button>
+            ${narrow() ? `<button class="ctl" data-act="call-chat" title="Abrir o chat" aria-label="Abrir o chat do grupo">${I.hash}</button>` : `<button class="ctl" data-act="settings-voz" title="Definições de voz e vídeo" aria-label="Definições de voz e vídeo">${I.gear}</button>`}
           </div>
           <button class="ctl leave" data-act="leave-voice" title="Sair da chamada" aria-label="Sair da chamada">${I.phoneOff}</button>
         </div>
@@ -1234,15 +1271,50 @@
   }
 
   // ---------------- modais ----------------
+  // Fecha uma janela com a animação de saída (no telemóvel desce; no PC encolhe).
+  function closeScrim(scrim) {
+    if (!scrim || scrim.classList.contains("closing")) return;
+    scrim.classList.add("closing");
+    const m = scrim.querySelector(".modal"); if (m) m.style.transform = "";
+    setTimeout(() => scrim.remove(), 200);
+  }
+  // No telemóvel, puxar a janela para baixo fecha-a.
+  function sheetDrag(el, sheet, close, canStart = () => true) {
+    let y0 = null, dy = 0, t0 = 0;
+    el.addEventListener("touchstart", (e) => {
+      if (window.innerWidth > 720 || e.touches.length > 1) return;
+      const scroller = e.target.closest(".modal, .pcard, .pfull-body, .terms-box, .emoji-body");
+      if (scroller && scroller.scrollTop > 0) return;
+      if (!canStart(e)) return;
+      y0 = e.touches[0].clientY; dy = 0; t0 = Date.now();
+    }, { passive: true });
+    el.addEventListener("touchmove", (e) => {
+      if (y0 == null) return;
+      dy = Math.max(0, e.touches[0].clientY - y0);
+      if (dy > 4) { sheet.style.transition = "none"; sheet.style.transform = `translateY(${dy}px)`; }
+    }, { passive: true });
+    el.addEventListener("touchend", () => {
+      if (y0 == null) return;
+      const fast = dy > 40 && Date.now() - t0 < 250;
+      y0 = null;
+      sheet.style.transition = "transform .2s cubic-bezier(.2,.8,.2,1)";
+      if (dy > 120 || fast) { sheet.style.transform = `translateY(110%)`; haptic(); setTimeout(close, 160); }
+      else sheet.style.transform = "";
+      setTimeout(() => { sheet.style.transition = ""; }, 220);
+    });
+  }
   function modal(html, onMount) {
     const scrim = document.createElement("div");
     scrim.className = "scrim";
     scrim.innerHTML = `<div class="modal" role="dialog" aria-modal="true">${html}</div>`;
-    scrim.addEventListener("click", (e) => { if (e.target === scrim || e.target.closest("[data-close]")) scrim.remove(); });
+    const close = () => closeScrim(scrim);
+    scrim.addEventListener("click", (e) => { if (e.target === scrim || e.target.closest("[data-close]")) close(); });
     document.body.appendChild(scrim);
+    sheetDrag(scrim, scrim.querySelector(".modal"), () => scrim.remove(), (e) => !e.target.closest("input, textarea, select, .seg, input[type=range]"));
     const first = scrim.querySelector("input, textarea, button.primary, button");
-    if (first) first.focus();
-    if (onMount) onMount(scrim, () => scrim.remove());
+    // no telemóvel não abre o teclado sozinho
+    if (first && !(window.TASCA_MOBILE && /INPUT|TEXTAREA/.test(first.tagName))) first.focus({ preventScroll: true });
+    if (onMount) onMount(scrim, close);
   }
 
   function openNewGroup() {
@@ -1360,12 +1432,87 @@
     render();
     const inp = $("#msg-input"); if (inp && window.innerWidth > 720) inp.focus();
   }
-  async function joinVoice(id) {
+  // ---------------- telemóvel: painel antes de entrar na chamada ----------------
+  // Tocar num canal de voz abre uma folha com quem está lá, o estado do anfitrião e
+  // um botão grande para entrar. As definições de voz e o convite ficam à mão.
+  function hostOffline(g) { return g && !g.host.online && !(g.owner === "me" && g.host.route === "este PC"); }
+  function voicePeopleHtml(c) {
+    const ppl = (c.inVoice || []).map((id) => who(id));
+    if (!ppl.length) return `<div class="vs-empty"><span class="vs-empty-ic">${I.speaker}</span><b>Ainda não está ninguém aqui</b><small>Quando estiveres pronto para conversar, é só entrar.</small></div>`;
+    return `<div class="vs-people">${ppl.map((p) => `<div class="vs-person ${S.speaking.includes(p.id) ? "speaking" : ""}" data-spk="${esc(p.id)}">${avatar(p, "xl")}<span>${esc(p.name)}</span></div>`).join("")}</div>`;
+  }
+  // Página de antes de entrar (telemóvel): entra a deslizar da direita, como uma página.
+  function openVoiceSheet(id) {
+    if (!findChannel(id)) return;
+    S.prevView = S.view === "voicepre" ? S.prevView : S.view;
+    S.preVoice = id; S.preVoiceErr = null; S.view = "voicepre"; S.navOpen = false; render();
+  }
+  function renderVoicePre() {
+    const id = S.preVoice, c = findChannel(id);
+    if (!c) { S.view = "chat"; return renderChat(); }
+    const g = S.groups.find((x) => (S.allChannels[x.id] || []).some((y) => y.id === id)) || group();
+    const off = hostOffline(g);
+    const hostName = g.owner === "me" ? "O teu PC" : `O PC de ${esc(who(g.owner).name)}`;
+    const n = (c.inVoice || []).length;
+    return `<div class="vpre">
+      <div class="call-top m">
+        <button class="icon-btn" data-act="voicepre-back" aria-label="Voltar">${I.chevron}</button>
+        <span class="title">${I.speaker}<span><b>${esc(c.name)}</b><small>${esc(g.name)}${n ? " · " + n + (n === 1 ? " pessoa" : " pessoas") : ""}</small></span></span>
+        <button class="icon-btn" data-act="voicepre-invite" aria-label="Convidar pessoas">${I.invite}</button>
+        <button class="icon-btn" data-act="voice-quick" aria-label="Definições de voz">${I.gear}</button>
+      </div>
+      <div class="vpre-body">${voicePeopleHtml(c)}</div>
+      ${off && !n ? `<div class="vs-warn">${I.warn}<span><b>${hostName} está desligado.</b> Não faz mal: quem entra primeiro aloja a chamada no seu dispositivo.</span></div>` : ""}
+      ${S.preVoiceErr ? `<p class="vs-err">${esc(S.preVoiceErr)}</p>` : ""}
+      <div class="vs-bar">
+        <button class="vs-round ${S.muted ? "off" : ""}" data-act="vp-mic" aria-pressed="${S.muted}" aria-label="${S.muted ? "Ligar microfone" : "Desligar microfone"}">${S.muted ? I.micOff : I.mic}</button>
+        <button class="vs-join" data-act="vp-join" ${S.preVoiceBusy ? "disabled" : ""}>${S.preVoiceBusy ? "A ligar…" : S.preVoiceErr ? "Tentar outra vez" : "Entrar na chamada"}</button>
+        <button class="vs-round ${S.deaf ? "off" : ""}" data-act="vp-deaf" aria-pressed="${S.deaf}" aria-label="${S.deaf ? "Ligar som" : "Desligar som"}">${S.deaf ? I.headOff : I.head}</button>
+      </div>
+    </div>`;
+  }
+  // Definições de voz rápidas (da folha da chamada e do ecrã da chamada).
+  function openVoiceSettings() {
+    const s = S.settings;
+    const nm = noiseMode();
+    modal(`<h2>Voz e vídeo</h2>
+      <div class="field"><label>Supressão de ruído</label>
+        <div class="seg vs-seg" role="radiogroup" aria-label="Supressão de ruído">${[["deep", "Forte"], ["light", "Leve"], ["off", "Nenhuma"]].map(([k, l]) => `<button role="radio" aria-checked="${nm === k}" class="${nm === k ? "on" : ""}" data-vs-noise="${k}">${l}</button>`).join("")}</div>
+        <small class="hint" id="vs-noise-h">${nm === "deep" ? "Tira ventoinhas, teclado e barulho da rua. Gasta mais bateria." : nm === "light" ? "Gasta muito pouco. Tira o ruído mais constante." : "Sem filtro: usa só o do sistema."}</small></div>
+      <div class="field"><label for="vs-sens">Sensibilidade do microfone</label>
+        <input class="range" type="range" min="0" max="100" id="vs-sens" value="${s.sensitivity ?? 40}">
+        <small class="hint">Abaixo deste nível o microfone não transmite. Mais para a esquerda apanha mais som.</small></div>
+      <div class="box">
+        <div class="row"><div class="txt"><b>Mostrar quem está sem vídeo</b><small>Desligado, a grelha só mostra câmaras e ecrãs.</small></div>${sw("callShowNoVideo", s.callShowNoVideo !== false, "Mostrar quem está sem vídeo")}</div>
+        <div class="row"><div class="txt"><b>Cancelamento de eco</b><small>Ligado se usas o altifalante.</small></div>${sw("echoCancel", s.echoCancel !== false, "Cancelamento de eco")}</div>
+        <div class="row"><div class="txt"><b>Sons da chamada</b><small>Entrar, sair, micro e som.</small></div>${sw("callSounds", s.callSounds !== false, "Sons da chamada")}</div>
+      </div>
+      <div class="actions"><button class="btn ghost" data-act="settings-voz" data-close>Todas as definições</button><button class="btn primary" data-close>Feito</button></div>`,
+    (el) => {
+      el.addEventListener("click", async (e) => {
+        const b = e.target.closest("[data-vs-noise]"); if (!b) return;
+        const k = b.dataset.vsNoise;
+        await patch(k === "off" ? { noiseSuppression: false } : { noiseSuppression: true, noiseMode: k });
+        el.querySelectorAll("[data-vs-noise]").forEach((x) => { x.classList.toggle("on", x === b); x.setAttribute("aria-checked", x === b); });
+        $("#vs-noise-h", el).textContent = k === "deep" ? "Tira ventoinhas, teclado e barulho da rua. Gasta mais bateria." : k === "light" ? "Gasta muito pouco. Tira o ruído mais constante." : "Sem filtro: usa só o do sistema.";
+        haptic();
+      });
+      $("#vs-sens", el).onchange = (e) => patch({ sensitivity: +e.target.value });
+    });
+  }
+
+  async function joinVoice(id, opts = {}) {
     if (S.voice && S.voice.channelId === id) { S.view = "voice"; S.navOpen = false; render(); return; }
     if (S.voice) sfx.leave();
     let info;
     try { info = await api.join_voice({ channelId: id, noise: noiseMode(), sensitivity: S.settings.sensitivity ?? 40 }); }
-    catch (e) { return toast(String(e.message || e)); }
+    catch (e) {
+      const g = S.groups.find((x) => (S.allChannels[x.id] || []).some((y) => y.id === id));
+      let msg = String(e.message || e);
+      if (hostOffline(g)) msg = (g.owner === "me" ? "O teu PC" : "O PC de " + who(g.owner).name) + " está desligado. Abre a Tasca nesse PC e tenta outra vez.";
+      if (opts.quiet) return msg;
+      return toast(msg);
+    }
     sfx.join();
     S.voice = { channelId: id, groupId: S.groupId, ...info };
     S.voiceStates = {};
@@ -1377,6 +1524,7 @@
     S.channels = await api.list_channels({ groupId: S.groupId });
     S.allChannels[S.groupId] = S.channels;
     S.view = "voice"; S.navOpen = false; render();
+    return null;
   }
   async function leaveVoice() {
     sfx.leave();
@@ -1445,7 +1593,11 @@
       if (c) openChannel(c.id);
       return;
     }
-    if (d.voice) return joinVoice(d.voice);
+    if (d.voice) {
+      // telemóvel: primeiro a folha da chamada (quem lá está, micro, entrar)
+      if (window.innerWidth <= 720 && !(S.voice && S.voice.channelId === d.voice)) return openVoiceSheet(d.voice);
+      return joinVoice(d.voice);
+    }
     if (d.focus) { S.focus = S.focus === d.focus ? null : d.focus; return render(); }
     if (d.pluginTab) { S.pluginTab = d.pluginTab; S.navOpen = false; return render(); }
     if (d.install) {
@@ -1495,8 +1647,14 @@
       case "close-settings": S.view = S.prevView || "chat"; return render();
       case "mute":
         if (S.muted && !micAllowed()) return toast("O microfone está desligado em Definições > Privacidade e permissões.");
-        S.muted = !S.muted; (S.muted ? sfx.mute : sfx.unmute)(); if (!S.muted && S.deaf) S.deaf = false; api.set_voice_state({ muted: S.muted, deaf: S.deaf }); return render();
-      case "deaf": S.deaf = !S.deaf; (S.deaf ? sfx.deafen : sfx.undeafen)(); S.muted = S.deaf ? true : S.muted; api.set_voice_state({ muted: S.muted, deaf: S.deaf }); return render();
+        // ligar o micro com o som desligado liga também o som (como no Discord)
+        S.muted = !S.muted; (S.muted ? sfx.mute : sfx.unmute)(); if (!S.muted && S.deaf) { S.deaf = false; S.mutedBeforeDeaf = false; }
+        api.set_voice_state({ muted: S.muted, deaf: S.deaf }); store.set("voice-state", { muted: S.muted, deaf: S.deaf, before: !!S.mutedBeforeDeaf }); haptic(); return render();
+      case "deaf":
+        // tirar o som desliga o micro; voltar a ligar repõe o micro como estava antes
+        if (!S.deaf) { S.mutedBeforeDeaf = S.muted; S.deaf = true; S.muted = true; sfx.deafen(); }
+        else { S.deaf = false; S.muted = !!S.mutedBeforeDeaf || !micAllowed(); sfx.undeafen(); }
+        api.set_voice_state({ muted: S.muted, deaf: S.deaf }); store.set("voice-state", { muted: S.muted, deaf: S.deaf, before: !!S.mutedBeforeDeaf }); haptic(); return render();
       case "leave-voice": return leaveVoice();
       case "status": S.statusOpen = !S.statusOpen; return render();
       case "noise": await patch({ noiseSuppression: !S.settings.noiseSuppression }); render(); return toast(S.settings.noiseSuppression ? "Supressão de ruído ligada." : "Supressão de ruído desligada.");
@@ -1510,6 +1668,20 @@
         if (S.sharing) { stopShare(); return render(); }
         return openSharePicker();
       case "call-sidebar": S.callSidebar = !S.callSidebar; return render();
+      case "call-min": { S.view = "chat"; if (S.groupId !== S.voice.groupId) { await openGroup(S.voice.groupId); return; } if (!channel() || channel().kind !== "text") { const t = S.channels.find((x) => x.kind === "text"); if (t) return openChannel(t.id); } return render(); }
+      case "invite-call": { if (S.groupId !== S.voice.groupId) await openGroup(S.voice.groupId); return openInvite(); }
+      case "voice-quick": return openVoiceSettings();
+      case "voicepre-back": S.view = S.prevView && S.prevView !== "voicepre" ? S.prevView : "chat"; return render();
+      case "voicepre-invite": { const c = findChannel(S.preVoice); const g = S.groups.find((x) => (S.allChannels[x.id] || []).some((y) => y.id === c.id)); if (g && S.groupId !== g.id) await openGroup(g.id); S.view = "voicepre"; render(); return openInvite(); }
+      case "vp-mic": haptic(); if (S.muted && !micAllowed()) return toast("O microfone está desligado em Definições > Privacidade e permissões."); S.muted = !S.muted; if (!S.muted && S.deaf) { S.deaf = false; S.mutedBeforeDeaf = false; } return render();
+      case "vp-deaf": haptic(); if (!S.deaf) { S.mutedBeforeDeaf = S.muted; S.deaf = true; S.muted = true; } else { S.deaf = false; S.muted = !!S.mutedBeforeDeaf; } return render();
+      case "vp-join": {
+        haptic(12); S.preVoiceBusy = true; S.preVoiceErr = null; render();
+        const fail = await joinVoice(S.preVoice, { quiet: true });
+        S.preVoiceBusy = false;
+        if (fail) { S.preVoiceErr = fail; if (S.view === "voicepre") render(); }
+        return;
+      }
       case "call-chat": { const gid = S.voice.groupId; if (S.groupId !== gid) await openGroup(gid); else await openChannel(S.channels.find((x) => x.kind === "text").id); return; }
       case "fullscreen": {
         try {
@@ -1675,6 +1847,7 @@
     try {
       const r = await api.send_message({ channelId, text: m.text });
       Object.assign(m, r, { failed: false });
+      seen.add(String(m.id));
       if (S.home) S.dms = await api.list_dms();
     } catch (x) {
       m.pending = false; m.failed = true;
@@ -1712,7 +1885,7 @@
     if (e.key === "Escape") {
       const sc = document.querySelector(".scrim:not(.locked)");
       if (document.querySelector(".scrim.locked") && !sc) return;
-      if (sc) sc.remove();
+      if (sc) closeScrim(sc);
       else if (S.view === "settings") { S.view = S.prevView || "chat"; render(); }
     }
   });
@@ -1768,6 +1941,8 @@
   // tooltips da barra de grupos
   let tipEl;
   document.addEventListener("pointerover", (e) => {
+    // só com rato: no toque a dica ficava presa por cima de tudo
+    if (e.pointerType && e.pointerType !== "mouse") { if (tipEl) { tipEl.remove(); tipEl = null; } return; }
     const b = e.target.closest("[data-tip]");
     if (!b) { if (tipEl) { tipEl.remove(); tipEl = null; } return; }
     if (!tipEl) { tipEl = document.createElement("div"); tipEl.className = "tip"; document.body.appendChild(tipEl); }
@@ -1825,7 +2000,12 @@
   }, 50));
   api.on("message_ack", ({ channelId, id }) => {
     const m = S.messages.find((x) => x.id === id);
-    if (m && channelId === S.channelId) { m.pending = false; if (S.view === "chat") rerenderKeepInput(); }
+    if (m && channelId === S.channelId) {
+      m.pending = false;
+      // só tira a classe: a mensagem passa de "a enviar" a enviada com uma transição
+      const el = document.querySelector(`.msg[data-mid="${CSS.escape(String(id))}"]`);
+      if (el) el.classList.remove("pending"); else if (S.view === "chat") rerenderKeepInput();
+    }
   });
   api.on("typing", ({ channelId, who }) => { S.typing = { channelId, who }; if (S.view === "chat") rerenderKeepInput(); });
   // Quem está a falar: os outros chegam por evento; tu és detetado aqui, pelo microfone.
@@ -2007,13 +2187,18 @@
     let ultimoVoltar = 0;
     const voltar = () => {
       if (document.querySelector(".ctx-menu")) return window.tascaMenu.close();
-      const sc = document.querySelector(".scrim:not(.locked)");
-      if (sc) return sc.remove();
+      const sc = document.querySelector(".scrim:not(.locked):not(.closing)");
+      if (sc) return closeScrim(sc);
       if (document.querySelector(".scrim.locked")) return;
+      if (document.querySelector(".emoji-pop")) return window.tascaEmoji.close();
+      if (window.tascaAmigos && window.tascaAmigos.cardOpen && window.tascaAmigos.cardOpen()) return window.tascaAmigos.closeCard();
+      if (S.msgMenu) return closeMsgSheet();
+      if (S.reply || S.editing) { S.reply = null; S.editing = null; return rerenderKeepInput(); }
+      if (S.search) { S.search = null; return render(); }
       if (S.statusOpen) { S.statusOpen = false; return render(); }
       if (S.membersOpen) { S.membersOpen = false; return render(); }
       if (S.view === "settings") { S.view = S.prevView || "chat"; return render(); }
-      if (S.view === "voice") { S.view = "chat"; return render(); }
+      if (S.view === "voice" || S.view === "voicepre") { S.view = "chat"; return render(); }
       if (estreito() && !S.navOpen) { S.navOpen = true; return render(); }
       const agora = Date.now();
       if (agora - ultimoVoltar < 2000) { window.__TAURI__.core.invoke("sair_app").catch(() => {}); return; }
@@ -2021,23 +2206,107 @@
     };
     try { window.__TAURI__.app.onBackButtonPress(voltar); } catch (x) { console.warn("botão de voltar", x); }
 
-    // Deslizar o dedo: da esquerda para a direita abre os grupos e canais, ao contrário fecha.
+    // Deslizar o dedo: a gaveta de grupos e canais acompanha o dedo (abre para a direita,
+    // fecha para a esquerda); a lista de membros fecha a deslizar para a direita.
     let t0 = null;
+    const appEl = () => $("#app");
+    const navW = () => Math.min(372, window.innerWidth - 44) + 16;
     document.addEventListener("touchstart", (e) => {
       const t = e.touches[0];
       const alvo = e.target;
-      const ignora = e.touches.length > 1 || (alvo.closest && alvo.closest("input[type=range], .call-strip, .seg, .scrim, .ctx-menu, textarea"));
-      t0 = ignora ? null : { x: t.clientX, y: t.clientY, at: Date.now() };
+      const ignora = e.touches.length > 1 || S.view === "voice" || !estreito() ||
+        (alvo.closest && alvo.closest("input[type=range], .call-strip, .seg, .scrim, .ctx-menu, textarea, .emoji-pop, .pcard, .fr-tabs, .reactions, pre, code"));
+      t0 = ignora ? null : { x: t.clientX, y: t.clientY, at: Date.now(), drag: null, open: !!S.navOpen, members: !!S.membersOpen };
+    }, { passive: true });
+    document.addEventListener("touchmove", (e) => {
+      if (!t0) return;
+      const t = e.touches[0];
+      const dx = t.clientX - t0.x, dy = t.clientY - t0.y;
+      if (t0.drag == null) {
+        if (Math.abs(dx) < 12 && Math.abs(dy) < 12) return;
+        // só conta como gesto de lado se for mais horizontal do que vertical
+        if (Math.abs(dy) > Math.abs(dx) * 0.7) { t0 = null; return; }
+        if (t0.members) t0.drag = "members";
+        else if (t0.open ? dx < 0 : dx > 0) t0.drag = "nav";
+        else { t0 = null; return; }
+        appEl().classList.add("dragging");
+      }
+      const a = appEl();
+      if (t0.drag === "nav") {
+        const w = navW();
+        const x = t0.open ? Math.min(0, dx) : Math.min(0, -w + dx);
+        a.style.setProperty("--navx", x + "px");
+        a.style.setProperty("--scrim", String(Math.max(0, Math.min(1, 1 + x / w))));
+        if (!t0.open && !a.classList.contains("show-nav-drag")) a.classList.add("show-nav-drag");
+      } else if (t0.drag === "members") {
+        const m = $("#members"); if (m) { m.style.transition = "none"; m.style.transform = `translateX(${Math.max(0, dx)}px)`; }
+      }
     }, { passive: true });
     document.addEventListener("touchend", (e) => {
-      if (!t0 || !estreito() || S.view === "voice") { t0 = null; return; }
+      if (!t0) return;
       const t = e.changedTouches[0];
       const dx = t.clientX - t0.x, dy = t.clientY - t0.y, ms = Date.now() - t0.at;
+      const drag = t0.drag, was = t0;
       t0 = null;
-      if (ms > 600 || Math.abs(dx) < 70 || Math.abs(dy) > Math.abs(dx) * 0.6) return;
-      if (dx > 0 && !S.navOpen) { S.navOpen = true; render(); }
-      else if (dx < 0 && S.navOpen) { S.navOpen = false; render(); }
+      const a = appEl();
+      a.classList.remove("dragging", "show-nav-drag");
+      a.style.removeProperty("--navx"); a.style.removeProperty("--scrim");
+      const m = $("#members"); if (m) { m.style.transition = ""; m.style.transform = ""; }
+      if (!drag) return;
+      const fast = ms < 300 && Math.abs(dx) > 40;
+      if (drag === "nav") {
+        const far = Math.abs(dx) > navW() * 0.35;
+        if (!was.open && dx > 0 && (far || fast)) { S.navOpen = true; haptic(); render(); }
+        else if (was.open && dx < 0 && (far || fast)) { S.navOpen = false; render(); }
+      } else if (drag === "members" && dx > 0 && (dx > 90 || fast)) { S.membersOpen = false; render(); }
+      void dy;
     }, { passive: true });
+  }
+
+  // Tocar fora da gaveta ou da lista de membros (no fundo escuro) fecha-as.
+  document.addEventListener("click", (e) => {
+    if (e.target && e.target.id === "app") {
+      if (S.membersOpen) { S.membersOpen = false; render(); }
+      else if (S.navOpen && window.innerWidth <= 720) { S.navOpen = false; render(); }
+    }
+    const b = e.target.closest && e.target.closest("[data-banner-toggle]");
+    if (b) { S.bannerOpen = !S.bannerOpen; b.classList.toggle("open", S.bannerOpen); b.setAttribute("aria-expanded", S.bannerOpen); }
+  });
+
+  // Puxar a conversa para baixo (já no topo) volta a ler as mensagens e os grupos.
+  if (window.TASCA_MOBILE) {
+    let p0 = null, pull = 0, busy = false;
+    const ptr = () => { let el = $("#main .ptr"); if (!el) { el = document.createElement("div"); el.className = "ptr"; el.innerHTML = I.retry; $("#main").appendChild(el); } return el; };
+    document.addEventListener("touchstart", (e) => {
+      const list = e.target.closest && e.target.closest(".messages, .fr-page");
+      p0 = list && list.scrollTop <= 0 && !busy && e.touches.length === 1 ? { y: e.touches[0].clientY, x: e.touches[0].clientX } : null; pull = 0;
+    }, { passive: true });
+    document.addEventListener("touchmove", (e) => {
+      if (!p0) return;
+      const dy = e.touches[0].clientY - p0.y, dx = e.touches[0].clientX - p0.x;
+      if (Math.abs(dx) > Math.abs(dy)) { p0 = null; return; }
+      pull = Math.max(0, Math.min(110, dy * 0.5));
+      const el = ptr();
+      el.style.setProperty("--ptr", (pull - 40) + "px"); el.style.setProperty("--ptr-o", Math.min(1, pull / 60)); el.style.setProperty("--ptr-r", pull * 4 + "deg");
+    }, { passive: true });
+    document.addEventListener("touchend", async () => {
+      if (!p0) return; p0 = null;
+      const el = $("#main .ptr"); if (!el) return;
+      if (pull < 70) { el.remove(); return; }
+      busy = true; haptic(12); el.classList.add("spin"); el.style.setProperty("--ptr", "20px");
+      try { await refreshAll(); } catch (x) { console.warn(x); }
+      busy = false; const e2 = $("#main .ptr"); if (e2) e2.remove();
+    });
+  }
+  async function refreshAll() {
+    S.people = await api.list_people();
+    const fresh = await api.list_groups();
+    for (const g of fresh) { const old = S.groups.find((x) => x.id === g.id); if (old) Object.assign(old, g, { unread: old.unread }); else S.groups.push(g); }
+    S.dms = await api.list_dms();
+    if (S.home && S.view === "friends" && window.tascaAmigos && window.tascaAmigos.refresh) await window.tascaAmigos.refresh();
+    if (!S.home && S.groupId) { await refreshChannels(S.groupId); S.members = await api.list_members({ groupId: S.groupId }); S.allMembers[S.groupId] = S.members; }
+    if (S.channelId && S.view === "chat") S.messages = await api.list_messages({ channelId: S.channelId });
+    rerenderKeepInput();
   }
 
   (async function start() {

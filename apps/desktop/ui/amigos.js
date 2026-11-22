@@ -398,8 +398,14 @@
       </div>`;
   }
 
-  function closeCard() { if (F.card) { F.card.el.remove(); F.card = null; } }
-  function redrawCard() { if (F.card) { F.card.el.innerHTML = cardHtml(F.card.id); } }
+  // fecha com animação; no telemóvel o cartão é uma folha que desce, com fundo escuro
+  function closeCard() {
+    if (!F.card) return;
+    const { el, scrim } = F.card; F.card = null;
+    el.classList.add("out"); if (scrim) scrim.classList.add("out");
+    setTimeout(() => { el.remove(); if (scrim) scrim.remove(); }, 200);
+  }
+  function redrawCard() { if (F.card) { F.card.el.innerHTML = (F.card.scrim ? '<span class="sheet-grip" aria-hidden="true"></span>' : "") + cardHtml(F.card.id); } }
 
   function openCard(id, anchor) {
     if (F.card && F.card.id === id && F.card.anchor === anchor) return closeCard();
@@ -407,7 +413,27 @@
     const el = document.createElement("div");
     el.className = "pcard"; el.setAttribute("role", "dialog"); el.setAttribute("aria-label", "Perfil de " + person(id).name);
     el.innerHTML = cardHtml(id);
+    const sheet = innerWidth <= 720;
+    let scrim = null;
+    if (sheet) {
+      // telemóvel: folha que sobe do fundo; fecha a lista de membros por baixo
+      const { S, render } = A();
+      if (S.membersOpen) { S.membersOpen = false; render(); }
+      scrim = document.createElement("div"); scrim.className = "pcard-scrim";
+      scrim.addEventListener("click", () => closeCard());
+      document.body.appendChild(scrim);
+      el.insertAdjacentHTML("afterbegin", '<span class="sheet-grip" aria-hidden="true"></span>');
+      let y0 = null, dy = 0;
+      el.addEventListener("touchstart", (e) => { y0 = el.scrollTop <= 0 ? e.touches[0].clientY : null; dy = 0; }, { passive: true });
+      el.addEventListener("touchmove", (e) => { if (y0 == null) return; dy = Math.max(0, e.touches[0].clientY - y0); if (dy > 4) { el.style.transition = "none"; el.style.transform = `translateY(${dy}px)`; } }, { passive: true });
+      el.addEventListener("touchend", () => {
+        if (y0 == null) return; y0 = null;
+        el.style.transition = "transform .2s cubic-bezier(.2,.8,.2,1)";
+        if (dy > 100) closeCard(); else el.style.transform = "";
+      });
+    }
     document.body.appendChild(el);
+    if (sheet) { F.card = { id, el, anchor, scrim }; return; }
     const w = el.offsetWidth, h = el.offsetHeight;
     let left, top;
     const r = anchor && anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : null;
@@ -419,7 +445,7 @@
     } else { left = innerWidth / 2 - w / 2; top = innerHeight / 2 - h / 2; }
     el.style.left = Math.max(8, Math.min(left, innerWidth - w - 8)) + "px";
     el.style.top = Math.max(8, Math.min(top, innerHeight - h - 8)) + "px";
-    F.card = { id, el, anchor };
+    F.card = { id, el, anchor, scrim };
   }
 
   function openFullProfile(id) {
@@ -514,11 +540,11 @@
     } catch (x) { F.addOk = false; F.addMsg = String((x && x.message) || x); }
     A().render(); const i = document.getElementById("fr-user"); if (i) i.focus();
   });
-  window.addEventListener("resize", closeCard);
-  document.addEventListener("scroll", (e) => { if (F.card && !(e.target.closest && e.target.closest(".pcard"))) closeCard(); }, true);
+  window.addEventListener("resize", () => { if (innerWidth > 720) closeCard(); });
+  document.addEventListener("scroll", (e) => { if (F.card && innerWidth > 720 && !(e.target.closest && e.target.closest(".pcard"))) closeCard(); }, true);
 
   // a app pode já ter arrancado antes deste ficheiro carregar (no browser tudo é imediato)
   if (window.tascaApp && window.tascaApp.S.me) start().then(() => window.tascaApp.render());
 
-  window.tascaAmigos = { start, renderFriends, sidebarButton, pendingCount, openCard, openFullProfile, userMenu, person, refresh };
+  window.tascaAmigos = { start, renderFriends, sidebarButton, pendingCount, openCard, openFullProfile, userMenu, person, refresh, closeCard, cardOpen: () => !!F.card };
 })();
