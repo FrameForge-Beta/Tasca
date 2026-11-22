@@ -4,6 +4,7 @@ use anyhow::{Result, anyhow};
 use iroh::{PublicKey, Signature};
 use serde::{Deserialize, Serialize};
 
+use crate::cargos::{AcaoVoz, Cargo, Definicoes, Excecao};
 use crate::identity::Identity;
 
 /// Identificador de um grupo: o hash do evento que o criou.
@@ -66,6 +67,36 @@ pub enum EventKind {
     Delete { target: [u8; 32] },
     /// Reação a uma mensagem (`on: false` tira-a).
     React { target: [u8; 32], emoji: String, on: bool },
+    // ---- cargos e moderação (ver `crate::cargos`); a ordem não pode mudar ----
+    /// Lista completa de cargos, do mais alto para o mais baixo (a última vale).
+    Roles { roles: Vec<Cargo> },
+    /// Os cargos de um membro (lista completa).
+    MemberRoles { member: [u8; 32], roles: Vec<String> },
+    /// Exceções de permissões de um canal (id) ou categoria (`cat:<nome>`).
+    ChannelPerms { channel: String, overrides: Vec<Excecao> },
+    /// Tirar alguém do grupo (pode voltar com convite).
+    Kick { member: [u8; 32], reason: String },
+    /// Tirar e impedir de voltar; apaga as mensagens dele dos últimos `delete_secs`.
+    Ban { member: [u8; 32], reason: String, delete_secs: u64 },
+    Unban { member: [u8; 32] },
+    /// Castigo até `until_ms` (0 tira o castigo).
+    Timeout { member: [u8; 32], until_ms: u64, reason: String },
+    /// Apelido neste grupo (`None` tira).
+    Nick { member: [u8; 32], nick: Option<String> },
+    /// Fixar ou desafixar uma mensagem.
+    Pin { target: [u8; 32], on: bool },
+    /// Definições do grupo (a última vale).
+    Settings(Definicoes),
+    /// Moderação numa chamada.
+    VoiceMod { member: [u8; 32], action: AcaoVoz },
+    /// Convite novo: guarda-se só o hash do código. `max_uses` 0 = sem limite;
+    /// `expires_ms` 0 = não expira.
+    InviteCreated { hash: [u8; 32], max_uses: u32, expires_ms: u64 },
+    InviteRevoked { hash: [u8; 32] },
+    /// Denúncia de uma mensagem aos moderadores.
+    Report { target: [u8; 32], reason: String },
+    /// O autor saiu do grupo.
+    Leave,
 }
 
 /// Um ficheiro anexado a uma mensagem. O conteúdo não vai no evento: pede-se a quem o

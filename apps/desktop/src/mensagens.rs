@@ -55,6 +55,15 @@ fn juntar(eventos: &[(u64, SignedEvent)], ch: Option<&str>) -> (Vec<Msg>, HashMa
                     msgs[*i] = None;
                 }
             }
+            EventKind::Ban { member, delete_secs, .. } if *delete_secs > 0 => {
+                // banido com "apagar mensagens": some o que escreveu nesse tempo
+                let desde = ev.body.timestamp_ms.saturating_sub(delete_secs * 1000);
+                for m in msgs.iter_mut() {
+                    if m.as_ref().is_some_and(|m| m.ev.body.author == *member && m.ev.body.timestamp_ms >= desde) {
+                        *m = None;
+                    }
+                }
+            }
             EventKind::React { target, emoji, on } => {
                 if let Some(Some(m)) = idx.get(target).and_then(|i| msgs.get_mut(*i)) {
                     let quem = ev.body.author;
@@ -125,8 +134,11 @@ fn resumo(m: &Msg) -> String {
     }
 }
 
+/// O histórico do grupo, mais o que ainda está à espera do anfitrião (no fim, com número 0).
 fn eventos(a: &Ativa, g: GroupId) -> Res<Vec<(u64, SignedEvent)>> {
-    a.node.with_store(|s| s.events_since(g, 0)).map_err(txt)
+    let mut v = a.node.with_store(|s| s.events_since(g, 0)).map_err(txt)?;
+    v.extend(a.node.with_store(|s| s.pending(g)).unwrap_or_default().into_iter().map(|e| (0, e)));
+    Ok(v)
 }
 
 /// As últimas 500 mensagens de um canal.
@@ -134,7 +146,21 @@ pub(crate) fn listar(a: &Ativa, g: GroupId, ch: &str) -> Res<Vec<Value>> {
     let ev = eventos(a, g)?;
     let (msgs, idx) = juntar(&ev, Some(ch));
     let de = msgs.len().saturating_sub(500);
-    Ok(msgs[de..].iter().map(|m| msg_json(a, m, &msgs, &idx)).collect())
+    let fixadas = a.node.with_store(|s| s.pins(g)).unwrap_or_default();
+    let espera: std::collections::HashSet<[u8; 32]> = ev.iter().filter(|(n, _)| *n == 0).map(|(_, e)| e.id()).collect();
+    Ok(msgs[de..]
+        .iter()
+        .map(|m| {
+            let mut v = msg_json(a, m, &msgs, &idx);
+            if fixadas.contains(&m.ev.id()) {
+                v["pinned"] = json!(true);
+            }
+            if espera.contains(&m.ev.id()) {
+                v["queued"] = json!(true);
+            }
+            v
+        })
+        .collect())
 }
 
 /// A mensagem `id` como está agora (para a interface atualizar depois de uma edição ou

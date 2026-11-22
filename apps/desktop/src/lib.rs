@@ -15,6 +15,7 @@ mod contas;
 mod dms;
 mod grupos;
 mod mensagens;
+mod moderacao;
 mod plugins;
 mod presenca;
 mod sincronia;
@@ -206,6 +207,27 @@ pub fn run() {
             voz::video_subscribe,
             voz::video_send,
             grupos::publish_profile,
+            moderacao::group_perms,
+            moderacao::list_roles,
+            moderacao::save_roles,
+            moderacao::set_member_roles,
+            moderacao::get_channel_perms,
+            moderacao::set_channel_perms,
+            moderacao::kick_member,
+            moderacao::ban_member,
+            moderacao::unban_member,
+            moderacao::timeout_member,
+            moderacao::set_nick,
+            moderacao::pin_message,
+            moderacao::list_pins,
+            moderacao::report_message,
+            moderacao::get_group_settings,
+            moderacao::save_group_settings,
+            moderacao::voice_mod,
+            moderacao::list_invites,
+            moderacao::revoke_invite,
+            moderacao::list_bans,
+            moderacao::audit_log,
             amigos::list_friends,
             amigos::send_friend_request,
             amigos::accept_friend,

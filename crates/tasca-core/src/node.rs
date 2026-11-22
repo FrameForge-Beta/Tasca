@@ -67,9 +67,111 @@ pub(crate) struct Inner {
     /// Chamadas privadas conhecidas: grupo → (conta do amigo, onde a chamada pode estar).
     privadas: Mutex<HashMap<GroupId, (iroh::PublicKey, Option<iroh::EndpointAddr>)>>,
     pasta: Option<crate::ficheiros::Pasta>,
+    /// Quem um moderador silenciou ou ensurdeceu, por (grupo, conta). A sala de voz usa isto
+    /// para não deixar passar o som, mesmo que o cliente da pessoa não obedeça.
+    pub(crate) moderados: Arc<Mutex<HashMap<(GroupId, [u8; 32]), Moderado>>>,
+    /// Eventos que o anfitrião recusou (por exemplo, o AutoMod): (grupo, motivo).
+    recusas: broadcast::Sender<(GroupId, String)>,
+}
+
+/// O que um moderador fez a alguém nas chamadas.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Moderado {
+    pub muted: bool,
+    pub deaf: bool,
+    /// Foi tirado da chamada: não fala nem ouve até voltar a entrar.
+    pub fora: bool,
 }
 
 impl Inner {
+    /// Um evento novo entrou na base de dados: avisa quem está à escuta e aplica o que for
+    /// preciso nas chamadas.
+    fn evento_novo(&self, group: GroupId, seq: u64, ev: SignedEvent) {
+        if let EventKind::VoiceMod { member, action } = &ev.body.kind {
+            use crate::cargos::AcaoVoz;
+            let mut m = self.moderados.lock().unwrap();
+            let e = m.entry((group, *member)).or_default();
+            match action {
+                AcaoVoz::Silenciar(on) => e.muted = *on,
+                AcaoVoz::Ensurdecer(on) => e.deaf = *on,
+                AcaoVoz::Desligar | AcaoVoz::Mover(_) => e.fora = true,
+                AcaoVoz::PararVideo => {}
+            }
+        }
+        let _ = self.feed(group).send((seq, ev));
+    }
+
+    /// Anfitrião: valida e guarda um evento, e trata do que vem a seguir (AutoMod, troca da
+    /// chave da caixa quando alguém é expulso ou banido).
+    fn aceitar(&self, ev: SignedEvent, by_invite: Option<[u8; 16]>) -> Result<Option<u64>> {
+        let group = ev.group_id();
+        let r = self.store().append_as_host(&ev, by_invite.is_some());
+        let caso = self.store().take_automod();
+        if let Some(c) = caso {
+            self.castigo_automod(group, c);
+        }
+        let seq = r?;
+        if let Some(seq) = seq {
+            if let (Some(t), EventKind::MemberJoined { .. }) = (by_invite, &ev.body.kind) {
+                let _ = self.store().use_invite(group, &t);
+            }
+            let tirou = matches!(ev.body.kind, EventKind::Kick { .. } | EventKind::Ban { .. });
+            self.evento_novo(group, seq, ev);
+            if tirou {
+                // quem saiu ainda tem a chave antiga: os eventos seguintes vão para uma caixa nova
+                let store = self.store();
+                if let Ok(Some((epoch, _, mirrored, _))) = store.group_key(group) {
+                    if let Ok(k) = crate::caixa::ChaveCaixa::generate() {
+                        let _ = store.set_group_key(group, epoch + 1, &k, mirrored);
+                    }
+                }
+            }
+        }
+        Ok(seq)
+    }
+
+    /// AutoMod: castigo e alerta, assinados pelo anfitrião.
+    fn castigo_automod(&self, group: GroupId, c: crate::store::AutoModCaso) {
+        let nome = self
+            .store()
+            .display_name(group, &match iroh::PublicKey::from_bytes(&c.autor) {
+                Ok(k) => k,
+                Err(_) => return,
+            })
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "alguém".into());
+        let mut novos = Vec::new();
+        if c.bloqueio.timeout_secs > 0 {
+            novos.push(EventKind::Timeout {
+                member: c.autor,
+                until_ms: crate::event::now_ms() + c.bloqueio.timeout_secs as u64 * 1000,
+                reason: format!("AutoMod: {}", c.bloqueio.regra),
+            });
+        }
+        if let Some(canal) = c.bloqueio.alert_channel.clone() {
+            let texto: String = c.texto.chars().take(300).collect();
+            novos.push(EventKind::Message {
+                channel: canal,
+                text: format!(
+                    "🛡️ AutoMod ({}): {} de {nome} em #{}: «{texto}»",
+                    c.bloqueio.regra,
+                    if c.bloqueio.block { "bloqueei uma mensagem" } else { "mensagem marcada" },
+                    c.canal
+                ),
+            });
+        }
+        for k in novos {
+            let ev = SignedEvent::sign(&self.identity, Some(group), k);
+            let r = self.store().append_as_host(&ev, false);
+            match r {
+                Ok(Some(seq)) => self.evento_novo(group, seq, ev),
+                Ok(None) => {}
+                Err(e) => warn!("AutoMod: {e:#}"),
+            }
+        }
+    }
+
     fn feed(&self, group: GroupId) -> broadcast::Sender<Update> {
         self.feeds
             .lock()
@@ -214,8 +316,20 @@ impl Node {
             toques: broadcast::channel(16).0,
             privadas: Default::default(),
             pasta: opts.ficheiros.clone().map(crate::ficheiros::Pasta),
+            moderados: Default::default(),
+            recusas: broadcast::channel(16).0,
         });
-        let voz = Arc::new(crate::voz::Hub::new(Arc::downgrade(&inner), *endpoint.id().as_bytes()));
+        {
+            // quem já estava silenciado por um moderador continua
+            let store = inner.store();
+            let mut m = inner.moderados.lock().unwrap();
+            for g in store.groups().unwrap_or_default() {
+                for (k, (muted, deaf)) in store.voice_mods(g.id).unwrap_or_default() {
+                    m.insert((g.id, k), Moderado { muted, deaf, fora: false });
+                }
+            }
+        }
+        let voz = Arc::new(crate::voz::Hub::new(Arc::downgrade(&inner), *endpoint.id().as_bytes(), inner.moderados.clone()));
         let router = Router::builder(endpoint)
             .accept(
                 ALPN,
@@ -538,7 +652,6 @@ impl Node {
 
         // Tarefa que recebe eventos do anfitrião e os guarda na réplica local.
         let inner = self.inner.clone();
-        let feed = inner.feed(group);
         tokio::spawn(async move {
             let _conn = conn; // mantém a ligação viva enquanto lemos
             loop {
@@ -547,7 +660,7 @@ impl Node {
                         let stored = inner.store().insert_replica(group, seq, &event);
                         match stored {
                             Ok(true) => {
-                                let _ = feed.send((seq, event));
+                                inner.evento_novo(group, seq, event);
                             }
                             Ok(false) => {}
                             Err(e) => warn!("evento {seq} rejeitado: {e:#}"),
@@ -560,7 +673,8 @@ impl Node {
                         }
                     }
                     Ok(Some(HostMsg::PublishFailed(why))) => {
-                        warn!("o anfitrião rejeitou a mensagem: {why}")
+                        warn!("o anfitrião rejeitou a mensagem: {why}");
+                        let _ = inner.recusas.send((group, why));
                     }
                     Ok(Some(HostMsg::Presence(p))) => {
                         inner.presence(group).send_replace(p);
@@ -677,6 +791,11 @@ impl Node {
     }
 
     /// Chamadas privadas a chegar.
+    /// Eventos teus que o anfitrião recusou (sem permissão, AutoMod, castigo...).
+    pub fn recusas(&self) -> broadcast::Receiver<(GroupId, String)> {
+        self.inner.recusas.subscribe()
+    }
+
     pub fn toques(&self) -> broadcast::Receiver<crate::voz::Toque> {
         self.inner.toques.subscribe()
     }
@@ -982,6 +1101,81 @@ impl GroupHandle {
         self.publish(EventKind::Delete { target }).await
     }
 
+    // ---------------- cargos e moderação ----------------
+
+    pub async fn set_roles(&self, roles: Vec<crate::cargos::Cargo>) -> Result<[u8; 32]> {
+        self.publish(EventKind::Roles { roles }).await
+    }
+
+    pub async fn set_member_roles(&self, member: [u8; 32], roles: Vec<String>) -> Result<[u8; 32]> {
+        self.publish(EventKind::MemberRoles { member, roles }).await
+    }
+
+    pub async fn set_channel_perms(&self, channel: String, overrides: Vec<crate::cargos::Excecao>) -> Result<[u8; 32]> {
+        self.publish(EventKind::ChannelPerms { channel, overrides }).await
+    }
+
+    pub async fn kick(&self, member: [u8; 32], reason: String) -> Result<[u8; 32]> {
+        self.publish(EventKind::Kick { member, reason }).await
+    }
+
+    pub async fn ban(&self, member: [u8; 32], reason: String, delete_secs: u64) -> Result<[u8; 32]> {
+        self.publish(EventKind::Ban { member, reason, delete_secs }).await
+    }
+
+    pub async fn unban(&self, member: [u8; 32]) -> Result<[u8; 32]> {
+        self.publish(EventKind::Unban { member }).await
+    }
+
+    pub async fn timeout(&self, member: [u8; 32], until_ms: u64, reason: String) -> Result<[u8; 32]> {
+        self.publish(EventKind::Timeout { member, until_ms, reason }).await
+    }
+
+    pub async fn set_nick(&self, member: [u8; 32], nick: Option<String>) -> Result<[u8; 32]> {
+        self.publish(EventKind::Nick { member, nick }).await
+    }
+
+    pub async fn pin(&self, target: [u8; 32], on: bool) -> Result<[u8; 32]> {
+        self.publish(EventKind::Pin { target, on }).await
+    }
+
+    pub async fn set_settings(&self, d: crate::cargos::Definicoes) -> Result<[u8; 32]> {
+        self.publish(EventKind::Settings(d)).await
+    }
+
+    pub async fn voice_mod(&self, member: [u8; 32], action: crate::cargos::AcaoVoz) -> Result<[u8; 32]> {
+        self.publish(EventKind::VoiceMod { member, action }).await
+    }
+
+    pub async fn report(&self, target: [u8; 32], reason: String) -> Result<[u8; 32]> {
+        self.publish(EventKind::Report { target, reason }).await
+    }
+
+    /// Sai do grupo (os outros deixam de te ver como membro).
+    pub async fn leave(&self) -> Result<[u8; 32]> {
+        self.publish(EventKind::Leave).await
+    }
+
+    /// Cria um convite e publica-o no grupo (só o hash do código). Quem tem permissão cria
+    /// convites mesmo sem ser o anfitrião: o convite aponta para o PC do anfitrião.
+    /// `max_uses` 0 = sem limite; `expires_ms` 0 = não expira.
+    pub async fn create_invite(&self, max_uses: u32, expires_ms: u64) -> Result<Invite> {
+        let info = self.inner.store().group(self.group)?.ok_or_else(|| anyhow!("grupo desconhecido"))?;
+        let token: [u8; 16] = rand_bytes();
+        let hash = *blake3::hash(&token).as_bytes();
+        self.publish(EventKind::InviteCreated { hash, max_uses, expires_ms }).await?;
+        let host = if info.hosted {
+            self.inner.endpoint.addr()
+        } else {
+            iroh::EndpointAddr::new(info.owner)
+        };
+        Ok(Invite { host, group: self.group, token })
+    }
+
+    pub async fn revoke_invite(&self, hash: [u8; 32]) -> Result<[u8; 32]> {
+        self.publish(EventKind::InviteRevoked { hash }).await
+    }
+
     /// Põe ou tira uma reação.
     pub async fn react(&self, target: [u8; 32], emoji: &str, on: bool) -> Result<[u8; 32]> {
         self.publish(EventKind::React { target, emoji: emoji.into(), on }).await
@@ -1001,10 +1195,7 @@ impl GroupHandle {
         }
         let hosted = self.inner.store().group(self.group)?.is_some_and(|g| g.hosted);
         if hosted {
-            let seq = self.inner.store().append_as_host(&ev, false)?;
-            if let Some(seq) = seq {
-                let _ = self.inner.feed(self.group).send((seq, ev));
-            }
+            self.inner.aceitar(ev, None)?;
             return Ok(id);
         }
         self.inner.send_request(self.group, ev).await?;
@@ -1055,7 +1246,9 @@ impl HostProtocol {
                         Some(t) => store.invite_valid(group, t)?,
                         None => false,
                     };
-                    if by_invite || store.is_member(group, &remote)? {
+                    if store.is_banned(group, remote.as_bytes())? {
+                        None
+                    } else if by_invite || store.is_member(group, &remote)? {
                         Some(by_invite)
                     } else {
                         None
@@ -1090,9 +1283,12 @@ impl HostProtocol {
             last_sent = seq;
         }
         let key = self.inner.store().group_key(group)?;
+        let mut epoca = None;
         if let Some((epoch, key, _, _)) = key {
             write_frame(&mut send, &HostMsg::GroupKey { epoch, key: *key.as_bytes() }).await?;
+            epoca = Some(epoch);
         }
+        let me = *remote.as_bytes();
         let atual = pres_rx.borrow_and_update().clone();
         write_frame(&mut send, &HostMsg::Presence(atual)).await?;
 
@@ -1100,9 +1296,25 @@ impl HostProtocol {
             tokio::select! {
                 update = feed.recv() => match update {
                     Ok((seq, event)) => {
+                        let saiu = match &event.body.kind {
+                            EventKind::Kick { member, .. } | EventKind::Ban { member, .. } => *member == me,
+                            EventKind::Leave => event.body.author == me,
+                            _ => false,
+                        };
                         if seq > last_sent {
                             write_frame(&mut send, &HostMsg::Event { seq, event }).await?;
                             last_sent = seq;
+                        }
+                        if saiu {
+                            break;
+                        }
+                        // chave nova (alguém foi expulso): manda-a a quem continua
+                        let key = self.inner.store().group_key(group)?;
+                        if let Some((epoch, key, _, _)) = key {
+                            if epoca != Some(epoch) {
+                                write_frame(&mut send, &HostMsg::GroupKey { epoch, key: *key.as_bytes() }).await?;
+                                epoca = Some(epoch);
+                            }
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => {
@@ -1131,10 +1343,9 @@ impl HostProtocol {
                             write_frame(&mut send, &HostMsg::PublishFailed("grupo errado".into())).await?;
                             continue;
                         }
-                        let result = self.inner.store().append_as_host(&ev, by_invite);
+                        let result = self.inner.aceitar(ev, if by_invite { invite_token } else { None });
                         match result {
-                            Ok(Some(seq)) => { let _ = self.inner.feed(group).send((seq, ev)); }
-                            Ok(None) => {}
+                            Ok(_) => {}
                             Err(e) => write_frame(&mut send, &HostMsg::PublishFailed(format!("{e:#}"))).await?,
                         }
                     }
@@ -1226,8 +1437,12 @@ impl Inner {
                 .store()
                 .group_key(group)?
                 .ok_or_else(|| anyhow!("ainda não tenho a chave deste grupo; liga-te uma vez ao anfitrião"))?;
-            let bloco = key.seal_item(&crate::caixa::ItemGrupo::Pedido { event: ev })?;
+            let bloco = key.seal_item(&crate::caixa::ItemGrupo::Pedido { event: ev.clone() })?;
             srv.caixa_enviar_bloco(&key, bloco).await?;
+            // fica à vista neste dispositivo até o anfitrião a aceitar
+            if let Ok(true) = self.store().add_pending(group, &ev) {
+                self.evento_novo(group, 0, ev);
+            }
             return Ok(());
         }
         let _ = (group, ev);
@@ -1269,14 +1484,21 @@ impl Node {
                     if event.body.group != Some(group) {
                         continue;
                     }
-                    let r = self.inner.store().append_as_host(&event, false);
+                    let r = self.inner.aceitar(event, None);
                     match r {
-                        Ok(Some(seq)) => {
+                        Ok(Some(_)) => {
                             novos += 1;
-                            let _ = self.inner.feed(group).send((seq, event));
                         }
                         Ok(None) => {}
                         Err(e) => warn!("pedido recusado: {e:#}"),
+                    }
+                }
+                (false, ItemGrupo::Pedido { event }) => {
+                    // anfitrião desligado: mostra já o que os outros escreveram
+                    let r = self.inner.store().add_pending(group, &event);
+                    if let Ok(true) = r {
+                        novos += 1;
+                        self.inner.evento_novo(group, 0, event);
                     }
                 }
                 (_, ItemGrupo::Voz(a)) => {
@@ -1301,7 +1523,7 @@ impl Node {
                     match r {
                         Ok(true) => {
                             novos += 1;
-                            let _ = self.inner.feed(group).send((*seq, event.clone()));
+                            self.inner.evento_novo(group, *seq, event.clone());
                         }
                         Ok(false) => {}
                         Err(e) => warn!("registo {seq} não aplicado: {e:#}"),

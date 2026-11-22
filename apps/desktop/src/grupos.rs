@@ -331,10 +331,52 @@ impl Ativa {
                     );
                 }
             }
+            EventKind::VoiceMod { member, action } if self.eu(member) => {
+                use tasca_core::cargos::AcaoVoz;
+                let (acao, sala) = match action {
+                    AcaoVoz::Silenciar(true) => ("mute", None),
+                    AcaoVoz::Silenciar(false) => ("unmute", None),
+                    AcaoVoz::Ensurdecer(true) => ("deafen", None),
+                    AcaoVoz::Ensurdecer(false) => ("undeafen", None),
+                    AcaoVoz::Desligar => ("disconnect", None),
+                    AcaoVoz::Mover(s) => ("move", Some(format!("{}/{s}", hex(&g.0)))),
+                    AcaoVoz::PararVideo => ("stopvideo", None),
+                };
+                let por = self.nome_em(g, &ev.body.author);
+                let _ = app.emit("voice_mod", json!({ "groupId": hex(&g.0), "action": acao, "room": sala, "by": por }));
+                let _ = app.emit("group_changed", json!({ "groupId": hex(&g.0) }));
+            }
+            EventKind::Kick { member, reason } | EventKind::Ban { member, reason, .. } if self.eu(member) => {
+                let banido = matches!(ev.body.kind, EventKind::Ban { .. });
+                let nome = self.node.with_store(|s| s.group(g)).ok().flatten().map(|i| i.name).unwrap_or_default();
+                let _ = app.emit("group_removed", json!({ "groupId": hex(&g.0), "name": nome, "reason": reason, "banned": banido }));
+            }
+            EventKind::Timeout { member, until_ms, reason } if self.eu(member) => {
+                let _ = app.emit("timed_out", json!({ "groupId": hex(&g.0), "until": until_ms, "reason": reason }));
+                let _ = app.emit("group_changed", json!({ "groupId": hex(&g.0) }));
+            }
+            EventKind::Pin { target, .. } => {
+                if let Some((ch, _)) = crate::mensagens::uma(self, g, target) {
+                    let _ = app.emit("pins_changed", json!({ "channelId": format!("{}/{ch}", hex(&g.0)) }));
+                }
+            }
             _ => {
                 let _ = app.emit("group_changed", json!({ "groupId": hex(&g.0) }));
             }
         }
+    }
+
+    /// Nome (ou apelido) de alguém num grupo.
+    pub(crate) fn nome_em(&self, g: GroupId, k: &[u8; 32]) -> String {
+        self.node.with_store(|s| {
+            if let Some(n) = s.nicks(g).ok().and_then(|mut m| m.remove(k)) {
+                return n;
+            }
+            PublicKey::from_bytes(k)
+                .ok()
+                .and_then(|pk| s.display_name(g, &pk).ok().flatten())
+                .unwrap_or_else(|| "Alguém".into())
+        })
     }
 
 
@@ -368,9 +410,17 @@ impl Ativa {
     fn grupo_json(&self, g: GroupId) -> Res<Value> {
         let info = self.node.with_store(|s| s.group(g)).map_err(txt)?.ok_or("Grupo desconhecido.")?;
         let online = info.hosted || self.online(g);
+        let def = self.node.with_store(|s| s.settings(g)).map_err(txt)?;
+        let perms = self.node.with_store(|s| s.perms(g, &self.conta, None)).unwrap_or(0);
         Ok(json!({
             "id": hex(&g.0),
             "name": info.name,
+            "icon": def.icon,
+            "banner": def.banner,
+            "description": def.description,
+            "tag": def.tag,
+            "perms": perms,
+            "server": self.servidor,
             "short": iniciais(&info.name),
             "owner": self.pessoa_id(info.owner.as_bytes()),
             "color": cor(&g.0),
@@ -416,8 +466,12 @@ impl Ativa {
         f: impl FnOnce(&mut Vec<ChannelDef>, &mut Vec<String>) -> Res<T>,
     ) -> Res<T> {
         let h = self.handle(g)?;
-        if !h.is_hosted() {
-            return Err("Só o anfitrião pode mudar os canais.".into());
+        let p = self.node.with_store(|s| s.perms(g, &self.conta, None)).map_err(txt)?;
+        if p & tasca_core::cargos::GERIR_CANAIS == 0 {
+            return Err("Não tens permissão para mudar os canais.".into());
+        }
+        if !h.is_hosted() && !h.is_connected() && !self.servidor {
+            return Err("O anfitrião está desligado. Tenta quando ele voltar.".into());
         }
         let (mut canais, mut cats) = self.layout(g)?;
         let r = f(&mut canais, &mut cats)?;
@@ -664,6 +718,25 @@ pub(crate) async fn ativa(app: &AppHandle, rede: &Rede, contas: &Contas) -> Res<
         let (a2, ap) = (a.clone(), app.clone());
         a.tarefa(async move { a2.ler_conta(ap).await });
     }
+    // o anfitrião recusou algo meu (sem permissão, castigo, AutoMod...)
+    let (mut recusas, ap) = (a.node.recusas(), app.clone());
+    a.tarefa(async move {
+        use tokio::sync::broadcast::error::RecvError;
+        loop {
+            match recusas.recv().await {
+                Ok((g, why)) => {
+                    let mut c = why.chars();
+                    let msg: String = match c.next() {
+                        Some(p) => p.to_uppercase().chain(c).collect(),
+                        None => "O anfitrião recusou.".into(),
+                    };
+                    let _ = ap.emit("group_error", json!({ "groupId": hex(&g.0), "message": msg }));
+                }
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => break,
+            }
+        }
+    });
     // chamadas privadas a chegar
     let (mut toques, ap) = (a.node.toques(), app.clone());
     a.tarefa(async move {
@@ -715,6 +788,15 @@ pub async fn list_group_people(app: AppHandle, rede: State<'_, Rede>, c: State<'
             }
             out.insert(id, p);
         }
+        // quem já saiu: só o nome, para as mensagens antigas
+        for (k, nome) in a.node.with_store(|s| s.ex_members(info.id)).unwrap_or_default() {
+            let id = hex(&k);
+            if !a.eu(&k) && !out.contains_key(&id) {
+                let mut p = a.pessoa_json(&k, &nome, perfis.get(&k), cartoes.get(&k), false);
+                p["left"] = json!(true);
+                out.insert(id, p);
+            }
+        }
     }
     Ok(Value::Object(out))
 }
@@ -735,6 +817,12 @@ pub async fn list_members(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Co
     let perfis = a.node.with_store(|s| s.profiles(g)).map_err(txt)?;
     let cartoes = a.node.with_store(|s| s.profile_cards(g)).map_err(txt)?;
     let membros = a.node.with_store(|s| s.members(g)).map_err(txt)?;
+    let (cargos_, dos, apelidos, castigos, voz) = a
+        .node
+        .with_store(|s| -> anyhow::Result<_> {
+            Ok((s.roles(g)?, s.all_member_roles(g)?, s.nicks(g)?, s.timeouts(g)?, s.voice_mods(g)?))
+        })
+        .map_err(txt)?;
     Ok(membros
         .into_iter()
         .map(|(pk, nome)| {
@@ -742,6 +830,22 @@ pub async fn list_members(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Co
             let mut p = a.pessoa_json(k, &nome, perfis.get(k), cartoes.get(k), pres.contains_key(k));
             p["owner"] = json!(pk == info.owner);
             p["since"] = json!(a.node.with_store(|s| s.member_since(g, k)).ok().flatten());
+            // cargos pela ordem da hierarquia
+            let meus: Vec<&tasca_core::cargos::Cargo> = dos
+                .get(k)
+                .map(|l| cargos_.iter().filter(|c| l.contains(&c.id)).collect())
+                .unwrap_or_default();
+            p["roles"] = json!(meus.iter().map(|c| c.id.clone()).collect::<Vec<_>>());
+            p["roleColor"] = json!(meus.iter().find(|c| !c.color.is_empty()).map(|c| c.color.clone()));
+            p["roleIcon"] = json!(meus.iter().find(|c| c.icon.is_some()).and_then(|c| c.icon.clone()));
+            p["hoistRole"] = json!(meus.iter().find(|c| c.hoist).map(|c| c.id.clone()));
+            p["rank"] = json!(if pk == info.owner { -1 } else { tasca_core::cargos::posicao(false, &cargos_, &dos.get(k).cloned().unwrap_or_default()) });
+            p["nick"] = json!(apelidos.get(k));
+            p["timeoutUntil"] = json!(castigos.get(k));
+            if let Some((m, d)) = voz.get(k) {
+                p["serverMuted"] = json!(m);
+                p["serverDeaf"] = json!(d);
+            }
             p
         })
         .collect())
@@ -754,10 +858,21 @@ pub async fn list_channels(app: AppHandle, rede: State<'_, Rede>, c: State<'_, C
     let (canais, _) = a.layout(g)?;
     let pres = a.presenca(g);
     let salas = a.node.salas_conhecidas(g);
+    let eu = a.conta;
+    let perms: Vec<u64> = canais.iter().map(|ch| a.node.with_store(|s| s.perms(g, &eu, Some(&ch.id))).unwrap_or(0)).collect();
     Ok(canais
         .iter()
-        .map(|ch| {
+        .zip(perms)
+        .filter(|(_, p)| p & tasca_core::cargos::VER_CANAIS != 0)
+        .map(|(ch, perm)| {
             let mut v = a.canal_json(g, ch);
+            v["perms"] = json!(perm);
+            let privado = a.node.with_store(|s| s.channel_perms(g, &ch.id)).unwrap_or_default().iter().any(|e| {
+                e.alvo == tasca_core::cargos::Alvo::Cargo(tasca_core::cargos::TODOS.into()) && e.deny & tasca_core::cargos::VER_CANAIS != 0
+            });
+            if privado {
+                v["private"] = json!(true);
+            }
             if ch.kind == ChannelKind::Voice {
                 let mut quem: Vec<String> = pres
                     .iter()
@@ -915,14 +1030,30 @@ pub async fn join_group(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Cont
 }
 
 #[tauri::command]
-pub async fn create_invite(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>, group_id: String) -> Res<Value> {
+pub async fn create_invite(
+    app: AppHandle,
+    rede: State<'_, Rede>,
+    c: State<'_, Contas>,
+    group_id: String,
+    max_uses: Option<u32>,
+    expires_secs: Option<u64>,
+) -> Res<Value> {
     let a = ativa(&app, &rede, &c).await?;
     let g = grupo(&group_id)?;
-    let inv = a.node.create_invite(g).await.map_err(|e| {
-        let s = txt(e);
-        if s.contains("só o anfitrião") { "Só o anfitrião pode criar convites.".to_string() } else { s }
-    })?;
-    Ok(json!({ "code": inv.encode(), "expires": null, "uses": "ilimitado" }))
+    let h = a.handle(g)?;
+    if !h.is_hosted() && !h.is_connected() && !a.servidor {
+        return Err("O anfitrião está desligado: o convite só funciona quando ele voltar.".into());
+    }
+    let max = max_uses.unwrap_or(0).min(10_000);
+    let exp = match expires_secs.unwrap_or(0) {
+        0 => 0,
+        s => now_ms() + s.min(365 * 24 * 3600) * 1000,
+    };
+    let inv = tokio::time::timeout(Duration::from_secs(20), h.create_invite(max, exp))
+        .await
+        .map_err(|_| "Demorou demasiado.".to_string())?
+        .map_err(txt)?;
+    Ok(json!({ "code": inv.encode(), "expires": if exp == 0 { Value::Null } else { json!(exp) }, "maxUses": max, "pending": !h.is_hosted() && !h.is_connected() }))
 }
 
 // ---------------- canais e categorias (só o anfitrião) ----------------
@@ -1271,6 +1402,15 @@ pub async fn publish_profile(
 pub async fn leave_group(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>, group_id: String) -> Res<bool> {
     let a = ativa(&app, &rede, &c).await?;
     let g = grupo(&group_id)?;
+    // avisa o grupo de que saíste (se não fores o dono)
+    let dono = a.node.with_store(|s| s.group(g)).ok().flatten().is_some_and(|i| i.hosted || *i.owner.as_bytes() == a.conta);
+    if !dono {
+        if let Ok(h) = a.handle(g) {
+            if h.is_connected() || a.servidor {
+                let _ = tokio::time::timeout(Duration::from_secs(5), h.leave()).await;
+            }
+        }
+    }
     a.node.forget_group(g).map_err(txt)?;
     a.sinc.lock().unwrap().esquecidos.push(group_id);
     a.guardar_sinc();
