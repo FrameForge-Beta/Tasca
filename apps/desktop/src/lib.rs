@@ -174,6 +174,7 @@ pub fn run() {
             voz::join_voice,
             voz::leave_voice,
             voz::set_voice_state,
+            voz::pass_voice_host,
             voz::set_voice_options,
             voz::set_user_volume,
             voz::voice_frame,

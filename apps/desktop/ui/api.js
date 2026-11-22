@@ -533,6 +533,7 @@
       return true;
     },
     async set_voice_state() { return true; },
+    async pass_voice_host() { return true; },
     async set_camera() { return true; },
     async list_capture_sources() { return []; },
     async start_screen_share() { await wait(300); return true; },
@@ -636,6 +637,7 @@
     async join_voice(a) { return inv("join_voice", a); },
     async leave_voice() { return inv("leave_voice"); },
     async set_voice_state(a) { return inv("set_voice_state", a); },
+    async pass_voice_host(a) { return inv("pass_voice_host", a); },
   };
 
   // nome de canal: texto em minúsculas com hífens; voz fica como está

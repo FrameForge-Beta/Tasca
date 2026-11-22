@@ -337,6 +337,17 @@
         ] });
       }
     }
+    // Quem aloja a chamada pode passá-la a qualquer pessoa da chamada; o dono do grupo
+    // também (incluindo a si mesmo).
+    if (inCall && S.voice && S.voice.hostId && S.voice.hostId !== id && !p.bot) {
+      const naChamada = id === "me" || !!(S.voiceStates || {})[id];
+      const possoPassar = S.voice.hostId === "me" || (g && g.owner === "me");
+      if (naChamada && possoPassar) items.push("-", {
+        label: me ? "Ficar a alojar a chamada" : "Passar a chamada para " + p.name,
+        hint: "O áudio e o vídeo passam pelo dispositivo dessa pessoa", icon: IC.crown,
+        onClick: () => act(() => api.pass_voice_host({ userId: id }), me ? "A chamada vai passar para ti…" : "A chamada vai passar para " + p.name + "…"),
+      });
+    }
     if (inCall) items.push("-", { label: "Mostrar quem está sem vídeo", checked: S.settings.callShowNoVideo !== false, onClick: async () => { await A().patch({ callShowNoVideo: S.settings.callShowNoVideo === false }); A().render(); } });
     for (const fn of hooks.userMenu) { try { const extra = fn(p, { where: "menu", groupId: g && g.id }); if (extra && extra.length) items.push("-", ...extra); } catch (x) { console.warn(x); } }
     items.push("-");

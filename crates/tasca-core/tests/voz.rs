@@ -143,3 +143,91 @@ async fn video_passa_pelo_anfitriao() {
     let i = timeout(Duration::from_secs(5), av.recv()).await.expect("timeout").unwrap();
     assert_eq!(&i.data[..], b"\x00delta");
 }
+
+/// Três pessoas num grupo cujo dono está ligado mas fora da chamada.
+async fn grupo_de_tres() -> (Node, Node, Node, tasca_core::GroupId) {
+    let host = node().await;
+    let group = host.create_group("Malta", "Tiago").unwrap();
+    let ze = node().await;
+    let code = host.create_invite(group).await.unwrap().encode();
+    std::mem::forget(ze.join(&Invite::decode(&code).unwrap(), "Zé").await.unwrap());
+    let ana = node().await;
+    let code = host.create_invite(group).await.unwrap().encode();
+    std::mem::forget(ana.join(&Invite::decode(&code).unwrap(), "Ana").await.unwrap());
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    (host, ze, ana, group)
+}
+
+#[tokio::test]
+async fn quem_entra_primeiro_aloja_e_pode_passar() {
+    let (host, ze, ana, group) = grupo_de_tres().await;
+    // O Zé entra primeiro: aloja ele, não o dono do grupo.
+    let z = ze.entrar_voz(group, "sala").await.unwrap();
+    assert!(z.e_anfitriao());
+    assert!(host.salas_voz(group).is_empty());
+    // O dono fica a saber pelo anúncio.
+    timeout(Duration::from_secs(5), async {
+        while !host.salas_conhecidas(group).iter().any(|a| a.room == "sala") {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("o dono não soube da chamada");
+    // A Ana pergunta e liga-se ao Zé.
+    let a = ana.entrar_voz(group, "sala").await.unwrap();
+    assert!(!a.e_anfitriao());
+    let l = sala_com(&a, 2).await;
+    assert!(l.iter().any(|p| p.anfitriao && p.key == *ze.identity().public().as_bytes()));
+
+    // O Zé passa a chamada à Ana.
+    let ana_id = l.iter().find(|p| !p.anfitriao).unwrap().id;
+    z.passar_host(ana_id).await.unwrap();
+    let mut na = a.novo_host();
+    let n = timeout(Duration::from_secs(5), na.wait_for(|n| n.is_some())).await.unwrap().unwrap().clone().unwrap();
+    assert_eq!(n.conta, *ana.identity().public().as_bytes());
+    let mut nz = z.novo_host();
+    timeout(Duration::from_secs(5), nz.wait_for(|n| n.is_some())).await.unwrap().unwrap();
+    // Cada um segue para o novo anfitrião (o que a app faz sozinha).
+    let a2 = ana.entrar_voz_em(group, "sala", n.addr().unwrap(), Duration::from_secs(10)).await.unwrap();
+    assert!(a2.e_anfitriao());
+    drop(a);
+    let z2 = ze.entrar_voz_em(group, "sala", n.addr().unwrap(), Duration::from_secs(10)).await.unwrap();
+    drop(z);
+    assert!(!z2.e_anfitriao());
+    sala_com(&a2, 2).await;
+    assert!(ze.salas_voz(group).is_empty());
+
+    // A Ana (anfitriã) sai: a chamada passa sozinha para o Zé.
+    let mut nz = z2.novo_host();
+    drop(a2);
+    let n = timeout(Duration::from_secs(5), nz.wait_for(|n| n.is_some())).await.unwrap().unwrap().clone().unwrap();
+    assert_eq!(n.conta, *ze.identity().public().as_bytes());
+}
+
+#[tokio::test]
+async fn dono_do_grupo_pode_mudar_quem_aloja() {
+    let (host, ze, ana, group) = grupo_de_tres().await;
+    let z = ze.entrar_voz(group, "sala").await.unwrap();
+    assert!(z.e_anfitriao());
+    timeout(Duration::from_secs(5), async {
+        while host.salas_conhecidas(group).is_empty() {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let a = ana.entrar_voz(group, "sala").await.unwrap();
+    let h = host.entrar_voz(group, "sala").await.unwrap();
+    assert!(!h.e_anfitriao());
+    let l = sala_com(&h, 3).await;
+    // A Ana não é dona: o pedido dela é ignorado.
+    let h_id = l.iter().find(|p| p.key == *host.identity().public().as_bytes()).unwrap().id;
+    a.passar_host(h_id).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert!(h.novo_host().borrow().is_none());
+    // O dono pede para ficar com ela.
+    h.passar_host(h_id).await.unwrap();
+    let mut nh = h.novo_host();
+    let n = timeout(Duration::from_secs(5), nh.wait_for(|n| n.is_some())).await.unwrap().unwrap().clone().unwrap();
+    assert_eq!(n.conta, *host.identity().public().as_bytes());
+}

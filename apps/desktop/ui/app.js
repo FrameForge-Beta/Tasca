@@ -579,7 +579,7 @@
       const speaking = x.kind !== "screen" && S.speaking.includes(x.who) && !muted;
       const inner = x.kind === "avatar" ? `<span class="tile-bg" style="--c:${p.color}"></span>${avatar(p)}` : fakeScreen(x.kind === "screen" ? "screen" : "cam", x.who);
       const badge = x.kind === "screen" ? `<span class="live">${x.meta ? `<b>${esc(x.meta)}</b>` : ""}AO VIVO</span>` : "";
-      const host = x.kind !== "screen" && g.owner === x.who ? '<span class="host-tag">ANFITRIÃO</span>' : "";
+      const host = x.kind !== "screen" && callHost(g) === x.who ? '<span class="host-tag" title="Aloja a chamada">ALOJA</span>' : "";
       return `<button ${x.kind !== "screen" ? `data-spk="${x.who}"` : `data-who="${x.who}"`} class="vtile ${speaking ? "speaking" : ""} ${x.kind !== "avatar" ? "has-video" : ""} ${extra}" ${items.length > 1 ? `data-focus="${x.id}" aria-label="${S.focus === x.id ? "Voltar à grelha" : "Pôr em destaque: " + esc(x.label)}"` : `aria-label="${esc(x.label)}"`} ${extra.includes("grid-cell") ? 'style="width:var(--tw);"' : ""}>${inner}${badge}${host}
         <span class="lbl">${x.kind === "screen" ? I.screen.replace("<svg", '<svg style="color:inherit"') : voiceIc(x.who)}${esc(x.label)}</span></button>`;
     };
@@ -1435,6 +1435,8 @@
   // ---------------- telemóvel: painel antes de entrar na chamada ----------------
   // Tocar num canal de voz abre uma folha com quem está lá, o estado do anfitrião e
   // um botão grande para entrar. As definições de voz e o convite ficam à mão.
+  // Quem aloja a chamada em que estou (na demonstração, o dono do grupo).
+  function callHost(g) { return S.voice && S.voice.hostId !== undefined ? S.voice.hostId : g && g.owner; }
   function hostOffline(g) { return g && !g.host.online && !(g.owner === "me" && g.host.route === "este PC"); }
   function voicePeopleHtml(c) {
     const ppl = (c.inVoice || []).map((id) => who(id));
@@ -1462,7 +1464,7 @@
         <button class="icon-btn" data-act="voice-quick" aria-label="Definições de voz">${I.gear}</button>
       </div>
       <div class="vpre-body">${voicePeopleHtml(c)}</div>
-      ${off && !n ? `<div class="vs-warn">${I.warn}<span><b>${hostName} está desligado.</b> Não faz mal: quem entra primeiro aloja a chamada no seu dispositivo.</span></div>` : ""}
+      ${n && c.voiceHost ? `<p class="vs-host">${I.crown}<span>Alojada por <b>${esc(c.voiceHost === "me" ? "ti" : who(c.voiceHost).name)}</b></span></p>` : !n ? `<p class="vs-host">${I.info || I.speaker}<span>${off ? `${hostName} está desligado, mas não faz mal. ` : ""}Quem entra primeiro aloja a chamada no seu dispositivo.</span></p>` : ""}
       ${S.preVoiceErr ? `<p class="vs-err">${esc(S.preVoiceErr)}</p>` : ""}
       <div class="vs-bar">
         <button class="vs-round ${S.muted ? "off" : ""}" data-act="vp-mic" aria-pressed="${S.muted}" aria-label="${S.muted ? "Ligar microfone" : "Desligar microfone"}">${S.muted ? I.micOff : I.mic}</button>
@@ -1509,7 +1511,7 @@
     catch (e) {
       const g = S.groups.find((x) => (S.allChannels[x.id] || []).some((y) => y.id === id));
       let msg = String(e.message || e);
-      if (hostOffline(g)) msg = (g.owner === "me" ? "O teu PC" : "O PC de " + who(g.owner).name) + " está desligado. Abre a Tasca nesse PC e tenta outra vez.";
+      void g;
       if (opts.quiet) return msg;
       return toast(msg);
     }
@@ -2018,7 +2020,8 @@
   api.on("voice_status", (st) => {
     if (!S.voice) return;
     const antes = S.voice.connected;
-    Object.assign(S.voice, { ping: st.ping, route: st.route, connected: st.connected });
+    Object.assign(S.voice, { ping: st.ping, route: st.route, connected: st.connected, hosting: !!st.hosting });
+    if (st.hosting) S.voice.hostId = "me";
     if (antes !== undefined && antes !== st.connected) {
       toast(st.connected ? "Voltaste a ligar à chamada." : "Perdeste a ligação à chamada. A tentar outra vez…");
       rerenderKeepInput();
@@ -2026,6 +2029,10 @@
   });
   api.on("voice_members", ({ channelId, members }) => {
     if (!S.voice || S.voice.channelId !== channelId) return;
+    const h = members.find((m) => m.host);
+    const antes = S.voice.hostId;
+    S.voice.hostId = h ? h.id : null;
+    if (antes && h && antes !== h.id) toast(h.id === "me" ? "Agora és tu a alojar a chamada." : who(h.id).name + " passou a alojar a chamada.");
     S.voiceStates = Object.fromEntries(members.filter((m) => m.id !== "me").map((m) => [m.id, m]));
     if (S.view !== "chat") rerenderKeepInput();
   });

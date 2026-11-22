@@ -134,7 +134,7 @@ impl Ativa {
         if self.eu(chave) { "me".into() } else { hex(chave) }
     }
 
-    fn handle(&self, g: GroupId) -> Res<GroupHandle> {
+    pub(crate) fn handle(&self, g: GroupId) -> Res<GroupHandle> {
         self.ligacoes
             .lock()
             .unwrap()
@@ -190,6 +190,17 @@ impl Ativa {
         let mut pres = self.node.presence(g);
         self.tarefa(async move {
             while pres.changed().await.is_ok() {
+                let _ = ap.emit("group_changed", json!({ "groupId": hex(&g.0) }));
+            }
+        });
+
+        // salas de voz alojadas neste dispositivo ou anunciadas por outros mudaram
+        let ap = app.clone();
+        let mut voz = self.node.watch_voz();
+        self.tarefa(async move {
+            while voz.changed().await.is_ok() {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                voz.borrow_and_update();
                 let _ = ap.emit("group_changed", json!({ "groupId": hex(&g.0) }));
             }
         });
@@ -690,16 +701,27 @@ pub async fn list_channels(app: AppHandle, rede: State<'_, Rede>, c: State<'_, C
     let g = grupo(&group_id)?;
     let (canais, _) = a.layout(g)?;
     let pres = a.presenca(g);
+    let salas = a.node.salas_conhecidas(g);
     Ok(canais
         .iter()
         .map(|ch| {
             let mut v = a.canal_json(g, ch);
             if ch.kind == ChannelKind::Voice {
-                let quem: Vec<String> = pres
+                let mut quem: Vec<String> = pres
                     .iter()
                     .filter(|(_, sala)| sala.as_deref() == Some(ch.id.as_str()))
                     .map(|(k, _)| a.pessoa_id(k))
                     .collect();
+                // Chamadas alojadas por outros (o dono do grupo pode estar desligado).
+                for s in salas.iter().filter(|s| s.room == ch.id) {
+                    for k in &s.pessoas {
+                        let id = a.pessoa_id(k);
+                        if !quem.contains(&id) {
+                            quem.push(id);
+                        }
+                    }
+                    v["voiceHost"] = json!(a.pessoa_id(&s.conta));
+                }
                 v["inVoice"] = json!(quem);
             }
             v

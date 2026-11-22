@@ -1676,3 +1676,7 @@ details.row.adv .btn { justify-self: start; }
   .callview .ctl.leave { width: 56px; height: 50px; border-radius: 25px; }
   .callview .call-grid { padding: 8px; align-content: center; }
 }
+
+/* Quem aloja a chamada (página de antes de entrar) */
+.vs-host{display:flex;gap:8px;align-items:center;justify-content:center;margin:0 16px 10px;color:var(--muted,#9aa);font-size:13px;text-align:center}
+.vs-host svg{width:15px;height:15px;flex:none;color:var(--gold,#e0b04a)}

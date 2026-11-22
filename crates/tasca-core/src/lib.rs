@@ -45,7 +45,7 @@ pub use invite::Invite;
 pub use node::{GroupHandle, Node, NodeOptions};
 pub use store::Store;
 pub use iroh::{PublicKey, SecretKey};
-pub use voz::{Chamada, Imagem, Participante, VOZ_ALPN};
+pub use voz::{Anuncio, Chamada, Imagem, NovoHost, Participante, VOZ_ALPN};
 
 /// Identificador do protocolo da Tasca na negociação QUIC (ALPN).
 pub const ALPN: &[u8] = b"tasca/0";
