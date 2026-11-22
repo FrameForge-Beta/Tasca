@@ -501,7 +501,23 @@
   }
 
   let seen = new Set(), seenCh = null;
+  // A mesma mensagem pode chegar por vários caminhos (resposta do envio, eco do anfitrião,
+  // caixa do servidor, outro dispositivo): na lista fica só uma de cada.
+  function semRepetidas() {
+    const vistas = new Map();
+    const antes = S.messages.length;
+    S.messages = S.messages.filter((m) => {
+      const k = String(m.id);
+      const o = vistas.get(k);
+      if (!o) { vistas.set(k, m); return true; }
+      if (o.pending && !m.pending) o.pending = false;
+      if (o.queued && !m.queued) o.queued = false;
+      return false;
+    });
+    return S.messages.length !== antes;
+  }
   function renderChat() {
+    semRepetidas();
     const dm = S.home ? S.dms.find((d) => d.id === S.channelId) : null;
     const c = dm ? { id: dm.id, name: who(dm.with).name } : channel();
     const g = dm ? { owner: null, host: { online: true }, name: "" } : group();
@@ -2395,6 +2411,7 @@
     if (S.membersOpen && !e.target.closest(".members") && !e.target.closest('[data-act="toggle-members"]')) { S.membersOpen = false; render(); }
   });
 
+  let ultimoEnvio = null;
   document.addEventListener("submit", async (e) => {
     if (e.target.id !== "composer") return;
     e.preventDefault();
@@ -2415,6 +2432,10 @@
     if (S.attach.some((a) => a.busy)) return toast("Espera que os anexos acabem de preparar.");
     const files = S.attach.map((a) => ({ hash: a.hash, name: a.name, size: a.size, mime: a.mime, thumb: a.thumb }));
     if (!text && !files.length) return;
+    // o mesmo Enter/toque a chegar duas vezes (teclado do telemóvel, duplo clique): envia uma vez
+    const agora = Date.now();
+    if (ultimoEnvio && ultimoEnvio.ch === S.channelId && ultimoEnvio.text === text && !files.length && agora - ultimoEnvio.t < 400) { inp.value = ""; return; }
+    ultimoEnvio = { ch: S.channelId, text, t: agora };
     inp.value = "";
     const replyTo = S.reply ? { id: S.reply.id, from: S.reply.from, text: S.reply.text } : null;
     S.reply = null; S.attach = [];
@@ -2433,6 +2454,9 @@
       const r = await api.send_message({ channelId, text: m.text, replyTo: m.replyTo ? m.replyTo.id : undefined, files: m.files });
       Object.assign(m, r, { failed: false });
       seen.add(String(m.id));
+      // se o eco já tinha chegado com o número verdadeiro, fica só esta
+      const outra = S.messages.find((x) => x !== m && String(x.id) === String(m.id));
+      if (outra) { if (!outra.pending) m.pending = false; S.messages = S.messages.filter((x) => x !== outra); }
       if (S.home) S.dms = await api.list_dms();
     } catch (x) {
       m.pending = false; m.failed = true;
@@ -2554,8 +2578,14 @@
     if (S.typing && S.typing.channelId === channelId) S.typing = null;
     if (channelId === S.channelId && S.view === "chat") {
       // a tua própria mensagem: se foi escrita aqui já está na lista
-      const ja = S.messages.find((x) => x.id === message.id);
-      if (ja) { if (ja.pending) { ja.pending = false; rerenderKeepInput(); } return; }
+      const ja = S.messages.find((x) => String(x.id) === String(message.id));
+      if (ja) { if (ja.pending || ja.queued) { ja.pending = false; ja.queued = !!message.queued; rerenderKeepInput(); } return; }
+      // eco da mensagem que acabaste de escrever aqui, antes de o envio responder:
+      // é a que já está na lista (ainda com número provisório), não uma nova
+      if (message.from === "me") {
+        const minha = S.messages.find((x) => String(x.id).startsWith("tmp-") && x.from === "me" && (x.text || "") === (message.text || ""));
+        if (minha) { minha.id = message.id; minha.pending = !!message.pending; minha.failed = false; seen.add(String(message.id)); rerenderKeepInput(); return; }
+      }
       S.messages.push(message); markRead(channelId); render(); return;
     }
     // as tuas (escritas noutro dispositivo) não contam como não lidas
@@ -2621,7 +2651,7 @@
     try { S.people = await api.list_people(); rerenderKeepInput(); } catch (x) { console.warn(x); }
   }, 50));
   api.on("message_ack", ({ channelId, id }) => {
-    const m = S.messages.find((x) => x.id === id);
+    const m = S.messages.find((x) => String(x.id) === String(id));
     if (m && channelId === S.channelId) {
       m.pending = false;
       // só tira a classe: a mensagem passa de "a enviar" a enviada com uma transição
