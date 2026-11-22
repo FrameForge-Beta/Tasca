@@ -104,7 +104,7 @@
     camera: false,             // câmara ligada
     sharing: null,             // { source, quality, audio } quando estou a partilhar o ecrã
     focus: null,               // id do quadrado em destaque ("rui:screen", "me:cam", …); null = grelha
-    callSidebar: false,
+    callSidebar: store.get("call-sidebar", true), // grupos e canais à vista durante a chamada (PC)
     myStatus: "online", customStatus: "", statusOpen: false,
     home: false,               // true = mensagens privadas (botão da Tasca)
     dms: [], dmQuery: "",        // mostrar grupos e canais durante a chamada
@@ -237,7 +237,7 @@
     const app = $("#app");
     app.className = "app" + (S.showMembers && S.view === "chat" && !S.home ? "" : " no-members") +
       (S.navOpen ? " show-nav" : "") + (S.membersOpen && S.view === "chat" && !S.home ? " show-members" : "") +
-      (S.view === "voice" && !S.callSidebar ? " call" : "") + (S.view === "settings" ? " no-sidebar" : "");
+      (S.view === "voice" && (narrow() || !S.callSidebar) ? " call" : "") + (S.view === "settings" ? " no-sidebar" : "");
     setHtml($("#rail"), renderRail());
     const tbp = document.getElementById("tb-plugins"); if (tbp) tbp.classList.toggle("on", S.view === "settings" && S.settingsTab === "plugins");
     document.body.classList.add("ready");
@@ -2212,7 +2212,7 @@
       case "share":
         if (S.sharing) { stopShare(); return render(); }
         return openSharePicker();
-      case "call-sidebar": S.callSidebar = !S.callSidebar; return render();
+      case "call-sidebar": S.callSidebar = !S.callSidebar; store.set("call-sidebar", S.callSidebar); return render();
       case "call-min": { if (!S.voice.groupId) { S.view = "chat"; return openDm(S.voice.channelId); } S.view = "chat"; if (S.groupId !== S.voice.groupId) { await openGroup(S.voice.groupId); return; } if (!channel() || channel().kind !== "text") { const t = S.channels.find((x) => x.kind === "text"); if (t) return openChannel(t.id); } return render(); }
       case "audio-out": return openAudioOut();
       case "invite-call": { if (!S.voice.groupId) return toast("As chamadas privadas são só entre os dois."); if (S.groupId !== S.voice.groupId) await openGroup(S.voice.groupId); return openInvite(); }
