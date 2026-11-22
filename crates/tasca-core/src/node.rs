@@ -724,10 +724,24 @@ impl Node {
             .store()
             .group(group)?
             .ok_or_else(|| anyhow!("grupo desconhecido"))?;
+        // 1. Quem já se sabe que aloja a sala. 2. Pergunta só ao dono do grupo, que recebe
+        // o anúncio de todas as chamadas: se ele responde e a sala não está lá, está vazia
+        // e quem entra fica logo a alojá-la. 3. Dono desligado: pergunta aos membros.
+        let eu_dono = self.inner.store().group(group)?.is_some_and(|g| g.owner == self.inner.identity.public());
         let mut tentados = Vec::new();
-        for perguntar in [false, true] {
-            if perguntar {
-                self.perguntar_salas(group, room).await;
+        for passo in 0..3 {
+            match passo {
+                0 => {}
+                1 if eu_dono => break,
+                1 => {
+                    if self.perguntar_dono(group).await {
+                        let ha = self.salas_conhecidas(group).iter().any(|a| a.room == room && a.endpoint != self.inner.endpoint_id && !tentados.contains(&a.endpoint));
+                        if !ha {
+                            break;
+                        }
+                    }
+                }
+                _ => self.perguntar_salas(group, room).await,
             }
             let candidatos: Vec<_> = self
                 .salas_conhecidas(group)
@@ -848,6 +862,34 @@ impl Node {
                     tokio::time::sleep(std::time::Duration::from_millis(600)).await;
                 }
             }
+        }
+    }
+
+    /// Pergunta ao dono do grupo que salas de voz estão a ser alojadas e por quem.
+    /// `true` se ele respondeu (então o que se sabe das salas está certo).
+    async fn perguntar_dono(&self, group: GroupId) -> bool {
+        let Ok(Some(info)) = self.inner.store().group(group) else { return false };
+        let addr = iroh::EndpointAddr::new(info.owner);
+        let r = tokio::time::timeout(std::time::Duration::from_millis(1500), async {
+            let _ = self.apresentar(&addr).await;
+            let conn = self.router.endpoint().connect(addr, crate::voz::VOZ_ALPN).await?;
+            let (mut send, mut recv) = conn.open_bi().await?;
+            write_frame(&mut send, &crate::voz::VozCliente::Quem { group }).await?;
+            let r = read_frame::<crate::voz::VozAnfitriao>(&mut recv).await?;
+            conn.close(0u32.into(), b"obrigado");
+            anyhow::Ok(r)
+        })
+        .await;
+        match r {
+            Ok(Ok(Some(crate::voz::VozAnfitriao::Conhecidos(l)))) => {
+                for a in l {
+                    if a.group == group {
+                        self.inner.guardar_anuncio(a);
+                    }
+                }
+                true
+            }
+            _ => false,
         }
     }
 
