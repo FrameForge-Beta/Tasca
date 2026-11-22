@@ -12,6 +12,7 @@
 mod amigos;
 mod avisos;
 mod contas;
+mod corpo;
 mod dms;
 mod grupos;
 mod mensagens;

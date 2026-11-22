@@ -12,6 +12,13 @@
 (() => {
   const FRAME = 960;
   const core = window.__TAURI__ && window.__TAURI__.core;
+  // No telemóvel o Tauri só passa texto entre a interface e o Rust: os bytes vão em base64.
+  const bin = (u8) => {
+    if (!window.TASCA_MOBILE) return u8;
+    let s = "";
+    for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+    return btoa(s);
+  };
   const A = {
     ctx: null, node: null, stream: null, gen: 0, emVoo: 0,
     transmit: () => true,
@@ -26,7 +33,7 @@
     new Float32Array(body.buffer, 4, FRAME).set(mic);
     A.emVoo++;
     let r;
-    try { r = await core.invoke("voice_frame", body); }
+    try { r = await core.invoke("voice_frame", bin(body)); }
     catch (e) { console.warn("voz:", e); return; }
     finally { A.emVoo--; }
     if (gen !== A.gen || !A.node) return;
@@ -106,7 +113,7 @@
     buf[1] = codecId;
     chunk.copyTo(buf.subarray(2));
     V.emVoo++;
-    core.invoke("video_send", buf).catch((e) => console.warn("vídeo:", e)).finally(() => V.emVoo--);
+    core.invoke("video_send", bin(buf)).catch((e) => console.warn("vídeo:", e)).finally(() => V.emVoo--);
   }
 
   // Imagem já codificada fora do browser (partilha de ecrã nativa do Android, Ecra.kt).
@@ -119,7 +126,7 @@
     buf[1] = codecId;
     buf.set(bytes, 2);
     V.emVoo++;
-    core.invoke("video_send", buf).catch((e) => console.warn("vídeo:", e)).finally(() => V.emVoo--);
+    core.invoke("video_send", bin(buf)).catch((e) => console.warn("vídeo:", e)).finally(() => V.emVoo--);
     return true;
   }
 

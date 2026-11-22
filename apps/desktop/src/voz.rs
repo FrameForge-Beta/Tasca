@@ -23,7 +23,7 @@ use tasca_voz::{Captura, FRAME, Filtro, Mistura, Ruido};
 use tauri::{
     AppHandle, Emitter, State,
     async_runtime::JoinHandle,
-    ipc::{Channel, InvokeBody, InvokeResponseBody},
+    ipc::{Channel, InvokeResponseBody},
 };
 use tokio::sync::Mutex;
 
@@ -159,7 +159,16 @@ impl EmChamada {
                 let _ = me.app.emit("group_changed", json!({ "groupId": gid }));
                 let estados: Vec<_> = l
                     .iter()
-                    .map(|p| json!({ "id": me.ativa.pessoa_id(&p.key), "muted": p.muted, "deaf": p.deaf, "camera": p.camera, "screen": p.screen, "host": p.anfitriao }))
+                    .map(|p| {
+                        json!({
+                            "id": me.ativa.pessoa_id(&p.key), "muted": p.muted, "deaf": p.deaf, "camera": p.camera,
+                            "screen": p.screen, "host": p.anfitriao,
+                            // o dispositivo de onde está (muda quando passa do PC para o telemóvel)
+                            "device": hex(&p.endpoint[..8]),
+                            // o PC usa a chave da conta; o telemóvel tem uma chave própria
+                            "mobile": p.endpoint != p.key,
+                        })
+                    })
                     .collect();
                 let _ = me.app.emit("voice_members", json!({ "channelId": me.canal, "members": estados }));
             }
@@ -186,15 +195,32 @@ impl EmChamada {
         let h = tauri::async_runtime::spawn(async move {
             let mut espera = 1;
             loop {
-                let mut novo = match me.upgrade() {
-                    Some(eu) => eu.chamada().novo_host(),
+                let (mut novo, mut fora) = match me.upgrade() {
+                    Some(eu) => {
+                        let c = eu.chamada();
+                        (c.novo_host(), c.noutro_dispositivo())
+                    }
                     None => break,
                 };
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_secs(2)) => {}
                     _ = novo.wait_for(|n| n.is_some()) => {}
+                    _ = fora.wait_for(|f| *f) => {}
                 }
                 let Some(eu) = me.upgrade() else { break };
+                // Entraste nesta chamada noutro dispositivo (por exemplo no telemóvel): aqui
+                // acaba, sem voltar a entrar (senão os dois tiravam-se um ao outro).
+                if *fora.borrow() {
+                    use tauri::Manager;
+                    if let Some(v) = eu.app.try_state::<Voz>() {
+                        let mut atual = v.atual.lock().await;
+                        if atual.as_ref().is_some_and(|x| Arc::ptr_eq(x, &eu)) {
+                            atual.take();
+                        }
+                    }
+                    let _ = eu.app.emit("voice_moved", json!({ "channelId": eu.canal }));
+                    break;
+                }
                 let _ = eu.app.emit("voice_status", eu.estado_ligacao());
                 let c = eu.chamada();
                 let destino = c.novo_host().borrow().clone();
@@ -372,12 +398,12 @@ pub async fn video_subscribe(voz: State<'_, Voz>, channel: Channel<InvokeRespons
 /// O primeiro byte tem o bit 0 ligado nas imagens chave.
 #[tauri::command]
 pub async fn video_send(request: tauri::ipc::Request<'_>, voz: State<'_, Voz>) -> Res<bool> {
-    let InvokeBody::Raw(body) = request.body() else { return Err("imagem inválida".into()) };
+    let Some(body) = crate::corpo::bytes(request.body()) else { return Err("imagem inválida".into()) };
     if body.len() < 2 || body.len() > 8 * 1024 * 1024 {
         return Err("imagem com tamanho inválido".into());
     }
     let Some(em) = voz.atual.lock().await.clone() else { return Ok(false) };
-    em.chamada().enviar_video(bytes::Bytes::copy_from_slice(body));
+    em.chamada().enviar_video(bytes::Bytes::copy_from_slice(&body));
     Ok(true)
 }
 
@@ -433,7 +459,7 @@ pub async fn set_voice_options(voz: State<'_, Voz>, noise: Option<String>, sensi
 /// zero, 960 `f32` para tocar.
 #[tauri::command]
 pub async fn voice_frame(request: tauri::ipc::Request<'_>, voz: State<'_, Voz>) -> Res<tauri::ipc::Response> {
-    let InvokeBody::Raw(body) = request.body() else { return Err("bloco de áudio inválido".into()) };
+    let Some(body) = crate::corpo::bytes(request.body()) else { return Err("bloco de áudio inválido".into()) };
     let mut resp = vec![0u8; 4 + FRAME * 4];
     let Some(em) = voz.atual.lock().await.clone() else { return Ok(tauri::ipc::Response::new(resp)) };
     if body.len() != 4 + FRAME * 4 {

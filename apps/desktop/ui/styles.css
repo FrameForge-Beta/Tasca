@@ -961,6 +961,10 @@ input::-ms-reveal, input::-ms-clear { display: none; }
 .av .st.dnd, .st-dot.dnd { color: var(--perigo); }
 .av .st.offline .petals, .st-dot.offline .petals { fill: none; stroke: var(--texto-3); stroke-width: 14; }
 .av .st.offline .miolo, .st-dot.offline .miolo { fill: var(--texto-3); }
+/* no telemóvel: o telemóvel ocupa o lugar da flor, um pouco mais alto */
+.av .st.tel { border-radius: 5px; width: 13px; height: 17px; }
+.av.s .st.tel { width: 10px; height: 13px; }
+.av .st.tel .miolo { fill: var(--st-bg, var(--painel)); }
 .status-pop .st-dot, .st-dot.online, .st-dot.away, .st-dot.dnd, .st-dot.offline { width: 14px; height: 14px; background: none; box-shadow: none; border-radius: 0; margin-top: 3px; }
 .status-acct { border-top: 1px solid var(--linha, rgba(255,255,255,.08)); margin-top: 4px; padding-top: 4px; display: grid; }
 .status-acct button { display: flex; gap: 10px; align-items: center; }

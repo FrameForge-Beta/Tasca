@@ -76,9 +76,13 @@
   // Estado: a flor da Tasca em miniatura, com as pétalas da cor do estado.
   const PETAL = "M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z";
   const FLOR = `<svg viewBox="-100 -100 200 200" aria-hidden="true"><g class="petals">${[0, 90, 180, 270].map((r) => `<path transform="rotate(${r})" d="${PETAL}"/>`).join("")}</g><circle class="miolo" r="20"/></svg>`;
+  // Quem está só no telemóvel: um telemóvel pequeno no lugar da flor, com a mesma cor.
+  const TEL = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect class="petals" x="5.5" y="1.5" width="13" height="21" rx="3.2"/><rect class="miolo" x="9" y="17.6" width="6" height="2" rx="1"/></svg>';
+  const noTelemovel = (p) => p.status !== "offline" && (!!p.mobile || (!!window.TASCA_MOBILE && !!S.me && (p === S.me || p.id === "me" || p.id === S.me.id)));
   function avatar(p, cls = "", withStatus = false) {
+    const tel = withStatus && noTelemovel(p);
     return `<span class="av ${cls} ${p.photo ? "has-photo" : ""}" style="background:${p.color}" aria-hidden="true">${p.photo ? `<img src="${esc(p.photo)}" alt="">` : esc(initials(p.name))}${
-      withStatus ? `<i class="st ${p.status}">${FLOR}</i>` : ""}</span>`;
+      withStatus ? `<i class="st ${p.status}${tel ? " tel" : ""}" title="${tel ? "No telemóvel" : ""}">${tel ? TEL : FLOR}</i>` : ""}</span>`;
   }
   const shortKey = (k) => (k && k.length > 22 ? k.slice(0, 14) + "…" + k.slice(-6) : k || "");
   function toast(text) {
@@ -896,7 +900,7 @@
     }
     const on = S.members.filter((m) => m.status !== "offline" && !used.has(m.id));
     const off = S.members.filter((m) => m.status === "offline");
-    const row = (m) => `<button class="member ${m.status === "offline" ? "off" : ""}" data-member="${m.id}">${avatar(m, "s", true)}<span class="nm"><b style="${m.roleColor ? `color:${esc(m.roleColor)}` : ""}">${esc(m.nick || m.name)}${gicon(m.id)}${m.owner ? `<span title="Anfitrião">${I.crown.replace("<svg", '<svg class="crown"')}</span>` : ""}</b><small>${m.bot ? "plugin" : m.timeoutUntil && m.timeoutUntil > Date.now() ? "de castigo" : m.owner ? "anfitrião" : m.status === "away" ? "ausente" : ""}</small></span></button>`;
+    const row = (m) => `<button class="member ${m.status === "offline" ? "off" : ""}" data-member="${m.id}">${avatar(m, "s", true)}<span class="nm"><b style="${m.roleColor ? `color:${esc(m.roleColor)}` : ""}">${esc(m.nick || m.name)}${gicon(m.id)}${m.owner ? `<span title="Anfitrião">${I.crown.replace("<svg", '<svg class="crown"')}</span>` : ""}</b><small>${m.bot ? "plugin" : m.timeoutUntil && m.timeoutUntil > Date.now() ? "de castigo" : m.status === "away" ? "ausente" : ""}</small></span></button>`;
     return `${groups.map(([n, l]) => `<div class="cat"><span>${esc(n)} · ${l.length}</span></div>${l.map(row).join("")}`).join("")}<div class="cat"><span>Online · ${on.length}</span></div>${on.map(row).join("")}
       <div class="cat"><span>Offline · ${off.length}</span></div>${off.map(row).join("")}`;
   }
@@ -2040,7 +2044,7 @@
     }
     render();
   }
-  async function leaveVoice() {
+  async function leaveVoice(aviso = "Saíste da chamada.") {
     sfx.leave();
     await api.leave_voice();
     stopVad();
@@ -2051,7 +2055,7 @@
       if (S.groupId === gid) S.channels = S.allChannels[gid];
     }
     if (S.view === "voice") S.view = "chat";
-    render(); toast("Saíste da chamada.");
+    render(); toast(aviso);
   }
 
   function applyThemeOnly() {
@@ -2636,6 +2640,11 @@
       rerenderKeepInput();
     }
   });
+  // Entraste nesta chamada noutro dispositivo (por exemplo no telemóvel): aqui sai.
+  api.on("voice_moved", ({ channelId }) => {
+    if (!S.voice || S.voice.channelId !== channelId) return;
+    leaveVoice(window.TASCA_MOBILE ? "Continuaste a chamada no PC." : "Continuaste a chamada no telemóvel.").catch(() => {});
+  });
   api.on("voice_members", ({ channelId, members }) => {
     if (!S.voice || S.voice.channelId !== channelId) return;
     if (!S.voice.groupId) S.dmInVoice = members.map((m) => m.id);
@@ -2643,7 +2652,28 @@
     const antes = S.voice.hostId;
     S.voice.hostId = h ? h.id : null;
     if (antes && h && antes !== h.id) toast(h.id === "me" ? "Agora és tu a alojar a chamada." : who(h.id).name + " passou a alojar a chamada.");
-    S.voiceStates = Object.fromEntries(members.filter((m) => m.id !== "me").map((m) => [m.id, m]));
+    // Sons de quem entra e sai. Quando a chamada muda de casa, as pessoas voltam a aparecer
+    // aos poucos: durante uns segundos não se toca nada, para não ser um carrossel de sons.
+    const novos = Object.fromEntries(members.filter((m) => m.id !== "me").map((m) => [m.id, m]));
+    const devs = S.voice.devices || (S.voice.devices = {});
+    if (antes && h && antes !== h.id) S.voice.quietUntil = Date.now() + 4000;
+    if (S.voice.seen) {
+      const quieto = Date.now() < (S.voice.quietUntil || 0);
+      const velhos = S.voiceStates || {};
+      let entrou = false, saiu = false, trocou = false;
+      for (const id in novos) {
+        // a mesma pessoa noutro dispositivo (passou do PC para o telemóvel, ou ao contrário)
+        if (novos[id].device && devs[id] && devs[id] !== novos[id].device) trocou = true;
+        else if (!velhos[id]) entrou = true;
+      }
+      for (const id in velhos) if (!novos[id]) saiu = true;
+      if (trocou) { sfx.otherLeave(); setTimeout(() => sfx.otherJoin(), 450); }
+      else if (!quieto && entrou) sfx.otherJoin();
+      else if (!quieto && saiu) sfx.otherLeave();
+    }
+    for (const id in novos) if (novos[id].device) devs[id] = novos[id].device;
+    S.voice.seen = true;
+    S.voiceStates = novos;
     if (S.view !== "chat") rerenderKeepInput();
   });
   const vad = { stream: null, ctx: null, timer: 0, lastLoud: 0 };

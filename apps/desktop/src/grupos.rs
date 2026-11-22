@@ -385,6 +385,14 @@ impl Ativa {
         self.node.presence(g).borrow().clone()
     }
 
+    /// Está só no telemóvel (para mostrar o ícone do telemóvel em vez da flor).
+    fn no_telemovel(&self, pres: &tasca_core::protocol::Presence, k: &[u8; 32]) -> bool {
+        if self.eu(k) {
+            return self.node.e_dispositivo();
+        }
+        pres.contains_key(&tasca_core::protocol::marca_telemovel(k))
+    }
+
     /// Uma pessoa para a interface, com o perfil que publicou no grupo.
     fn pessoa_json(
         &self,
@@ -773,6 +781,9 @@ pub async fn list_group_people(app: AppHandle, rede: State<'_, Rede>, c: State<'
             let id = hex(k);
             let ja = out.get(&id).and_then(|p| p["status"].as_str()) == Some("online");
             let mut p = a.pessoa_json(k, &nome, perfis.get(k), cartoes.get(k), ja || pres.contains_key(k));
+            // no telemóvel só se nenhum grupo o vê no PC
+            let tel = a.no_telemovel(&pres, k) && out.get(&id).is_none_or(|o| o["mobile"] == true || o["status"] != "online");
+            p["mobile"] = json!(tel && p["status"] == "online");
             // outro grupo já tinha foto (ou cartão) e este não: fica com o que há
             for campo in ["photo", "username", "banner"] {
                 if p[campo].is_null() {
@@ -828,6 +839,7 @@ pub async fn list_members(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Co
         .map(|(pk, nome)| {
             let k = pk.as_bytes();
             let mut p = a.pessoa_json(k, &nome, perfis.get(k), cartoes.get(k), pres.contains_key(k));
+            p["mobile"] = json!(a.no_telemovel(&pres, k));
             p["owner"] = json!(pk == info.owner);
             p["since"] = json!(a.node.with_store(|s| s.member_since(g, k)).ok().flatten());
             // cargos pela ordem da hierarquia

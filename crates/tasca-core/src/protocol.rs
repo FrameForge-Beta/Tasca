@@ -35,7 +35,18 @@ pub enum HostMsg {
 }
 
 /// Membros online de um grupo → sala de voz em que estão.
+///
+/// Quem está ligado só pelo telemóvel tem também uma entrada extra, com a chave
+/// [`marca_telemovel`] da conta (e sem sala). Versões antigas ignoram-na, porque não é
+/// membro de nenhum grupo.
 pub type Presence = std::collections::BTreeMap<[u8; 32], Option<String>>;
+
+/// Chave da entrada da presença que diz "esta conta está só no telemóvel".
+pub fn marca_telemovel(conta: &[u8; 32]) -> [u8; 32] {
+    let mut h = blake3::Hasher::new_derive_key("tasca 2026 presenca so no telemovel v1");
+    h.update(conta);
+    *h.finalize().as_bytes()
+}
 
 pub async fn write_frame<T: Serialize>(send: &mut SendStream, msg: &T) -> Result<()> {
     let bytes = postcard::to_stdvec(msg)?;

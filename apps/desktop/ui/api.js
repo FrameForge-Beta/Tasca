@@ -704,7 +704,14 @@
     },
     async search_messages(a) { return (await inv("search_messages", a)).map(fmt); },
     // o ficheiro vai cru (sem JSON) para não pesar
-    async upload_file({ data }) { return inv("upload_file", new Uint8Array(data)); },
+    async upload_file({ data }) {
+      const u8 = new Uint8Array(data);
+      if (!window.TASCA_MOBILE) return inv("upload_file", u8);
+      // no telemóvel só passa texto: os bytes vão em base64
+      let s = "";
+      for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+      return inv("upload_file", btoa(s));
+    },
     async get_file(a) { return inv("get_file", a); },
     async create_group(a) { return inv("create_group", a); },
     async join_group(a) { const g = await inv("join_group", a); publishProfile(); return g; },
