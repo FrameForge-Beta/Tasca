@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Como funciona a Tasca</title>
+<meta name="description" content="Por dentro da Tasca: grupos ponto a ponto, eventos assinados, cifra de ponta a ponta, servidor de contas sem conhecimento e chamadas reencaminhadas pelo anfitrião.">
+<meta property="og:title" content="Como funciona a Tasca">
+<meta property="og:description" content="Por dentro da Tasca: grupos ponto a ponto, eventos assinados, cifra de ponta a ponta, servidor de contas sem conhecimento e chamadas reencaminhadas pelo anfitrião.">
+<meta property="og:image" content="https://rubenfernandes2004.github.io/Tasca/tasca-banner-1200x630.png">
+<meta name="theme-color" content="#1C1714">
+<link rel="icon" href="tasca-icon.svg" type="image/svg+xml">
+<link rel="alternate icon" href="favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<div data-topo></div>
+
+<main id="conteudo">
+<div class="cabeca padrao">
+  <div class="contentor" style="position:relative">
+    <span class="sobre-titulo">Como funciona</span>
+    <h1>Sem empresa no meio</h1>
+    <p>A Tasca foi desenhada para que as tuas conversas sejam tuas. Esta página explica como, sem rodeios, para quem quer saber o que acontece por dentro.</p>
+  </div>
+</div>
+
+<section style="padding-top:24px">
+  <div class="contentor">
+    <div class="cartao revelar" style="padding:28px">
+      <svg viewBox="0 0 960 400" role="img" aria-labelledby="diag-t" style="width:100%;height:auto;display:block">
+        <title id="diag-t">Os membros ligam-se diretamente ao PC do anfitrião; quando não dá, passam por um relay. O servidor de contas só guarda dados cifrados.</title>
+        <defs>
+          <marker id="seta" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="var(--apagado)"/></marker>
+        </defs>
+        <!-- anfitrião -->
+        <rect x="370" y="140" width="220" height="120" rx="18" fill="var(--vinho)"/>
+        <text x="480" y="190" text-anchor="middle" fill="#F6EEE1" font-weight="800" font-size="22">PC do anfitrião</text>
+        <text x="480" y="218" text-anchor="middle" fill="#F6EEE1" opacity=".85" font-size="15">o grupo vive aqui (SQLite)</text>
+        <text x="480" y="240" text-anchor="middle" fill="#F6EEE1" opacity=".85" font-size="15">reencaminha a voz</text>
+        <!-- membros -->
+        <g font-size="16" text-anchor="middle">
+          <rect x="40" y="40" width="180" height="70" rx="14" fill="var(--caixa)" stroke="var(--linha)"/>
+          <text x="130" y="72" fill="var(--texto)" font-weight="700">Membro</text><text x="130" y="94" fill="var(--apagado)" font-size="13">cópia do histórico</text>
+          <rect x="40" y="290" width="180" height="70" rx="14" fill="var(--caixa)" stroke="var(--linha)"/>
+          <text x="130" y="322" fill="var(--texto)" font-weight="700">Membro</text><text x="130" y="344" fill="var(--apagado)" font-size="13">telemóvel</text>
+          <rect x="740" y="40" width="180" height="70" rx="14" fill="var(--caixa)" stroke="var(--linha)"/>
+          <text x="830" y="72" fill="var(--texto)" font-weight="700">Membro</text><text x="830" y="94" fill="var(--apagado)" font-size="13">atrás de CGNAT</text>
+          <!-- relay -->
+          <rect x="740" y="290" width="180" height="70" rx="14" fill="none" stroke="var(--azulejo)" stroke-dasharray="6 5" stroke-width="2"/>
+          <text x="830" y="322" fill="var(--texto)" font-weight="700">Relay</text><text x="830" y="344" fill="var(--apagado)" font-size="13">só vê dados cifrados</text>
+          <!-- servidor -->
+          <rect x="390" y="10" width="180" height="70" rx="14" fill="none" stroke="var(--ocre)" stroke-width="2"/>
+          <text x="480" y="42" fill="var(--texto)" font-weight="700">Servidor de contas</text><text x="480" y="64" fill="var(--apagado)" font-size="13">cofres e caixas cifradas</text>
+        </g>
+        <!-- ligações -->
+        <g stroke-width="2.5" fill="none" marker-end="url(#seta)" marker-start="url(#seta)">
+          <path d="M220 90 L370 170" stroke="var(--oliva)"/>
+          <path d="M220 315 L370 235" stroke="var(--oliva)"/>
+          <path d="M830 110 L830 290" stroke="var(--azulejo)" stroke-dasharray="6 5"/>
+          <path d="M740 320 L590 240" stroke="var(--azulejo)" stroke-dasharray="6 5"/>
+        </g>
+        <path d="M480 80 L480 140" stroke="var(--ocre)" stroke-width="2" stroke-dasharray="3 5" fill="none"/>
+        <g font-size="13" fill="var(--suave)">
+          <text x="250" y="118">QUIC direto, cifrado</text>
+          <text x="250" y="292">QUIC direto, cifrado</text>
+          <text x="600" y="300">via relay</text>
+          <text x="492" y="116">caixa cifrada</text>
+        </g>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="contentor">
+    <div class="grelha duas">
+      <div class="cartao revelar">
+        <div class="ic c-vinho"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
+        <h3>O grupo vive no PC do anfitrião</h3>
+        <p>Quem cria o grupo aloja-o numa base de dados SQLite no seu PC. Os membros ligam-se a ele pela rede <a href="https://github.com/n0-computer/iroh">iroh</a>, que usa QUIC e atravessa a maioria dos routers. Quando não consegue, usa um relay, sempre cifrado.</p>
+      </div>
+      <div class="cartao revelar">
+        <div class="ic c-azulejo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 8.7-8.7M17 6l2.5 2.5M14.5 8.5 16 10"/></svg></div>
+        <h3>A tua identidade é uma chave</h3>
+        <p>A conta é um par de chaves ed25519. A mesma chave autentica a ligação de rede, por isso ninguém consegue fingir ser outra pessoa, nem o anfitrião.</p>
+      </div>
+      <div class="cartao revelar">
+        <div class="ic c-oliva"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3.5H8A2.5 2.5 0 0 0 5.5 6v12A2.5 2.5 0 0 0 8 20.5h8a2.5 2.5 0 0 0 2.5-2.5V8L14 3.5Z"/><path d="m9 14 2 2 4-4"/></svg></div>
+        <h3>Tudo é um evento assinado</h3>
+        <p>Criar o grupo, entrar, enviar uma mensagem: cada coisa é um evento assinado pelo autor. Qualquer membro consegue verificar o histórico, e cada um guarda uma cópia. Se o PC do anfitrião desaparecer, o grupo pode ser recuperado.</p>
+      </div>
+      <div class="cartao revelar">
+        <div class="ic c-ocre"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3.5"/></svg></div>
+        <h3>Voz e vídeo pelo anfitrião</h3>
+        <p>Cada pessoa envia o áudio (Opus) uma vez para o anfitrião, que o reencaminha aos outros. A supressão de ruído (DeepFilterNet ou RNNoise) corre no teu PC antes de o som sair. O vídeo usa H.264 ou VP8, com a placa gráfica quando possível.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="seguranca">
+  <div class="contentor prosa" style="margin:0 auto">
+    <span class="sobre-titulo">Segurança</span>
+    <h2 style="margin-top:0">O que está protegido, e de quem</h2>
+
+    <h3>A tua conta</h3>
+    <p>A chave da conta é cifrada com a tua palavra-passe (Argon2id, que demora de propósito para dificultar ataques) <strong>antes</strong> de sair do dispositivo. O servidor de contas guarda esse cofre fechado e não o consegue abrir: não conhece a tua palavra-passe nem a tua chave. As 12 palavras de recuperação recriam a chave e nunca saem do teu dispositivo.</p>
+
+    <h3>As mensagens</h3>
+    <p>As mensagens de grupo e as privadas são cifradas de ponta a ponta. Para chegarem mesmo com o anfitrião desligado, ficam também numa «caixa» no servidor, mas cifradas com chaves que só os membros têm. O servidor guarda bytes que não consegue ler.</p>
+
+    <h3>As ligações</h3>
+    <p>Todas as ligações entre dispositivos são QUIC com TLS, autenticadas pela chave de cada pessoa. O relay, quando é usado, só passa pacotes cifrados.</p>
+
+    <h3>As atualizações</h3>
+    <p>Cada versão é criada pelo GitHub Actions a partir do código público e assinada. A app só instala atualizações com a assinatura da Tasca.</p>
+
+    <h3>Os plugins</h3>
+    <p>Os plugins da loja são revistos e assinados pela equipa, e cada plugin só recebe as permissões que aceitares.</p>
+
+    <div class="aviso"><b>O que a Tasca não protege.</b> Quem está no grupo lê as mensagens do grupo e pode copiá-las. O anfitrião vê quem está ligado e quando. Se alguém tiver acesso ao teu PC desbloqueado, tem acesso às tuas conversas: usa uma palavra-passe no Windows.</div>
+
+    <h3>Encontraste uma falha?</h3>
+    <p>Obrigado! Reporta-a em privado através do separador <a href="https://github.com/RubenFernandes2004/Tasca/security">Security do GitHub</a>, em vez de a publicar numa issue.</p>
+
+    <h2>Tecnologia</h2>
+    <div class="tabela-wrap">
+      <table>
+        <tbody>
+          <tr><td><b>Núcleo</b></td><td>Rust: identidade, eventos assinados, SQLite, rede P2P (<code>crates/tasca-core</code>)</td></tr>
+          <tr><td><b>Rede</b></td><td>iroh (QUIC, travessia de NAT, relays)</td></tr>
+          <tr><td><b>App</b></td><td>Tauri 2, a mesma base no Windows e no Android</td></tr>
+          <tr><td><b>Interface</b></td><td>HTML, CSS e JavaScript simples, sem framework</td></tr>
+          <tr><td><b>Voz</b></td><td>Opus, DeepFilterNet, RNNoise</td></tr>
+          <tr><td><b>Vídeo</b></td><td>WebCodecs H.264 / VP8</td></tr>
+          <tr><td><b>Licença</b></td><td>MIT ou Apache 2.0, à tua escolha</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:24px"><a href="https://github.com/RubenFernandes2004/Tasca">Ver o código no GitHub →</a></p>
+  </div>
+</section>
+</main>
+
+<div data-rodape></div>
+<script src="assets/site.js"></script>
+
+</body>
+</html>

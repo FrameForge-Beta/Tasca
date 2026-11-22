@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manual da Tasca</title>
+<meta name="description" content="Manual da Tasca: instalar, criar conta, grupos, canais, amigos, chamadas de voz e vídeo, partilha de ecrã, definições, Android e resolução de problemas.">
+<meta property="og:title" content="Manual da Tasca">
+<meta property="og:image" content="https://rubenfernandes2004.github.io/Tasca/tasca-banner-1200x630.png">
+<meta name="theme-color" content="#1C1714">
+<link rel="icon" href="tasca-icon.svg" type="image/svg+xml">
+<link rel="alternate icon" href="favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<div data-topo></div>
+
+<main id="conteudo">
+  <div class="cabeca padrao">
+    <div class="contentor" style="position:relative">
+      <span class="sobre-titulo">Manual</span>
+      <h1>Tudo sobre a Tasca</h1>
+      <p>Do primeiro download à primeira chamada. Usa a pesquisa ou carrega em <kbd>/</kbd> para procurar.</p>
+    </div>
+  </div>
+
+  <div class="contentor doc">
+    <nav class="doc-nav" aria-label="Índice do manual">
+      <input class="procura" type="search" placeholder="Procurar no manual" aria-label="Procurar no manual">
+      <button class="abrir-indice" type="button">Índice <span aria-hidden="true">▾</span></button>
+      <div class="grupos">
+        <div class="grupo"><span>Começar</span>
+          <a href="#instalar">Instalar no Windows</a>
+          <a href="#instalar-android">Instalar no Android</a>
+          <a href="#criar-conta">Criar a conta</a>
+          <a href="#palavras">As 12 palavras</a>
+          <a href="#entrar">Entrar e recuperar a conta</a>
+        </div>
+        <div class="grupo"><span>Grupos</span>
+          <a href="#criar-grupo">Criar um grupo</a>
+          <a href="#convidar">Convidar e entrar</a>
+          <a href="#canais">Canais e categorias</a>
+          <a href="#anfitriao">Ser anfitrião</a>
+        </div>
+        <div class="grupo"><span>Conversar</span>
+          <a href="#mensagens">Mensagens</a>
+          <a href="#amigos">Amigos</a>
+          <a href="#privadas">Mensagens privadas</a>
+          <a href="#perfil">Perfil e estado</a>
+        </div>
+        <div class="grupo"><span>Chamadas</span>
+          <a href="#voz">Chamadas de voz</a>
+          <a href="#microfone">Microfone e ruído</a>
+          <a href="#video">Câmara e partilha de ecrã</a>
+        </div>
+        <div class="grupo"><span>Definições</span>
+          <a href="#aparencia">Aparência</a>
+          <a href="#privacidade">Privacidade e permissões</a>
+          <a href="#rede">Rede e relay</a>
+          <a href="#copias">Cópias de segurança</a>
+          <a href="#plugins">Plugins</a>
+          <a href="#atualizacoes">Atualizações</a>
+        </div>
+        <div class="grupo"><span>Mais</span>
+          <a href="#telemovel">PC e telemóvel</a>
+          <a href="#atalhos">Atalhos de teclado</a>
+          <a href="#problemas">Resolver problemas</a>
+        </div>
+        <p class="sem-resultados">Nada encontrado. Experimenta outra palavra ou vê as <a href="faq.html">perguntas frequentes</a>.</p>
+      </div>
+    </nav>
+
+    <article class="doc-corpo">
+
+      <!-- ================= COMEÇAR ================= -->
+      <section id="instalar">
+        <h2>Instalar no Windows</h2>
+        <p>A Tasca funciona no <strong>Windows 10 e 11, 64 bits</strong>. O instalador instala a Tasca só para o teu utilizador.</p>
+        <ol>
+          <li>Vai a <a href="descarregar.html">Descarregar</a> e carrega em <strong>Descarregar para Windows</strong>. Recebes um ficheiro <code>Tasca_x.y.z_x64-setup.exe</code>.</li>
+          <li>Abre o ficheiro. Se o Windows mostrar «O Windows protegeu o computador», carrega em <strong>Mais informações</strong> e depois em <strong>Executar mesmo assim</strong>.</li>
+          <li>Segue o instalador. No fim, a Tasca abre sozinha.</li>
+        </ol>
+        <div class="aviso info"><b>Porque é que o Windows avisa?</b> O aviso do SmartScreen aparece com programas novos que ainda não têm muitas instalações nem um certificado pago. O instalador é criado automaticamente pelo GitHub a partir do <a href="https://github.com/RubenFernandes2004/Tasca">código público</a>, e as atualizações são assinadas.</div>
+        <h3 id="instalar-requisitos">O que é preciso</h3>
+        <ul>
+          <li>Windows 10 ou 11 (64 bits) com o WebView2, que já vem com o Windows.</li>
+          <li>Ligação à internet. Numa rede local também funciona entre PCs da mesma casa.</li>
+          <li>Microfone e auscultadores para as chamadas; câmara é opcional.</li>
+        </ul>
+        <h3 id="instalar-onde">Onde ficam os dados</h3>
+        <p>As tuas contas, grupos e histórico ficam em <code>%APPDATA%\Tasca</code>. Desinstalar a Tasca não apaga esta pasta, por isso podes reinstalar sem perder nada.</p>
+      </section>
+
+      <section id="instalar-android">
+        <h2>Instalar no Android</h2>
+        <p>A Tasca para Android é a mesma app do PC, adaptada ao telemóvel. Precisa do <strong>Android 8 ou mais recente</strong>.</p>
+        <ol>
+          <li>No telemóvel, abre <a href="descarregar.html">Descarregar</a> e carrega em <strong>Descarregar para Android</strong>. Recebes o ficheiro <code>Tasca.apk</code>.</li>
+          <li>Abre o ficheiro. O Android pergunta se permites instalar apps desta fonte (do browser ou do gestor de ficheiros). Permite e volta atrás.</li>
+          <li>Carrega em <strong>Instalar</strong>.</li>
+        </ol>
+        <p>Para atualizar, a Tasca avisa quando há uma versão nova e descarrega-a por ti; só tens de confirmar a instalação. Também podes ir a <strong>Definições &gt; Sobre &gt; Procurar atualizações</strong>.</p>
+        <div class="aviso">A loja Google Play ainda não tem a Tasca. Por agora o APK vem diretamente do GitHub.</div>
+      </section>
+
+      <section id="criar-conta">
+        <h2>Criar a conta</h2>
+        <p>Não precisas de email nem de número de telefone. A tua conta é um par de chaves criado no teu dispositivo e protegido pela tua palavra-passe.</p>
+        <figure class="print"><img src="img/criar-conta.webp" width="2000" height="1222" alt="Ecrã Criar conta com nome, ID, palavra-passe e Lembrar esta conta." loading="lazy"><figcaption>O ecrã de criar conta.</figcaption></figure>
+        <ol>
+          <li>Abre a Tasca e carrega em <strong>Criar conta</strong>.</li>
+          <li><strong>Nome</strong>: como te vão ver nos grupos. Podes repeti-lo e mudá-lo depois.</li>
+          <li><strong>O teu ID</strong>: o teu nome de utilizador único, como <code>@tiago.f</code>. É com ele que entras noutro dispositivo e que os amigos te adicionam. Só letras minúsculas, números, <code>_</code> e <code>.</code>, entre 3 e 24 caracteres. Se já existir, a Tasca sugere alternativas.</li>
+          <li><strong>Palavra-passe</strong>: pelo menos 8 caracteres. Uma frase comprida é mais segura e mais fácil de lembrar.</li>
+          <li><strong>Lembrar esta conta neste PC</strong>: a Tasca abre já desbloqueada da próxima vez. A chave fica no cofre do Windows.</li>
+          <li>Carrega em <strong>Continuar</strong>, guarda as <a href="#palavras">12 palavras</a> e aceita os <a href="termos.html">termos e regras</a>.</li>
+        </ol>
+      </section>
+
+      <section id="palavras">
+        <h2>As 12 palavras de recuperação</h2>
+        <p>Quando crias a conta, a Tasca mostra 12 palavras em inglês. São a <strong>única forma</strong> de recuperar a conta se perderes a palavra-passe ou o dispositivo.</p>
+        <div class="aviso perigo"><b>Ninguém consegue recuperar a tua conta por ti.</b> Nem a equipa da Tasca. Se perderes a palavra-passe e as 12 palavras, a conta perde-se.</div>
+        <ul>
+          <li>Escreve-as em papel, pela ordem, e guarda-as num sítio seguro. No PC também as podes guardar num ficheiro <code>.txt</code> no ambiente de trabalho.</li>
+          <li>A Tasca pede-te para confirmares algumas palavras, para ter a certeza de que as guardaste.</li>
+          <li>Nunca as envies a ninguém. Quem as tiver, fica com a tua conta.</li>
+        </ul>
+      </section>
+
+      <section id="entrar">
+        <h2>Entrar e recuperar a conta</h2>
+        <h3 id="entrar-outro">Entrar noutro PC ou no telemóvel</h3>
+        <p>Carrega em <strong>Entrar</strong> e escreve o teu <strong>@ID</strong> e a palavra-passe. A tua conta, cifrada, vem do servidor de contas e é aberta no dispositivo. Amigos, grupos e perfil passam para o dispositivo novo.</p>
+        <h3 id="entrar-recuperar">Esqueci-me da palavra-passe</h3>
+        <ol>
+          <li>No ecrã de entrar, carrega em <strong>Usar as 12 palavras de recuperação</strong>.</li>
+          <li>Escreve as 12 palavras pela ordem, separadas por espaços.</li>
+          <li>Escolhe uma palavra-passe nova.</li>
+        </ol>
+        <h3 id="entrar-google">Entrar com Google</h3>
+        <p>Se ligaste a conta ao Google, a Tasca guarda uma cópia cifrada numa pasta privada dela no teu Google Drive. Ela só tem acesso a essa pasta, não aos teus ficheiros.</p>
+        <h3 id="entrar-contas">Várias contas</h3>
+        <p>Carrega no teu nome, no canto de baixo, e escolhe <strong>Trocar de conta</strong> ou <strong>Sair da conta</strong>. O ecrã «Escolhe a conta» mostra todas as contas que já entraram neste dispositivo.</p>
+      </section>
+
+      <!-- ================= GRUPOS ================= -->
+      <section id="criar-grupo">
+        <h2>Criar um grupo</h2>
+        <p>Um grupo é como uma casa: tem canais de texto e de voz, membros e um anfitrião.</p>
+        <figure class="print"><img src="img/novo-grupo.webp" width="2000" height="1222" alt="Janela Criar ou entrar num grupo." loading="lazy"><figcaption>Criar um grupo novo, ou entrar num com um convite.</figcaption></figure>
+        <ol>
+          <li>Na barra da esquerda, carrega no <strong>+</strong>.</li>
+          <li>Escreve o nome do grupo, por exemplo «Malta do Futsal», e carrega em <strong>Criar grupo</strong>.</li>
+        </ol>
+        <p>O grupo fica alojado <strong>no teu PC</strong>: tu és o anfitrião. Lê <a href="#anfitriao">Ser anfitrião</a> para perceberes o que isso significa.</p>
+        <div class="aviso info">No telemóvel não dá para criar grupos, porque o grupo vive no PC de quem o cria. Cria-o no PC; no telemóvel aparece como mais um dispositivo teu.</div>
+      </section>
+
+      <section id="convidar">
+        <h2>Convidar pessoas e entrar num grupo</h2>
+        <h3 id="convidar-criar">Convidar</h3>
+        <ol>
+          <li>Abre o grupo e carrega no ícone de <strong>Convidar pessoas</strong>, ao lado do nome do grupo.</li>
+          <li>A Tasca cria um código que começa por <code>tasca1</code>. Carrega em <strong>Copiar convite</strong> e envia-o por onde quiseres.</li>
+        </ol>
+        <p>O convite expira ao fim de 7 dias. Quem o usar liga-se diretamente ao PC do anfitrião, sem passar por servidores.</p>
+        <h3 id="convidar-entrar">Entrar com um convite</h3>
+        <ol>
+          <li>Carrega no <strong>+</strong> na barra da esquerda.</li>
+          <li>Cola o convite na caixa <strong>Convite</strong> e carrega em <strong>Entrar</strong>.</li>
+        </ol>
+        <div class="aviso">Para entrares pela primeira vez, o PC do anfitrião tem de estar ligado e com a Tasca aberta.</div>
+      </section>
+
+      <section id="canais">
+        <h2>Canais e categorias</h2>
+        <p>Os canais de texto (<strong>#</strong>) são para escrever; os canais de voz (🔊) são salas onde entras e sais quando quiseres. As categorias agrupam canais, e um canal de texto e um de voz podem estar na mesma categoria.</p>
+        <h3 id="canais-criar">Criar e editar (anfitrião)</h3>
+        <ul>
+          <li>Carrega no <strong>+</strong> ao lado de uma categoria para criar um canal nela.</li>
+          <li>Carrega com o <strong>botão direito</strong> num canal para editar, duplicar, mover para outra categoria, copiar o ID ou apagar.</li>
+          <li>Carrega na roda dentada de uma categoria para lhe mudar o nome ou a apagar.</li>
+          <li><strong>Arrasta</strong> canais e categorias na lista para os ordenar.</li>
+        </ul>
+        <h3 id="canais-notificacoes">Notificações de cada canal</h3>
+        <p>No menu do grupo (seta ao lado do nome) escolhes se queres ser avisado de todas as mensagens ou <strong>só de menções</strong>. Com o botão direito num canal podes <strong>marcar como lido</strong>; no grupo, <strong>marcar tudo como lido</strong>.</p>
+      </section>
+
+      <section id="anfitriao">
+        <h2>Ser anfitrião</h2>
+        <p>O anfitrião é quem aloja o grupo no seu PC. Os membros ligam-se a ele para receber mensagens novas e para as chamadas.</p>
+        <h3 id="anfitriao-estado">Saber se o anfitrião está ligado</h3>
+        <p>Por baixo do nome do grupo aparece onde está alojado e como estás ligado: <strong>direto</strong> (o melhor), <strong>via relay</strong> (quando o router não deixa ligar direto) ou <strong>este PC</strong> (és tu). Ao lado, o ping em milissegundos.</p>
+        <p>Se o anfitrião desligar o PC, continuas a ver o histórico guardado no teu dispositivo, e o que escreveres é entregue quando ele voltar.</p>
+        <h3 id="anfitriao-dicas">Dicas para anfitriões</h3>
+        <ul>
+          <li>Liga <strong>Abrir com o Windows</strong> em Definições &gt; Privacidade e permissões, para o grupo estar disponível sempre que o PC está ligado.</li>
+          <li>Em <strong>Definições &gt; Grupos que aloja</strong> vês os teus grupos, quantos membros têm e quanto ocupam.</li>
+        </ul>
+        <h3 id="anfitriao-transferir">Passar o grupo a outra pessoa</h3>
+        <p>Vais mudar de PC ou queres que outra pessoa fique com o grupo? Em <strong>Opções do grupo &gt; Transferir propriedade</strong>, ou com o botão direito numa pessoa &gt; <strong>Passar o grupo para…</strong>.</p>
+        <p>Assinas a transferência, a outra pessoa aceita, os dados vão cifrados para o PC dela e só depois de confirmados é que deixas de ser anfitrião.</p>
+      </section>
+
+      <!-- ================= CONVERSAR ================= -->
+      <section id="mensagens">
+        <h2>Mensagens</h2>
+        <ul>
+          <li><kbd>Enter</kbd> envia; <kbd>Shift</kbd> + <kbd>Enter</kbd> muda de linha.</li>
+          <li>Escreve <code>@</code> e o nome para <strong>mencionar</strong> alguém. A mensagem fica destacada para essa pessoa.</li>
+          <li>O botão 😊 abre os <strong>emojis</strong>. Passa o rato numa mensagem para <strong>reagir</strong>.</li>
+          <li>O clipe anexa um <strong>ficheiro</strong>, que vai diretamente para os PCs dos membros.</li>
+          <li>Se uma mensagem não chegar ao anfitrião, aparece um aviso com <strong>Tentar enviar outra vez</strong>.</li>
+        </ul>
+        <p>As mensagens são <strong>cifradas de ponta a ponta</strong> e assinadas por quem as escreveu. Ficam no PC do anfitrião, numa cópia em cada membro e, cifradas, na caixa do grupo no servidor, para chegarem mesmo com o anfitrião desligado.</p>
+      </section>
+
+      <section id="amigos">
+        <h2>Amigos</h2>
+        <figure class="print"><img src="img/amigos.webp" width="2000" height="1222" alt="Página de amigos." loading="lazy"><figcaption>A página de amigos: online, todos, pedidos e bloqueados.</figcaption></figure>
+        <p>Carrega no logótipo da Tasca, no topo da barra da esquerda, para abrir <strong>Amigos e mensagens privadas</strong>.</p>
+        <ul>
+          <li><strong>Adicionar amigo</strong>: escreve o @ID da pessoa. Também podes carregar com o botão direito em alguém de um grupo.</li>
+          <li><strong>Pedidos</strong>: os que recebes e os que enviaste, até alguém responder.</li>
+          <li><strong>Bloquear</strong>: quem bloqueares não te consegue pedir amizade nem ver se estás online.</li>
+        </ul>
+      </section>
+
+      <section id="privadas">
+        <h2>Mensagens privadas</h2>
+        <p>Abre o perfil de alguém e carrega em <strong>Mensagem</strong>, ou escolhe <strong>Enviar mensagem</strong> no menu do botão direito. A conversa é só entre os dois, cifrada de ponta a ponta, e aparece em todos os teus dispositivos.</p>
+        <p><span class="estado breve">Em breve</span> Chamadas de voz e vídeo a dois, diretamente entre os dois PCs.</p>
+      </section>
+
+      <section id="perfil">
+        <h2>Perfil e estado</h2>
+        <figure class="print"><img src="img/perfil.webp" width="2000" height="1222" alt="Cartão de perfil aberto ao lado da lista de membros." loading="lazy"><figcaption>Carrega numa pessoa para ver o cartão de perfil.</figcaption></figure>
+        <h3 id="perfil-editar">Editar o perfil</h3>
+        <p>Carrega no teu nome em baixo &gt; <strong>Editar perfil</strong>: muda o nome, a foto, a cor do azulejo e o «Sobre mim».</p>
+        <h3 id="perfil-estado">Estado</h3>
+        <ul>
+          <li><strong>Online</strong>: toda a gente vê que estás cá.</li>
+          <li><strong>Ausente</strong>: fica assim sozinho depois de 10 minutos sem mexer.</li>
+          <li><strong>Não incomodar</strong>: sem notificações nem sons de mensagens.</li>
+          <li><strong>Invisível</strong>: usas a Tasca, mas apareces offline.</li>
+        </ul>
+        <h3 id="perfil-menu">O menu de cada pessoa</h3>
+        <p>Botão direito numa pessoa: ver o perfil, mencionar, enviar mensagem, ajustar o <strong>volume só para ti</strong>, silenciar, adicionar ou remover amigo, bloquear e copiar o ID.</p>
+      </section>
+
+      <!-- ================= CHAMADAS ================= -->
+      <section id="voz">
+        <h2>Chamadas de voz</h2>
+        <figure class="print"><img src="img/chamada.webp" width="2000" height="1222" alt="Uma chamada com cinco pessoas." loading="lazy"><figcaption>Uma chamada com câmara e um ecrã partilhado.</figcaption></figure>
+        <ol>
+          <li>Carrega num canal de voz (🔊) para entrar. Quem lá está aparece por baixo do canal.</li>
+          <li>Na barra de baixo tens: <strong>microfone</strong>, <strong>som</strong> (deixas de ouvir e de ser ouvido), <strong>câmara</strong>, <strong>partilhar ecrã</strong>, definições e <strong>sair</strong>.</li>
+          <li>O <strong>#</strong> no topo abre o chat do grupo sem sair da chamada; o ícone ao lado põe a chamada em ecrã inteiro.</li>
+        </ol>
+        <p>No topo vês o <strong>ping</strong> e quanto estás a enviar. A voz usa o codec Opus e passa pelo anfitrião, que a reencaminha para os outros.</p>
+      </section>
+
+      <section id="microfone">
+        <h2>Microfone e supressão de ruído</h2>
+        <figure class="print"><img src="img/def-voz.webp" width="2000" height="1222" alt="Definições de voz e vídeo." loading="lazy"><figcaption>Definições &gt; Voz e vídeo.</figcaption></figure>
+        <ul>
+          <li><strong>Dispositivos</strong>: escolhe o microfone e os auscultadores, e carrega em testar.</li>
+          <li><strong>Sensibilidade</strong>: fala para ver o nível. Abaixo da linha escolhida o microfone não transmite.</li>
+          <li><strong>Carregar para falar</strong>: só transmite enquanto carregas em <kbd>V</kbd>.</li>
+          <li><strong>Supressão de ruído</strong>: tira ventoinhas, teclado e barulho de fundo. Corre no teu PC, nada sai dele.
+            <ul>
+              <li><strong>Forte (DeepFilterNet)</strong>: tira mais ruído e soa mais natural.</li>
+              <li><strong>Leve (RNNoise)</strong>: gasta muito pouco, bom para PCs mais fracos.</li>
+            </ul>
+          </li>
+          <li><strong>Sons da chamada</strong>: entrar e sair, microfone, som e partilha de ecrã, com o volume que quiseres.</li>
+        </ul>
+      </section>
+
+      <section id="video">
+        <h2>Câmara e partilha de ecrã</h2>
+        <h3 id="video-camara">Câmara</h3>
+        <p>Dentro de uma chamada, carrega no botão da câmara. Escolhe qual câmara usar em Definições &gt; Voz e vídeo. Carrega com o botão direito numa pessoa para <strong>não ver o vídeo</strong> dela e poupar dados.</p>
+        <h3 id="video-ecra">Partilhar o ecrã</h3>
+        <ol>
+          <li>Carrega em <strong>Partilhar ecrã</strong> e escolhe o ecrã inteiro ou uma janela.</li>
+          <li>Para parar, carrega outra vez no botão ou em <strong>Parar partilha</strong>.</li>
+        </ol>
+        <p>Liga <strong>Usar a placa gráfica para codificar</strong> (NVENC, AMF ou Quick Sync) para partilhar jogos sem pesar no processador.</p>
+        <div class="aviso info">No Android a partilha de ecrã ainda não está disponível.</div>
+      </section>
+
+      <!-- ================= DEFINIÇÕES ================= -->
+      <section id="aparencia">
+        <h2>Aparência</h2>
+        <figure class="print"><img src="img/def-aparencia.webp" width="2000" height="1222" alt="Definições de aparência." loading="lazy"><figcaption>Definições &gt; Aparência.</figcaption></figure>
+        <ul>
+          <li><strong>Modo</strong>: Madeira (escuro, o tema da casa), Cal (claro) ou igual ao sistema.</li>
+          <li><strong>Estilo das mensagens</strong>: balões ou lista corrida.</li>
+          <li><strong>Tamanho do texto</strong> e <strong>mensagens compactas</strong>.</li>
+        </ul>
+      </section>
+
+      <section id="privacidade">
+        <h2>Privacidade e permissões</h2>
+        <p>Em <strong>Definições &gt; Privacidade e permissões</strong> decides o que a Tasca pode usar. Desligar aqui desliga mesmo.</p>
+        <ul>
+          <li><strong>Microfone</strong>: desligado, entras nas chamadas só a ouvir.</li>
+          <li><strong>Câmara</strong>: desligada, o botão da câmara fica bloqueado.</li>
+          <li><strong>Notificações</strong>: avisos de mensagens e menções com a Tasca em segundo plano.</li>
+          <li><strong>Abrir com o Windows</strong>: a Tasca abre minimizada quando ligas o PC.</li>
+        </ul>
+        <p>O Windows também tem permissões próprias: se o microfone não funcionar, vê <a href="#problemas-microfone">Resolver problemas</a>.</p>
+      </section>
+
+      <section id="rede">
+        <h2>Rede e relay</h2>
+        <p>A Tasca tenta sempre ligar os PCs diretamente. Quando não dá (alguns routers, CGNAT da operadora, firewalls), o tráfego passa por um <strong>relay</strong>. O relay só vê dados cifrados e não consegue ler nada.</p>
+        <p>Em <strong>Definições &gt; Rede e relay</strong> vês o estado da ligação e podes testar o relay.</p>
+      </section>
+
+      <section id="copias">
+        <h2>Cópias de segurança <span class="estado breve">Em breve</span></h2>
+        <p>Para quem aloja grupos: a Tasca vai fazer cópias automáticas dos grupos, comprimidas e cifradas com uma palavra-passe só tua, para o Google Drive, o OneDrive ou uma pasta à tua escolha. Só envia o que mudou desde a última cópia.</p>
+        <p>Até lá, cada membro guarda uma cópia do histórico, e a pasta <code>%APPDATA%\Tasca</code> pode ser copiada à mão.</p>
+      </section>
+
+      <section id="plugins">
+        <h2>Plugins <span class="estado breve">Em breve</span></h2>
+        <figure class="print"><img src="img/def-plugins.webp" width="2000" height="1222" alt="Página de plugins com a loja." loading="lazy"><figcaption>Como vai ficar a loja de plugins.</figcaption></figure>
+        <p>A loja de plugins vai estar em <strong>Definições &gt; Plugins</strong> (ou no ícone da peça de puzzle, no canto de cima). Os plugins com o selo <strong>Verificado</strong> são revistos e assinados pela equipa. Cada plugin só tem as permissões que aceitares.</p>
+        <p>Queres fazer o teu? Vê o <a href="plugins.html">guia para criar plugins</a>.</p>
+      </section>
+
+      <section id="atualizacoes">
+        <h2>Atualizações</h2>
+        <p>No Windows, a Tasca procura atualizações sempre que abre e instala-as sozinha, sem janelas. No Android, avisa e descarrega a versão nova; só tens de confirmar.</p>
+        <p>Para procurar à mão: <strong>Definições &gt; Sobre &gt; Procurar atualizações</strong>. O que mudou em cada versão está em <a href="novidades.html">Novidades</a>.</p>
+      </section>
+
+      <!-- ================= MAIS ================= -->
+      <section id="telemovel">
+        <h2>PC e telemóvel na mesma conta</h2>
+        <figure class="print estreito"><img src="img/movel-gaveta.webp" width="900" height="1948" alt="A Tasca no telemóvel, com a gaveta dos grupos e canais aberta." loading="lazy"><figcaption>No telemóvel, os grupos e canais ficam numa gaveta.</figcaption></figure>
+        <ul>
+          <li>Entra no telemóvel com o mesmo @ID e palavra-passe. Amigos, grupos e perfil aparecem sozinhos.</li>
+          <li>As mensagens que escreves num dispositivo aparecem logo no outro.</li>
+          <li>Os teus grupos continuam a viver no PC. Com o PC desligado, o telemóvel mostra a cópia local e o que escreves vai pela caixa do grupo.</li>
+          <li>Grupos e canais estão na gaveta: botão ☰ ou desliza da esquerda. O botão de voltar do Android fecha menus e janelas.</li>
+        </ul>
+        <h3 id="telemovel-limites">Ainda não funciona no Android</h3>
+        <ul>
+          <li>Partilha de ecrã.</li>
+          <li>Notificações com a app fechada: o Android suspende a app pouco depois de saíres dela.</li>
+          <li>Criar grupos (cria-os no PC).</li>
+        </ul>
+      </section>
+
+      <section id="atalhos">
+        <h2>Atalhos de teclado</h2>
+        <div class="tabela-wrap">
+          <table>
+            <thead><tr><th>Tecla</th><th>O que faz</th></tr></thead>
+            <tbody>
+              <tr><td><kbd>Enter</kbd></td><td>Enviar a mensagem</td></tr>
+              <tr><td><kbd>Shift</kbd> + <kbd>Enter</kbd></td><td>Nova linha na mensagem</td></tr>
+              <tr><td><kbd>V</kbd> (manter)</td><td>Falar, com «Carregar para falar» ligado</td></tr>
+              <tr><td><kbd>Esc</kbd></td><td>Fechar janelas, menus, definições e o ecrã inteiro</td></tr>
+              <tr><td>Botão direito</td><td>Menu de pessoas, canais, categorias e campos de texto</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="problemas">
+        <h2>Resolver problemas</h2>
+        <h3 id="problemas-smartscreen">O Windows não deixa instalar</h3>
+        <p>Carrega em <strong>Mais informações</strong> e depois em <strong>Executar mesmo assim</strong>. Se o antivírus bloquear, descarrega outra vez da página oficial e permite o ficheiro.</p>
+        <h3 id="problemas-entrar">Não consigo entrar na conta</h3>
+        <ul>
+          <li>Confirma o @ID (sem espaços) e a palavra-passe, com atenção às maiúsculas.</li>
+          <li>Se a Tasca disser que não consegue ligar ao servidor, mostra um diagnóstico (DNS, ligação, HTTPS). Experimenta outra rede, como os dados do telemóvel.</li>
+          <li>Esqueceste-te da palavra-passe? Usa as <a href="#entrar-recuperar">12 palavras</a>.</li>
+        </ul>
+        <h3 id="problemas-grupo">Não consigo entrar num grupo</h3>
+        <ul>
+          <li>O PC do anfitrião tem de estar ligado com a Tasca aberta.</li>
+          <li>O convite pode ter expirado (dura 7 dias). Pede um novo.</li>
+          <li>Copia o convite inteiro, a começar por <code>tasca1</code>.</li>
+        </ul>
+        <h3 id="problemas-microfone">Ninguém me ouve</h3>
+        <ol>
+          <li>Vê se o microfone não está desligado na barra da chamada.</li>
+          <li>Em Definições &gt; Voz e vídeo, escolhe o microfone certo e fala para ver o nível. Baixa a sensibilidade se for preciso.</li>
+          <li>Em Definições &gt; Privacidade e permissões, confirma que o microfone está ligado.</li>
+          <li>No Windows: Definições &gt; Privacidade e segurança &gt; Microfone, e permite o acesso às apps de ambiente de trabalho.</li>
+        </ol>
+        <h3 id="problemas-som">A voz corta ou tem atraso</h3>
+        <p>Vê o ping no topo da chamada. Se a ligação for «via relay», o router não deixa ligar direto: ativar UPnP no router costuma resolver. Uma ligação por cabo também ajuda. Em PCs fracos, muda a supressão de ruído para <strong>Leve</strong>.</p>
+        <h3 id="problemas-android">O Android não instala o APK</h3>
+        <ul>
+          <li>Permite «Instalar apps desconhecidas» para o browser ou o gestor de ficheiros que usaste.</li>
+          <li>Se disser que a app não é compatível com a versão instalada, desinstala a Tasca e instala outra vez.</li>
+        </ul>
+        <h3 id="problemas-outro">Outro problema?</h3>
+        <p>Vê as <a href="faq.html">perguntas frequentes</a> ou <a href="https://github.com/RubenFernandes2004/Tasca/issues/new">reporta o problema no GitHub</a>, com a versão da Tasca (Definições &gt; Sobre) e o que estavas a fazer.</p>
+      </section>
+    </article>
+
+    <aside class="doc-toc" aria-label="Nesta secção"></aside>
+  </div>
+</main>
+
+<div data-rodape></div>
+<script src="assets/site.js"></script>
+</body>
+</html>

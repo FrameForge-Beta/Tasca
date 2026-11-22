@@ -1,5 +1,5 @@
-# Publica a página da Tasca (pasta site/) no GitHub Pages.
-# Corre a cada push para o main que mude a pasta site/.
+# Publica o site da Tasca (pasta site/) no GitHub Pages.
+# Corre a cada push para o main que mude o site ou os termos da app.
 # Uma vez só: Settings > Pages > Build and deployment > Source: "GitHub Actions".
 name: Publicar site
 
@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - "site/**"
+      - "apps/desktop/ui/termos.js"
       - ".github/workflows/site.yml"
   workflow_dispatch:
 
@@ -28,6 +29,9 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      # Os termos vêm da app, para o site e a app mostrarem sempre o mesmo texto.
+      - name: Copiar os termos da app
+        run: cp apps/desktop/ui/termos.js site/assets/termos.js
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
