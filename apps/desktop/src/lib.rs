@@ -14,6 +14,7 @@ mod avisos;
 mod barra_partilha;
 mod contas;
 mod dms;
+mod ecra;
 mod grupos;
 mod mensagens;
 mod moderacao;
@@ -246,6 +247,10 @@ pub fn run() {
             presenca::set_autostart,
             presenca::get_autostart,
             barra_partilha::esconder_barra_partilha,
+            ecra::list_share_sources,
+            ecra::start_share,
+            ecra::stop_share,
+            ecra::share_keyframe,
         ])
         .setup(|app| {
             let app = app.handle().clone();

@@ -615,6 +615,21 @@
     async pass_voice_host() { return true; },
     async set_camera() { return true; },
     async list_capture_sources() { return []; },
+    async list_share_sources() {
+      await wait(500);
+      const svg = (bg, fg, t) => "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="${bg}"/><rect x="16" y="16" width="288" height="18" rx="3" fill="${fg}" opacity=".5"/><rect x="16" y="46" width="180" height="118" rx="4" fill="${fg}" opacity=".3"/><rect x="208" y="46" width="96" height="118" rx="4" fill="${fg}" opacity=".2"/><text x="24" y="30" font-family="sans-serif" font-size="11" fill="#fff">${t}</text></svg>`);
+      return [
+        { id: "m:1", kind: "screen", name: "Ecrã 1", thumb: svg("#1d1a17", "#9B2C3F", "") },
+        { id: "m:2", kind: "screen", name: "Ecrã 2", thumb: svg("#14361f", "#5E8C4A", "") },
+        { id: "w:1", kind: "window", name: "Visual Studio Code", app: "Code", thumb: svg("#1e1e1e", "#2A5CAA", "") },
+        { id: "w:2", kind: "window", name: "Futebol em direto", app: "msedge", thumb: svg("#0b2a14", "#5E8C4A", "") },
+        { id: "w:3", kind: "window", name: "Música", app: "musica", thumb: svg("#121212", "#B8791A", "") },
+        { id: "w:4", kind: "window", name: "Explorador de Ficheiros", app: "explorer", thumb: null },
+      ];
+    },
+    async start_share() { return true; },
+    async stop_share() { return true; },
+    async share_keyframe() { return true; },
     async start_screen_share() { await wait(300); return true; },
     async stop_screen_share() { return true; },
     async list_plugins() { return clone(plugins); },

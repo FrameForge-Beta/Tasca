@@ -166,10 +166,14 @@
       for (const v of localVid[k].splice(slots.length)) { v.srcObject = null; v.remove(); }
     }
     // vídeo dos outros: o mesmo <canvas> passa para o quadrado novo a cada render
-    if (window.vozAudio) document.querySelectorAll("[data-remote]").forEach((slot) => {
-      const c = vozAudio.video.canvas(slot.dataset.remote);
-      if (c.parentNode !== slot) slot.appendChild(c);
-    });
+    if (window.vozAudio) {
+      const n = {};
+      document.querySelectorAll("[data-remote]").forEach((slot) => {
+        const k = slot.dataset.remote, i = (n[k] = (n[k] || 0) + 1) - 1;
+        const c = vozAudio.video.canvas(k, i);
+        if (c.parentNode !== slot) slot.appendChild(c);
+      });
+    }
   }
   // Manda a câmara e o ecrã aos outros da chamada, e diz-lhes o que está ligado.
   function syncVideo() {
@@ -181,7 +185,7 @@
       const [h, fps] = q.startsWith("720") ? [720, 30] : q.includes("60") ? [1080, 60] : [1080, 30];
       v.publish("screen", media.screen, { height: h, fps, bitrate: h === 720 ? 2_500_000 : fps === 60 ? 6_000_000 : 4_000_000 });
     } else v.unpublish("screen");
-    api.set_video_state({ camera: !!media.cam, screen: !!media.screen || !!(S.sharing && S.sharing.native) }).catch(() => {});
+    api.set_video_state({ camera: !!media.cam, screen: !!media.screen || !!(S.sharing && (S.sharing.native || S.sharing.win)) }).catch(() => {});
   }
   // Estado de voz de alguém na chamada onde estou (micro, som, câmara, ecrã).
   const vs = (id) => (id === "me" ? { muted: S.muted, deaf: S.deaf, camera: S.camera, screen: !!S.sharing } : (S.voiceStates && S.voiceStates[id]) || {});
@@ -222,6 +226,7 @@
     media.screen = null;
     if (!S.sharing) return;
     if (S.sharing.native && window.TascaEcra) try { TascaEcra.parar(); } catch {}
+    if (S.sharing.win) { winShareGen++; api.stop_share().catch(() => {}); if (window.vozAudio) vozAudio.video.dropLocal("me:screen"); }
     S.sharing = null; sfx.shareStop(); api.stop_screen_share().catch(() => {});
     syncVideo();
     if (!quiet) toast("Deixaste de partilhar o ecrã.");
@@ -936,6 +941,7 @@
   // vídeo de teste: no Tauri isto passa a ser um <video> com o stream que chega do núcleo
   function fakeScreen(kind, who) {
     if (who === "me" && kind === "screen" && media.screen) return `<div class="live-slot" data-stream="screen"></div>`;
+    if (who === "me" && kind === "screen" && S.sharing && S.sharing.win) return `<div class="live-video" data-remote="me:screen"></div>`;
     if (who === "me" && kind === "screen" && S.sharing && S.sharing.native) return `<div class="live-video native-share">${I.screen}<b>Os outros estão a ver o teu ecrã</b></div>`;
     if (who === "me" && kind === "cam" && media.cam) return `<div class="live-slot" data-stream="cam"></div>`;
     if (who !== "me" && !api.isMock) return `<div class="live-video" data-remote="${esc(who)}:${kind}"></div>`;
@@ -1105,8 +1111,109 @@
   };
   if (nativeShare()) document.documentElement.classList.add("can-share");
 
+  // ---- PC: a Tasca escolhe e captura o ecrã ela mesma (ecra.rs) ----
+  // Sem isto, o Windows mostrava a janela dele, com «tauri.localhost» no título.
+  let winShareGen = 0;
+  const SHARE_QUALS = ["720p · 30 fps", "1080p · 30 fps", "1080p · 60 fps"];
+  const shareParams = (q) => {
+    const [h, fps] = q.startsWith("720") ? [720, 30] : q.includes("60") ? [1080, 60] : [1080, 30];
+    return { height: h, fps, bitrate: h === 720 ? 2_500_000 : fps === 60 ? 6_000_000 : 4_000_000 };
+  };
+  function openTascaPicker() {
+    const def = SHARE_QUALS.includes(S.settings.shareQuality) ? S.settings.shareQuality : SHARE_QUALS[1];
+    modal(`<h2>Partilhar ecrã</h2>
+      <div class="tabs" role="tablist"><button class="tab on" role="tab" aria-selected="true" data-src-tab="screen">Ecrãs</button><button class="tab" role="tab" aria-selected="false" data-src-tab="window">Janelas</button></div>
+      <div class="share-grid" id="share-grid" aria-busy="true"><div class="share-empty">A procurar ecrãs e janelas…</div></div>
+      <div class="share-opts">
+        <div class="field"><label>Qualidade</label><div class="seg" role="radiogroup" aria-label="Qualidade">${SHARE_QUALS.map((q) => `<button role="radio" aria-checked="${q === def}" class="${q === def ? "on" : ""}" data-q="${q}">${q}</button>`).join("")}</div></div>
+        <div class="row" style="padding:0"><div class="txt"><b>Partilhar também o som</b><small>O som do jogo ou do vídeo vai junto.</small></div><label class="switch"><input type="checkbox" id="share-audio" ${S.settings.shareAudio === false ? "" : "checked"}><span></span><span class="sr">Partilhar som</span></label></div>
+      </div>
+      <div class="actions"><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="do-share" disabled>${I.screen}Partilhar</button></div>`,
+    (el, close) => {
+      el.querySelector(".modal").classList.add("modal-share");
+      let q = def, tab = "screen", list = null, pick = null;
+      const grid = $("#share-grid", el), go = $("#do-share", el);
+      const draw = () => {
+        if (!list) return;
+        const items = list.filter((x) => x.kind === tab);
+        grid.removeAttribute("aria-busy");
+        grid.innerHTML = items.length ? items.map((x) => `<button class="share-src ${pick === x.id ? "on" : ""}" data-src="${esc(x.id)}" aria-pressed="${pick === x.id}" title="${esc(x.name)}">
+            <span class="share-thumb">${x.thumb ? `<img src="${x.thumb}" alt="">` : I.screen}</span>
+            <span class="share-name">${esc(x.name)}</span>${x.app ? `<small>${esc(x.app)}</small>` : ""}</button>`).join("")
+          : `<div class="share-empty">${tab === "window" ? "Não há janelas abertas para partilhar." : "Não encontrei nenhum ecrã."}</div>`;
+        go.disabled = !pick;
+      };
+      api.list_share_sources().then((l) => {
+        list = l || [];
+        const scr = list.filter((x) => x.kind === "screen");
+        if (scr.length === 1) pick = scr[0].id; // só um ecrã: já fica escolhido
+        draw();
+      }, (x) => {
+        // Não deu (outro sistema ou Windows antigo): usa a janela do sistema.
+        close();
+        if (/unsupported/.test(String(x && x.message || x))) openSystemSharePicker();
+        else toast("Não deu para ver os ecrãs e as janelas: " + (x && x.message || x));
+      });
+      el.addEventListener("click", (e) => {
+        const t = e.target.closest("[data-src-tab]");
+        if (t) {
+          tab = t.dataset.srcTab;
+          el.querySelectorAll("[data-src-tab]").forEach((b) => { b.classList.toggle("on", b === t); b.setAttribute("aria-selected", b === t); });
+          return draw();
+        }
+        const c = e.target.closest("[data-src]");
+        if (c) { pick = c.dataset.src; draw(); return; }
+        const b = e.target.closest("[data-q]"); if (!b) return;
+        el.querySelectorAll("[data-q]").forEach((x) => { x.classList.toggle("on", x === b); x.setAttribute("aria-checked", x === b); });
+        q = b.dataset.q;
+      });
+      grid.addEventListener("dblclick", (e) => { const c = e.target.closest("[data-src]"); if (c) { pick = c.dataset.src; go.disabled = false; go.click(); } });
+      go.onclick = () => {
+        const src = list && list.find((x) => x.id === pick); if (!src) return;
+        const audio = $("#share-audio", el).checked;
+        close();
+        const umEcra = list.filter((x) => x.kind === "screen").length === 1;
+        startTascaShare(src, src.kind === "screen" && umEcra ? "Ecrã inteiro" : src.name, q, audio);
+      };
+    });
+  }
+  async function startTascaShare(src, name, q, audio) {
+    const core = window.__TAURI__ && window.__TAURI__.core;
+    if (!S.voice) return;
+    if (!core) { // pré-visualização no browser: finge a partilha
+      stopShare(true);
+      S.sharing = { source: name, quality: q, audio }; sfx.shareStart(); render(); toast(`Estás a partilhar «${name}».`);
+      return;
+    }
+    stopShare(true);
+    const gen = ++winShareGen;
+    const ch = new core.Channel();
+    ch.onmessage = (m) => {
+      if (gen !== winShareGen || !window.vozAudio) return;
+      const buf = new Uint8Array(m), key = !!(buf[0] & 1), img = buf.subarray(1);
+      if (!vozAudio.video.sendRaw("screen", 1, img, key)) api.share_keyframe().catch(() => {});
+      vozAudio.video.showLocal("me:screen", 1, img, key);
+    };
+    try { await core.invoke("start_share", { source: { id: src.id, ...shareParams(q) }, channel: ch }); }
+    catch (x) { if (gen === winShareGen) toast(String(x && x.message || x)); return; }
+    if (gen !== winShareGen) return;
+    S.sharing = { source: name, quality: q, audio, win: true };
+    patch({ shareQuality: q, shareAudio: audio }).catch(() => {});
+    api.start_screen_share({ source: name, quality: q, audio }).catch(() => {});
+    sfx.shareStart(); syncVideo(); render(); toast(`Estás a partilhar «${name}».`);
+  }
+  api.on("share_state", ({ state, message }) => {
+    if (!S.sharing || !S.sharing.win) return;
+    stopShare(true); render();
+    toast(state === "error" ? message || "Não deu para partilhar o ecrã." : "A janela que estavas a partilhar fechou.");
+  });
+
   function openSharePicker() {
     if (nativeShare()) return openNativeShare();
+    if ((window.__TAURI__ || api.isMock) && !window.TASCA_MOBILE) return openTascaPicker();
+    return openSystemSharePicker();
+  }
+  function openSystemSharePicker() {
     const quals = ["720p · 30 fps", "1080p · 30 fps", "1080p · 60 fps"];
     const def = quals.includes(S.settings.shareQuality) ? S.settings.shareQuality : quals[1];
     modal(`<h2>Partilhar ecrã</h2>
