@@ -1911,3 +1911,7 @@ body.has-titlebar .gset { top: var(--tb-h); }
   }
   .rail { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 96px - var(--safe-b)), transparent calc(100% - 70px - var(--safe-b))); mask-image: linear-gradient(to bottom, #000 calc(100% - 96px - var(--safe-b)), transparent calc(100% - 70px - var(--safe-b))); }
 }
+/* a entrar numa sala de voz */
+.chan.joining { color: var(--texto); }
+.chan.joining .label::after { content: " · a entrar…"; color: var(--texto-3); font-weight: 500; animation: pisca 1s ease-in-out infinite alternate; }
+@keyframes pisca { from { opacity: .4; } to { opacity: 1; } }

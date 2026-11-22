@@ -727,7 +727,7 @@ impl Node {
         let mut tentados = Vec::new();
         for perguntar in [false, true] {
             if perguntar {
-                self.perguntar_salas(group).await;
+                self.perguntar_salas(group, room).await;
             }
             let candidatos: Vec<_> = self
                 .salas_conhecidas(group)
@@ -820,8 +820,9 @@ impl Node {
             let r: Result<crate::voz::Chamada> = async {
                 let addr = alvo.clone();
                 self.apresentar(&addr).await?;
+                // Quem aloja uma chamada está online: se não responde depressa, já não está lá.
                 let conn = tokio::time::timeout(
-                    std::time::Duration::from_secs(8),
+                    std::time::Duration::from_secs(4),
                     self.router.endpoint().connect(addr, crate::voz::VOZ_ALPN),
                 )
                 .await
@@ -851,7 +852,9 @@ impl Node {
     }
 
     /// Pergunta ao dono do grupo e a alguns membros quem está a alojar salas de voz.
-    async fn perguntar_salas(&self, group: GroupId) {
+    /// Acaba logo que alguém diga quem aloja `room`, ou ao fim de pouco tempo: numa sala
+    /// vazia ninguém responde com ela e quem entra fica a alojá-la sem esperar muito.
+    async fn perguntar_salas(&self, group: GroupId, room: &str) {
         let Ok(Some(info)) = self.inner.store().group(group) else { return };
         let eu = self.inner.identity.public();
         let mut alvos = vec![info.owner];
@@ -883,16 +886,22 @@ impl Node {
                 r.unwrap_or_default()
             });
         }
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        let _ = tokio::time::timeout(std::time::Duration::from_millis(1500), async {
             while let Some(r) = tarefas.join_next().await {
+                let mut achou = false;
                 for a in r.unwrap_or_default() {
                     if a.group == group {
+                        achou |= a.room == room;
                         self.inner.guardar_anuncio(a);
                     }
+                }
+                if achou {
+                    break;
                 }
             }
         })
         .await;
+        tarefas.abort_all();
     }
 
     /// A pasta dos anexos deste dispositivo.
