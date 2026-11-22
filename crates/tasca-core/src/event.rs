@@ -53,6 +53,34 @@ pub enum EventKind {
         bio: String,
         banner: Option<String>,
     },
+    /// Mensagem com resposta e/ou anexos (o `Message` simples continua a valer).
+    Post {
+        channel: String,
+        text: String,
+        reply_to: Option<[u8; 32]>,
+        files: Vec<Anexo>,
+    },
+    /// O autor mudou o texto de uma mensagem sua.
+    Edit { target: [u8; 32], text: String },
+    /// Mensagem apagada (pelo autor ou pelo dono do grupo).
+    Delete { target: [u8; 32] },
+    /// Reação a uma mensagem (`on: false` tira-a).
+    React { target: [u8; 32], emoji: String, on: bool },
+}
+
+/// Um ficheiro anexado a uma mensagem. O conteúdo não vai no evento: pede-se a quem o
+/// tem pelo hash (ver [`crate::ficheiros`]).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Anexo {
+    /// BLAKE3 do conteúdo.
+    pub hash: [u8; 32],
+    pub name: String,
+    pub size: u64,
+    pub mime: String,
+    /// Miniatura pequena (`data:image/...`) para imagens.
+    pub thumb: Option<String>,
+    /// Dispositivo de quem o enviou (primeiro sítio onde pedir).
+    pub de: [u8; 32],
 }
 
 /// Tipo de canal.

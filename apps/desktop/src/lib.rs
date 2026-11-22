@@ -13,6 +13,7 @@ mod amigos;
 mod contas;
 mod dms;
 mod grupos;
+mod mensagens;
 mod presenca;
 mod sincronia;
 mod voz;
@@ -158,7 +159,15 @@ pub fn run() {
             grupos::list_channels,
             grupos::list_categories,
             grupos::list_messages,
-            grupos::send_message,
+            mensagens::send_message,
+            mensagens::edit_message,
+            mensagens::delete_message,
+            mensagens::react_message,
+            mensagens::search_messages,
+            mensagens::unread_counts,
+            mensagens::upload_file,
+            mensagens::get_file,
+            mensagens::save_file,
             grupos::create_group,
             grupos::import_local_group,
             grupos::join_group,

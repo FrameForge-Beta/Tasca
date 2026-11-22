@@ -79,6 +79,7 @@ async fn main() -> Result<()> {
             relay_urls: cli.relay,
             servidor: tasca_core::servidor::AccountServer::from_env(),
             dispositivo: None,
+            ficheiros: Some(dir.join("ficheiros")),
         },
     )
     .await?;
@@ -167,6 +168,14 @@ fn print_event(node: &Node, group: GroupId, ev: &tasca_core::SignedEvent) {
         EventKind::Layout { channels, .. } => println!("* {who} mudou os canais ({} canais)", channels.len()),
         EventKind::Profile { name, .. } => println!("* {who} atualizou o perfil ({name})"),
         EventKind::ProfileCard { .. } => println!("* {who} atualizou o cartão de perfil"),
+        EventKind::Post { channel, text, files, .. } => {
+            let anexos: Vec<_> = files.iter().map(|f| f.name.as_str()).collect();
+            println!("[#{channel}] {who}: {text}{}", if anexos.is_empty() { String::new() } else { format!(" [{}]", anexos.join(", ")) })
+        }
+        EventKind::Edit { text, .. } => println!("* {who} editou uma mensagem: {text}"),
+        EventKind::Delete { .. } => println!("* {who} apagou uma mensagem"),
+        EventKind::React { emoji, on: true, .. } => println!("* {who} reagiu {emoji}"),
+        EventKind::React { .. } => {}
     }
 }
 

@@ -10,6 +10,7 @@ pub mod caixa;
 mod dns;
 pub mod dispositivo;
 pub mod event;
+pub mod ficheiros;
 #[cfg(feature = "google")]
 pub mod google;
 pub mod identity;

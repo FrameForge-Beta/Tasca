@@ -45,6 +45,12 @@
     retry: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>',
     expand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>',
     signal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 20v-3M9 20v-7M14 20V9M19 20V4"/></svg>',
+    reply: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>',
+    edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>',
+    download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg>',
+    copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>',
+    more: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
   };
   const LOGO = '<svg viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="116" fill="#9B2C3F"/><path fill="#F6EEE1" d="M168,96 H344 A72,72 0 0 1 416,168 V300 A72,72 0 0 1 344,372 H226 L138,430 L152,364 A72,72 0 0 1 96,300 V168 A72,72 0 0 1 168,96Z"/><g transform="translate(256,234)"><path fill="#2A5CAA" d="M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z"/><path transform="rotate(90)" fill="#2A5CAA" d="M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z"/><path transform="rotate(180)" fill="#2A5CAA" d="M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z"/><path transform="rotate(270)" fill="#2A5CAA" d="M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z"/><circle r="16" fill="#E3A72F"/><circle r="7" fill="#F6EEE1"/></g></svg>';
   const TILE = "url(\"data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><g transform="translate(60,60)" fill="#2A5CAA"><path d="M0,0 C24,-17.6 24,-39.3 0,-50.4 C-24,-39.3 -24,-17.6 0,0Z"/><path transform="rotate(90)" d="M0,0 C24,-17.6 24,-39.3 0,-50.4 C-24,-39.3 -24,-17.6 0,0Z"/><path transform="rotate(180)" d="M0,0 C24,-17.6 24,-39.3 0,-50.4 C-24,-39.3 -24,-17.6 0,0Z"/><path transform="rotate(270)" d="M0,0 C24,-17.6 24,-39.3 0,-50.4 C-24,-39.3 -24,-17.6 0,0Z"/><path transform="translate(-60,-60)" d="M0,0 A26.4,26.4 0 0 1 26.4,0 A26.4,26.4 0 0 1 0,26.4Z"/><path transform="translate(60,-60) rotate(90)" d="M0,0 A26.4,26.4 0 0 1 26.4,0 A26.4,26.4 0 0 1 0,26.4Z"/><path transform="translate(60,60) rotate(180)" d="M0,0 A26.4,26.4 0 0 1 26.4,0 A26.4,26.4 0 0 1 0,26.4Z"/><path transform="translate(-60,60) rotate(270)" d="M0,0 A26.4,26.4 0 0 1 26.4,0 A26.4,26.4 0 0 1 0,26.4Z"/><circle r="7.2" fill="#E3A72F"/></g></svg>') + "\")";
@@ -198,6 +204,7 @@
     else app.style.gridTemplateColumns = "";
     $("#main").innerHTML = renderMain();
     pageTransition();
+    loadImages();
     fitCallGrid();
     $("#members").innerHTML = S.view === "chat" && !S.home ? renderMembers() : "";
     const list = $(".messages");
@@ -436,10 +443,15 @@
       const p = who(m.from);
       let out = "";
       if (m.day !== lastDay) { out += `<div class="day">${esc(m.day)}</div>`; lastDay = m.day; lastFrom = null; }
-      const first = m.from !== lastFrom || m.file || minutes(m.at) - minutes(lastAt) > 7;
+      if (S.newLine && S.newLine.ch === S.channelId && String(m.id) === S.newLine.id) { out += `<div class="day new-line">Novas</div>`; lastFrom = null; }
+      const first = m.from !== lastFrom || m.file || m.replyTo || minutes(m.at) - minutes(lastAt) > 7;
       lastFrom = m.from; lastAt = m.at;
-      const reacts = m.reactions ? `<div class="reactions">${m.reactions.map((r, i) => `<button class="reaction ${r.mine ? "mine" : ""}" data-react="${m.id}:${i}">${r.e} ${r.n}</button>`).join("")}</div>` : "";
-      const file = m.file ? `<div class="attach"><span class="ext">${esc(m.file.ext)}</span><div><b>${esc(m.file.name)}</b><small>${esc(m.file.size)} · enviado diretamente por ${esc(p.name)}</small></div></div>` : "";
+      const reacts = m.reactions && m.reactions.length ? `<div class="reactions">${m.reactions.map((r, i) => `<button class="reaction ${r.mine ? "mine" : ""}" data-react="${esc(m.id)}:${i}" aria-pressed="${!!r.mine}">${esc(r.e)} ${r.n}</button>`).join("")}</div>` : "";
+      const file = (m.file ? `<div class="attach"><span class="ext">${esc(m.file.ext)}</span><div><b>${esc(m.file.name)}</b><small>${esc(m.file.size)} · enviado diretamente por ${esc(p.name)}</small></div></div>` : "") + (m.files || []).map(fileHtml).join("");
+      const reply = m.replyTo ? `<button type="button" class="reply-ref" data-jump="${esc(m.replyTo.id)}">${I.reply}${m.replyTo.deleted ? "<span>Mensagem apagada</span>" : `<b>${esc(who(m.replyTo.from).name)}</b><span>${esc(m.replyTo.text || "")}</span>`}</button>` : "";
+      const edited = m.edited ? ` <span class="edited" title="Editada">(editada)</span>` : "";
+      const real = !m.pending && !m.failed && !String(m.id).startsWith("tmp-") && !dm;
+      const acts = real ? `<div class="msg-acts" role="toolbar" aria-label="Ações da mensagem">${["👍", "😂", "❤️"].map((e) => `<button type="button" data-mreact="${esc(m.id)}|${e}" aria-label="Reagir com ${e}">${e}</button>`).join("")}<button type="button" data-mpick="${esc(m.id)}" aria-label="Escolher reação" title="Reagir">${I.smile}</button><button type="button" data-mreply="${esc(m.id)}" aria-label="Responder" title="Responder">${I.reply}</button>${mineMsg(m) ? `<button type="button" data-medit="${esc(m.id)}" aria-label="Editar" title="Editar">${I.edit}</button>` : ""}<button type="button" data-mmore="${esc(m.id)}" aria-label="Mais" title="Mais">${I.more}</button></div>` : "";
       const state = ""; // a enviar: a mensagem só fica mais escura (classe "pending")
       const mine = m.from === "me";
       const fresh = seenCh === S.channelId && !seen.has(String(m.id));
@@ -447,9 +459,9 @@
       const fail = m.failed ? `<div class="msg-fail"><small>Não foi enviada. Volta a tentar.</small><button class="retry" data-retry="${esc(m.id)}" aria-label="Tentar enviar outra vez" title="Tentar enviar outra vez">${I.retry}</button></div>` : "";
       if (first) {
         const tag = p.bot ? '<span class="tag bot">plugin</span>' : g.owner === p.id ? '<span class="tag">anfitrião</span>' : "";
-        out += `<div class="${cls}" data-mid="${esc(m.id)}"><button type="button" class="msg-av" data-person="${esc(p.id)}" aria-label="Perfil de ${esc(p.name)}">${avatar(p)}</button><div><div class="bubble"><div class="meta"><button type="button" class="author" data-person="${esc(p.id)}" style="--a:${p.color}">${esc(p.name)}</button>${tag}<span class="time">${esc(m.at)}</span></div><div class="body">${fmt(m.text)}${state}</div>${file}</div>${reacts}${fail}</div></div>`;
+        out += `<div class="${cls}" data-mid="${esc(m.id)}">${acts}<button type="button" class="msg-av" data-person="${esc(p.id)}" aria-label="Perfil de ${esc(p.name)}">${avatar(p)}</button><div>${reply}<div class="bubble"><div class="meta"><button type="button" class="author" data-person="${esc(p.id)}" style="--a:${p.color}">${esc(p.name)}</button>${tag}<span class="time">${esc(m.at)}</span></div>${m.text ? `<div class="body">${fmt(m.text)}${edited}${state}</div>` : ""}${file}</div>${reacts}${fail}</div></div>`;
       } else {
-        out += `<div class="${cls}" data-mid="${esc(m.id)}"><span class="gutter">${esc(m.at)}</span><div><div class="bubble"><div class="body">${fmt(m.text)}${state}</div>${file}</div>${reacts}${fail}</div></div>`;
+        out += `<div class="${cls}" data-mid="${esc(m.id)}">${acts}<span class="gutter">${esc(m.at)}</span><div>${reply}<div class="bubble">${m.text ? `<div class="body">${fmt(m.text)}${edited}${state}</div>` : ""}${file}</div>${reacts}${fail}</div></div>`;
       }
       return out;
     }).join("");
@@ -470,7 +482,7 @@
         <div class="welcome">${avatar(p).replace('class="av ', 'class="av big ')}<h2>${esc(p.name)}</h2><p>Esta conversa é só entre ti e ${esc(p.name)}, cifrada de ponta a ponta: o servidor da Tasca guarda-a para chegar mesmo com um de vocês offline, mas não a consegue ler.</p></div>
         ${rows}
       </div>
-      <div class="composer">${callPill()}
+      <div class="composer">${callPill()}${composerExtras()}
         <form id="composer">
           <button type="button" class="icon-btn" data-act="attach" aria-label="Anexar ficheiro" title="Anexar ficheiro">${I.clip}</button>
           <label class="sr" for="msg-input">Mensagem</label>
@@ -487,6 +499,7 @@
       <div class="main-head">${menuBtn()}
         <span class="title">${I.hash}${esc(c.name)}</span>
         <span class="topic">${esc(c.topic || "")}</span>
+        <button class="icon-btn" data-act="search" aria-label="Procurar mensagens" title="Procurar (Ctrl+F)">${I.search}</button>
         <button class="icon-btn ${S.showMembers ? "on" : ""}" data-act="toggle-members" aria-label="Mostrar membros" title="Membros">${I.users}</button>
       </div>
       ${offline}
@@ -495,7 +508,7 @@
         <div class="welcome"><div class="tile"><span>#</span></div><h2>Bem-vindo a #${esc(c.name)}</h2><p>Este é o início do canal #${esc(c.name)} em ${esc(g.name)}. As mensagens ficam guardadas no PC do anfitrião e numa cópia em cada membro.</p></div>
         ${rows}
       </div>
-      <div class="composer">${callPill()}
+      <div class="composer">${callPill()}${composerExtras()}
         <form id="composer">
           <button type="button" class="icon-btn" data-act="attach" aria-label="Anexar ficheiro" title="Anexar ficheiro">${I.clip}</button>
           <label class="sr" for="msg-input">Mensagem</label>
@@ -506,6 +519,273 @@
         <div class="typing">${typing}</div>
       </div>`;
   }
+
+  // ---------------- mensagens: responder, editar, apagar, reações, anexos ----------------
+  const mineMsg = (m) => m.from === "me";
+  const canDelete = (m) => mineMsg(m) || (!S.home && (group() || {}).owner === "me");
+  const findMsg = (id) => S.messages.find((x) => String(x.id) === String(id));
+  const human = (n) => n < 1024 ? n + " B" : n < 1048576 ? Math.round(n / 1024) + " KB" : (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + " MB";
+  const fileUrls = new Map();
+  const isImg = (f) => /^image\/(png|jpe?g|gif|webp|bmp|avif)$/i.test(f.mime || "");
+  function fileHtml(f) {
+    if (isImg(f)) {
+      const src = fileUrls.get(f.hash) || f.thumb || "";
+      return `<button type="button" class="att-img" data-view-file="${esc(f.hash)}" aria-label="Ver ${esc(f.name)}"><img ${src ? `src="${esc(src)}"` : ""} data-load-file="${esc(f.hash)}" data-size="${+f.size || 0}" alt="${esc(f.name)}"></button>`;
+    }
+    const ext = (String(f.name).split(".").pop() || "?").slice(0, 4).toUpperCase();
+    return `<div class="attach"><span class="ext">${esc(ext)}</span><div><b>${esc(f.name)}</b><small>${human(+f.size || 0)} · direto entre dispositivos</small></div><button type="button" class="icon-btn" data-save-file="${esc(f.hash)}" aria-label="Guardar ${esc(f.name)}" title="Guardar">${I.download}</button></div>`;
+  }
+  // As imagens chegam pela rede depois de a mensagem aparecer (primeiro a miniatura).
+  async function fileUrl(hash, mime) {
+    if (fileUrls.has(hash)) return fileUrls.get(hash);
+    const buf = await api.get_file({ channelId: S.channelId, hash });
+    if (!buf) return null;
+    const url = URL.createObjectURL(new Blob([buf], { type: mime || "" }));
+    fileUrls.set(hash, url);
+    return url;
+  }
+  const loading = new Set();
+  function loadImages() {
+    if (api.isMock) return;
+    for (const img of document.querySelectorAll("img[data-load-file]")) {
+      const h = img.dataset.loadFile;
+      if (fileUrls.has(h)) { if (img.src !== fileUrls.get(h)) img.src = fileUrls.get(h); continue; }
+      if (loading.has(h) || +img.dataset.size > 15 * 1048576) continue;
+      loading.add(h);
+      const f = S.messages.flatMap((m) => m.files || []).find((x) => x.hash === h);
+      fileUrl(h, f && f.mime).then((u) => { for (const i of document.querySelectorAll(`img[data-load-file="${h}"]`)) if (u) i.src = u; })
+        .catch((e) => console.warn("imagem:", e)).finally(() => loading.delete(h));
+    }
+  }
+  async function viewImage(hash) {
+    const f = S.messages.flatMap((m) => m.files || []).find((x) => x.hash === hash);
+    if (!f) return;
+    let src = fileUrls.get(hash) || f.thumb || "";
+    modal(`<div class="lightbox"><img src="${esc(src)}" alt="${esc(f.name)}"></div>
+      <div class="actions"><span class="lb-name">${esc(f.name)} · ${human(+f.size || 0)}</span><button class="btn ghost" data-save-file="${esc(hash)}">${I.download}Guardar</button><button class="btn primary" data-close>Fechar</button></div>`,
+    async (el) => {
+      el.querySelector(".modal").classList.add("wide");
+      if (!fileUrls.has(hash) && !api.isMock) {
+        try { const u = await fileUrl(hash, f.mime); const i = el.querySelector(".lightbox img"); if (i && u) i.src = u; } catch (e) { toast(String(e.message || e)); }
+      }
+    });
+  }
+  async function saveFile(hash) {
+    if (api.isMock) return toast("Na app instalada, o ficheiro vai para a pasta Transferências.");
+    if (window.TASCA_MOBILE) {
+      // no telemóvel abre-se no visualizador do sistema a partir da memória
+      try {
+        const f = S.messages.flatMap((m) => m.files || []).find((x) => x.hash === hash);
+        const u = await fileUrl(hash, f && f.mime);
+        const a = document.createElement("a"); a.href = u; a.download = f ? f.name : "ficheiro"; document.body.appendChild(a); a.click(); a.remove();
+      } catch (e) { toast(String(e.message || e)); }
+      return;
+    }
+    toast("A guardar…");
+    try { const p = await api.save_file({ channelId: S.channelId, hash }); toast("Guardado em " + p); }
+    catch (e) { toast(String(e.message || e)); }
+  }
+  // Anexos escolhidos, à espera de seguirem com a próxima mensagem.
+  S.attach = [];
+  function composerExtras() {
+    let bar = "";
+    if (S.editing) bar = `<div class="cbar">${I.edit}<span>A editar a mensagem</span><button type="button" class="icon-btn" data-act="cancel-compose" aria-label="Cancelar edição">${I.close}</button></div>`;
+    else if (S.reply) bar = `<div class="cbar">${I.reply}<span>A responder a <b>${esc(who(S.reply.from).name)}</b> <i>${esc((S.reply.text || "").slice(0, 80))}</i></span><button type="button" class="icon-btn" data-act="cancel-compose" aria-label="Cancelar resposta">${I.close}</button></div>`;
+    const chips = S.attach.length ? `<div class="att-chips">${S.attach.map((a, i) => `<span class="att-chip ${a.busy ? "busy" : ""}">${a.thumb ? `<img src="${esc(a.thumb)}" alt="">` : `<span class="ext">${esc((a.name.split(".").pop() || "?").slice(0, 4).toUpperCase())}</span>`}<span class="nm">${esc(a.name)}<small>${a.busy ? "a preparar…" : human(a.size)}</small></span><button type="button" class="icon-btn" data-unattach="${i}" aria-label="Tirar ${esc(a.name)}">${I.close}</button></span>`).join("")}</div>` : "";
+    return bar + chips;
+  }
+  function thumbOf(file) {
+    return new Promise((res) => {
+      if (!/^image\//.test(file.type)) return res(null);
+      const url = URL.createObjectURL(file), img = new Image();
+      img.onload = () => {
+        const k = Math.min(1, 360 / Math.max(img.width, img.height));
+        const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url); res(c.toDataURL("image/jpeg", 0.72));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); res(null); };
+      img.src = url;
+    });
+  }
+  async function addFiles(list) {
+    if (S.home) return toast("Para já, os ficheiros só se enviam nos grupos.");
+    for (const file of list) {
+      if (S.attach.length >= 10) { toast("No máximo 10 anexos por mensagem."); break; }
+      if (file.size > 100 * 1048576) { toast(file.name + " tem mais de 100 MB."); continue; }
+      const a = { name: file.name || "imagem.png", size: file.size, mime: file.type || "application/octet-stream", busy: true, thumb: null };
+      S.attach.push(a); rerenderKeepInput();
+      try {
+        a.thumb = await thumbOf(file);
+        const r = await api.upload_file({ data: await file.arrayBuffer(), name: a.name });
+        a.hash = r.hash; a.busy = false;
+        if (isImg(a) && !api.isMock) fileUrls.set(a.hash, URL.createObjectURL(file));
+      } catch (e) { S.attach.splice(S.attach.indexOf(a), 1); toast("Não consegui anexar " + a.name + ": " + (e.message || e)); }
+      rerenderKeepInput();
+    }
+  }
+  function pickFiles() {
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.multiple = true;
+    inp.onchange = () => addFiles([...inp.files]);
+    inp.click();
+  }
+  function startReply(m) { S.editing = null; S.reply = { id: m.id, from: m.from, text: m.text || ((m.files || [])[0] || {}).name || "" }; rerenderKeepInput(); const i = $("#msg-input"); if (i) i.focus(); }
+  function startEdit(m) {
+    S.reply = null; S.editing = { id: m.id }; rerenderKeepInput();
+    const i = $("#msg-input"); if (i) { i.value = m.text; i.focus(); i.dispatchEvent(new Event("input", { bubbles: true })); }
+  }
+  async function react(m, e, on) {
+    if (!m || String(m.id).startsWith("tmp-")) return;
+    m.reactions = m.reactions || [];
+    let r = m.reactions.find((x) => x.e === e);
+    if (on === undefined) on = !(r && r.mine);
+    if (r) { if (r.mine !== on) { r.mine = on; r.n += on ? 1 : -1; } } else if (on) { r = { e, n: 1, mine: true }; m.reactions.push(r); }
+    m.reactions = m.reactions.filter((x) => x.n > 0);
+    haptic(); rerenderKeepInput();
+    try { await api.react_message({ channelId: S.channelId, id: m.id, emoji: e, on }); }
+    catch (x) { toast("A reação não seguiu: " + (x.message || x)); }
+  }
+  function confirmDelete(m) {
+    modal(`<h2>Apagar mensagem?</h2><p>${mineMsg(m) ? "Desaparece para toda a gente no grupo." : "És o dono do grupo: a mensagem desaparece para toda a gente."}</p>
+      <div class="quote">${fmt((m.text || "").slice(0, 300))}</div>
+      <div class="actions"><button class="btn ghost" data-close>Cancelar</button><button class="btn danger" id="do-del">Apagar</button></div>`,
+    (el, close) => {
+      $("#do-del", el).onclick = async () => {
+        close();
+        const i = S.messages.indexOf(m); if (i >= 0) S.messages.splice(i, 1);
+        rerenderKeepInput();
+        try { await api.delete_message({ channelId: S.channelId, id: m.id }); toast("Mensagem apagada."); }
+        catch (x) { toast("Não consegui apagar: " + (x.message || x)); refreshMessages(); }
+      };
+    });
+  }
+  async function refreshMessages() { if (S.channelId && S.view === "chat") { S.messages = await api.list_messages({ channelId: S.channelId }); rerenderKeepInput(); } }
+  const copyText = (t) => navigator.clipboard.writeText(t).then(() => toast("Copiado."), () => toast("Não consegui copiar."));
+  function msgItems(m) {
+    const items = [];
+    if (!S.home) items.push(
+      { label: "Reagir", icon: I.smile, onClick: () => { const el = document.querySelector(`.msg[data-mid="${CSS.escape(String(m.id))}"]`); window.tascaEmoji.open(el || $("#msg-input"), (e) => react(m, e, true)); } },
+      { label: "Responder", icon: I.reply, onClick: () => startReply(m) });
+    if (m.text) items.push({ label: "Copiar texto", icon: I.copy, onClick: () => copyText(m.text) });
+    if (!S.home && mineMsg(m) && m.text !== undefined) items.push({ label: "Editar", icon: I.edit, onClick: () => startEdit(m) });
+    if (!S.home && canDelete(m)) items.push("-", { label: "Apagar mensagem", danger: true, icon: I.trash, onClick: () => confirmDelete(m) });
+    return items;
+  }
+  // Telemóvel: tocar e manter numa mensagem abre uma folha com reações e ações.
+  function openMsgSheet(m) {
+    if (String(m.id).startsWith("tmp-")) return;
+    haptic(15);
+    const items = msgItems(m);
+    const scrim = document.createElement("div");
+    scrim.className = "scrim sheet-scrim";
+    scrim.innerHTML = `<div class="msg-sheet" role="dialog" aria-label="Ações da mensagem"><span class="sheet-grip"></span>
+      ${S.home ? "" : `<div class="ms-reacts">${["👍", "😂", "❤️", "😮", "😢", "🔥"].map((e) => `<button type="button" data-ms-react="${e}">${e}</button>`).join("")}<button type="button" data-ms-pick aria-label="Mais reações">${I.plus}</button></div>`}
+      <div class="ms-list">${items.map((it, i) => it === "-" ? "" : `<button type="button" class="${it.danger ? "danger" : ""}" data-ms-i="${i}">${it.icon || ""}<span>${esc(it.label)}</span></button>`).join("")}</div></div>`;
+    document.body.appendChild(scrim);
+    S.msgMenu = scrim;
+    const close = () => { if (S.msgMenu === scrim) S.msgMenu = null; closeScrim(scrim); };
+    sheetDrag(scrim, scrim.querySelector(".msg-sheet"), () => { if (S.msgMenu === scrim) S.msgMenu = null; scrim.remove(); });
+    scrim.addEventListener("click", (e) => {
+      if (e.target === scrim) return close();
+      const r = e.target.closest("[data-ms-react]"); if (r) { close(); return react(m, r.dataset.msReact, true); }
+      if (e.target.closest("[data-ms-pick]")) { close(); const el = document.querySelector(`.msg[data-mid="${CSS.escape(String(m.id))}"]`); return window.tascaEmoji.open(el || $("#msg-input"), (em) => react(m, em, true)); }
+      const b = e.target.closest("[data-ms-i]"); if (b) { close(); items[+b.dataset.msI].onClick(); }
+    });
+  }
+  function closeMsgSheet() { const s = S.msgMenu; S.msgMenu = null; if (s) closeScrim(s); }
+  function jumpTo(id) {
+    const el = document.querySelector(`.msg[data-mid="${CSS.escape(String(id))}"]`);
+    if (!el) return toast("Essa mensagem já não está carregada.");
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+  }
+  // Até onde leste cada canal (para "Novas" e para os números por ler).
+  const lastRead = store.get("last-read", {});
+  function markRead(channelId) { if (!channelId || channelId.startsWith("dm-")) return; lastRead[channelId] = Date.now(); store.set("last-read", lastRead); }
+  async function refreshUnread(gid) {
+    if (api.isMock) return;
+    const chans = (S.allChannels[gid] || []).filter((c) => c.kind === "text");
+    const since = {};
+    for (const c of chans) { if (lastRead[c.id] == null) lastRead[c.id] = Date.now(); since[c.id] = lastRead[c.id]; }
+    store.set("last-read", lastRead);
+    try {
+      const r = await api.unread_counts({ groupId: gid, since });
+      let total = 0;
+      for (const c of chans) {
+        const x = r[c.id];
+        c.unread = c.id === S.channelId && S.view === "chat" ? 0 : x ? x.n : 0;
+        c.mention = !!(x && x.mention);
+        total += c.unread;
+      }
+      const g = S.groups.find((x) => x.id === gid);
+      if (g && !(g.id === S.groupId && !S.home)) g.unread = total;
+    } catch (e) { console.warn("por ler:", e); }
+  }
+  // Procurar nas mensagens do grupo (Ctrl+F).
+  function openSearch() {
+    const g = group();
+    if (S.home || !g) return toast("Abre um grupo para procurar nas mensagens.");
+    let t = 0;
+    modal(`<h2>Procurar em ${esc(g.name)}</h2>
+      <div class="field"><label class="sr" for="find-q">Procurar</label><input class="input" id="find-q" placeholder="Texto ou nome de ficheiro" autocomplete="off"></div>
+      <div class="find-res" id="find-res"><p class="hint">Escreve para procurar em todos os canais de texto.</p></div>`,
+    (el, close) => {
+      const q = $("#find-q", el), out = $("#find-res", el);
+      el.querySelector(".modal").classList.add("wide");
+      if (!window.TASCA_MOBILE) q.focus();
+      q.oninput = () => {
+        clearTimeout(t);
+        t = setTimeout(async () => {
+          const v = q.value.trim();
+          if (!v) { out.innerHTML = `<p class="hint">Escreve para procurar em todos os canais de texto.</p>`; return; }
+          let res = [];
+          try { res = await api.search_messages({ groupId: g.id, query: v }); } catch (e) { out.innerHTML = `<p class="hint">${esc(e.message || e)}</p>`; return; }
+          if (!res.length) { out.innerHTML = `<p class="hint">Nada encontrado para «${esc(v)}».</p>`; return; }
+          const re = new RegExp("(" + v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "ig");
+          out.innerHTML = res.map((m) => {
+            const c = findChannel(m.channelId) || { name: "?" }, p = who(m.from);
+            return `<button type="button" class="find-hit" data-hit="${esc(m.channelId)}|${esc(m.id)}">${avatar(p, "s")}<span><b>${esc(p.name)}</b> <small>#${esc(c.name)} · ${esc(m.day || "")} ${esc(m.at || "")}</small><span class="find-txt">${esc(m.text || (m.files || []).map((f) => f.name).join(", ")).replace(re, "<mark>$1</mark>")}</span></span></button>`;
+          }).join("");
+        }, 220);
+      };
+      out.onclick = async (e) => {
+        const b = e.target.closest("[data-hit]"); if (!b) return;
+        const [ch, id] = b.dataset.hit.split("|");
+        close();
+        if (ch !== S.channelId || S.view !== "chat") await openChannel(ch);
+        setTimeout(() => jumpTo(id), 80);
+      };
+    });
+  }
+  window.tascaFind = openSearch;
+  // Tocar e manter numa mensagem (telemóvel).
+  {
+    let lp = null;
+    document.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "mouse" || !e.target.closest) return;
+      const el = e.target.closest(".msg[data-mid]");
+      if (!el || e.target.closest("a, [data-person], .reaction, .att-img, .reply-ref, [data-save-file]")) return;
+      lp = { x: e.clientX, y: e.clientY, t: setTimeout(() => { const m = findMsg(el.dataset.mid); lp = null; if (m) { openMsgSheet(m); suppressCtx = Date.now(); } }, 480) };
+    }, { passive: true });
+    const cancel = (e) => { if (lp && (!e || e.type !== "pointermove" || Math.hypot(e.clientX - lp.x, e.clientY - lp.y) > 10)) { clearTimeout(lp.t); lp = null; } };
+    document.addEventListener("pointermove", cancel, { passive: true });
+    document.addEventListener("pointerup", cancel, { passive: true });
+    document.addEventListener("pointercancel", cancel, { passive: true });
+  }
+  var suppressCtx = 0;
+  // Colar ou largar ficheiros no campo de mensagem.
+  document.addEventListener("paste", (e) => {
+    if (e.target.id !== "msg-input" || !e.clipboardData) return;
+    const fs = [...e.clipboardData.files];
+    if (fs.length) { e.preventDefault(); addFiles(fs); }
+  });
+  document.addEventListener("dragover", (e) => { if (e.target.closest && e.target.closest("#main") && S.view === "chat" && !S.home) e.preventDefault(); });
+  document.addEventListener("drop", (e) => {
+    if (!(e.target.closest && e.target.closest("#main")) || S.view !== "chat" || S.home) return;
+    const fs = [...(e.dataTransfer ? e.dataTransfer.files : [])];
+    if (fs.length) { e.preventDefault(); addFiles(fs); }
+  });
   const minutes = (t) => { if (!t) return -999; const [h, m] = t.split(":").map(Number); return h * 60 + m; };
 
   function renderMembers() {
@@ -1425,9 +1705,14 @@
     store.set("group", id);
   }
   async function openChannel(id, keepNav) {
+    if (S.channelId !== id) { S.reply = null; S.editing = null; S.attach = []; }
     S.home = false; S.channelId = id; S.view = "chat";
-    const c = channel(); if (c) c.unread = 0;
+    const c = channel(); if (c) { c.unread = 0; c.mention = false; }
     S.messages = await api.list_messages({ channelId: id });
+    const lr = lastRead[id];
+    const nova = lr != null && S.messages.find((m) => m.ts && m.ts > lr && m.from !== "me");
+    S.newLine = nova ? { ch: id, id: String(nova.id) } : null;
+    markRead(id);
     if (!keepNav) S.navOpen = false;
     render();
     const inp = $("#msg-input"); if (inp && window.innerWidth > 720) inp.focus();
@@ -1619,10 +1904,20 @@
       return;
     }
     if (d.react) {
-      const [mid, i] = d.react.split(":");
-      const m = S.messages.find((x) => String(x.id) === mid); const r = m.reactions[+i];
-      r.mine = !r.mine; r.n += r.mine ? 1 : -1; return render();
+      const k = d.react.lastIndexOf(":");
+      const m = findMsg(d.react.slice(0, k)); if (!m) return;
+      const r = m.reactions[+d.react.slice(k + 1)]; if (!r) return;
+      return react(m, r.e, !r.mine);
     }
+    if (d.mreact) { const [id, e] = d.mreact.split("|"); return react(findMsg(id), e, true); }
+    if (d.mpick) { const m = findMsg(d.mpick); return window.tascaEmoji.open(t, (e) => react(m, e, true)); }
+    if (d.mreply) { const m = findMsg(d.mreply); if (m) startReply(m); return; }
+    if (d.medit) { const m = findMsg(d.medit); if (m) startEdit(m); return; }
+    if (d.mmore) { const m = findMsg(d.mmore); if (!m) return; const r = t.getBoundingClientRect(); return tascaMenu.open(r.left, r.bottom + 4, msgItems(m)); }
+    if (d.jump) return jumpTo(d.jump);
+    if (d.viewFile) return viewImage(d.viewFile);
+    if (d.saveFile) return saveFile(d.saveFile);
+    if (d.unattach) { S.attach.splice(+d.unattach, 1); return rerenderKeepInput(); }
     if (d.editChan) return openChannelEditor({ id: d.editChan });
     if (d.editCat) return openCategoryEditor(d.editCat);
     if (d.setTab) { S.settingsTab = d.setTab; return render(); }
@@ -1704,7 +1999,9 @@
       case "my-card": S.statusOpen = false; render(); return window.tascaAmigos && window.tascaAmigos.openFullProfile("me");
       case "switch-account": S.statusOpen = false; if (S.voice) await leaveVoice(); await api.select_account({ id: null }); return location.reload();
       case "sign-out": S.statusOpen = false; if (S.voice) await leaveVoice(); await api.sign_out(); return location.reload();
-      case "attach": return toast("No Tauri abre o seletor de ficheiros. O ficheiro vai direto para os PCs dos membros.");
+      case "attach": return S.home ? toast("Para já, os ficheiros só se enviam nos grupos.") : pickFiles();
+      case "cancel-compose": { if (S.editing) { const i = $("#msg-input"); if (i) i.value = ""; } S.reply = null; S.editing = null; return rerenderKeepInput(); }
+      case "search": return openSearch();
       case "emoji": return window.tascaEmoji.open(t, $("#msg-input"));
       case "connect-dest": {
         const k = S.settings.backup.dest;
@@ -1809,6 +2106,16 @@
   }
   document.addEventListener("contextmenu", (e) => {
     if (!e.target.closest) return;
+    const mm = e.target.closest(".msg[data-mid]");
+    if (mm && Date.now() - suppressCtx < 1500) { e.preventDefault(); return; }
+    if (mm && !e.target.closest("a, .mention, [data-person]") && !String(window.getSelection()).trim()) {
+      const m = findMsg(mm.dataset.mid);
+      if (m && !String(m.id).startsWith("tmp-")) {
+        e.preventDefault();
+        if (window.TASCA_MOBILE) return openMsgSheet(m);
+        return tascaMenu.open(e.clientX, e.clientY, msgItems(m));
+      }
+    }
     const b = e.target.closest("[data-chan], [data-voice], [data-drag-chan]");
     const h = e.target.closest(".cat");
     const g = group();
@@ -1834,11 +2141,26 @@
     e.preventDefault();
     const inp = $("#msg-input");
     const text = inp.value.trim();
-    if (!text) return;
+    if (S.editing) {
+      const m = findMsg(S.editing.id); S.editing = null;
+      if (!text || !m) return rerenderKeepInput();
+      inp.value = "";
+      if (text === m.text) return rerenderKeepInput();
+      const antes = m.text; m.text = text; m.edited = true; rerenderKeepInput();
+      try { await api.edit_message({ channelId: S.channelId, id: m.id, text }); }
+      catch (x) { m.text = antes; toast("Não consegui editar: " + (x.message || x)); rerenderKeepInput(); }
+      return;
+    }
+    if (S.attach.some((a) => a.busy)) return toast("Espera que os anexos acabem de preparar.");
+    const files = S.attach.map((a) => ({ hash: a.hash, name: a.name, size: a.size, mime: a.mime, thumb: a.thumb }));
+    if (!text && !files.length) return;
     inp.value = "";
+    const replyTo = S.reply ? { id: S.reply.id, from: S.reply.from, text: S.reply.text } : null;
+    S.reply = null; S.attach = [];
     // aparece logo, mais escura, até o anfitrião confirmar
-    const m = { id: "tmp-" + Date.now(), day: "Hoje", at: new Date().toTimeString().slice(0, 5), from: "me", text, pending: true };
-    S.messages.push(m); render(); $("#msg-input").focus();
+    const m = { id: "tmp-" + Date.now(), day: "Hoje", at: new Date().toTimeString().slice(0, 5), ts: Date.now(), from: "me", text, pending: true, replyTo, files: files.length ? files : undefined };
+    S.messages.push(m); render(); if (!window.TASCA_MOBILE) $("#msg-input").focus();
+    markRead(S.channelId);
     trySend(S.channelId, m);
   });
   // Envia (ou volta a enviar) uma mensagem. Se falhar, ou se ninguém confirmar em 20 s,
@@ -1847,7 +2169,7 @@
     m.pending = true; m.failed = false;
     const localId = m.id;
     try {
-      const r = await api.send_message({ channelId, text: m.text });
+      const r = await api.send_message({ channelId, text: m.text, replyTo: m.replyTo ? m.replyTo.id : undefined, files: m.files });
       Object.assign(m, r, { failed: false });
       seen.add(String(m.id));
       if (S.home) S.dms = await api.list_dms();
@@ -1960,7 +2282,7 @@
       // a tua própria mensagem: se foi escrita aqui já está na lista
       const ja = S.messages.find((x) => x.id === message.id);
       if (ja) { if (ja.pending) { ja.pending = false; rerenderKeepInput(); } return; }
-      S.messages.push(message); render(); return;
+      S.messages.push(message); markRead(channelId); render(); return;
     }
     // as tuas (escritas noutro dispositivo) não contam como não lidas
     if (message && message.from === "me") return;
@@ -1971,6 +2293,15 @@
     const g = groupId && S.groups.find((x) => x.id === groupId);
     if (g && (S.home || S.groupId !== groupId)) g.unread = (g.unread || 0) + 1;
     if (c || g) rerenderKeepInput();
+  });
+  // editada, apagada ou com reações novas (por ti noutro dispositivo ou por outra pessoa)
+  api.on("message_update", ({ channelId, id, message }) => {
+    if (channelId !== S.channelId) return;
+    const i = S.messages.findIndex((x) => String(x.id) === String(id));
+    if (i < 0) return;
+    if (!message) S.messages.splice(i, 1);
+    else S.messages[i] = { ...S.messages[i], ...message, reactions: message.reactions || [], edited: !!message.edited };
+    if (S.view === "chat") rerenderKeepInput();
   });
   // o grupo mudou no núcleo (alguém entrou, canais novos, grupo acabado de chegar)
   api.on("group_changed", async ({ groupId }) => {
@@ -2332,6 +2663,7 @@
       S.allChannels[g.id] = await api.list_channels({ groupId: g.id });
       S.allMembers[g.id] = await api.list_members({ groupId: g.id });
     }
+    for (const g of S.groups) await refreshUnread(g.id);
     applyTheme();
     const saved = store.get("group", null);
     if (!S.groups.length) { S.home = true; S.view = "chat"; S.channelId = null; S.messages = []; render(); }

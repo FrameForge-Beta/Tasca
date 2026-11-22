@@ -38,6 +38,8 @@ pub struct NodeOptions {
     /// Chave própria deste dispositivo (telemóvel). Sem ela, o nó usa a chave da conta.
     /// Ver [`crate::dispositivo`].
     pub dispositivo: Option<iroh::SecretKey>,
+    /// Pasta dos anexos (ficheiros e imagens). Sem ela, não se enviam nem servem anexos.
+    pub ficheiros: Option<std::path::PathBuf>,
 }
 
 pub(crate) struct Inner {
@@ -60,6 +62,7 @@ pub(crate) struct Inner {
     /// Chave iroh deste dispositivo.
     endpoint_id: [u8; 32],
     endpoint: iroh::Endpoint,
+    pasta: Option<crate::ficheiros::Pasta>,
 }
 
 impl Inner {
@@ -200,6 +203,7 @@ impl Node {
             anuncios: Default::default(),
             endpoint_id: *endpoint.id().as_bytes(),
             endpoint: endpoint.clone(),
+            pasta: opts.ficheiros.clone().map(crate::ficheiros::Pasta),
         });
         let voz = Arc::new(crate::voz::Hub::new(Arc::downgrade(&inner), *endpoint.id().as_bytes()));
         let router = Router::builder(endpoint)
@@ -213,6 +217,10 @@ impl Node {
             .accept(
                 crate::dispositivo::ALPN,
                 crate::dispositivo::Apresentacao(inner.amigos.dispositivos.clone()),
+            )
+            .accept(
+                crate::ficheiros::ALPN,
+                crate::ficheiros::Servir { inner: Arc::downgrade(&inner), pasta: opts.ficheiros.clone().map(crate::ficheiros::Pasta) },
             )
             .accept(
                 crate::voz::VOZ_ALPN,
@@ -698,6 +706,53 @@ impl Node {
         .await;
     }
 
+    /// A pasta dos anexos deste dispositivo.
+    pub fn pasta(&self) -> Option<&crate::ficheiros::Pasta> {
+        self.inner.pasta.as_ref()
+    }
+
+    /// Caminho local de um anexo, pedindo-o a quem o tiver se ainda não está cá: primeiro
+    /// a quem o enviou, depois ao dono do grupo e a quem está online.
+    pub async fn obter_ficheiro(&self, group: GroupId, anexo: &crate::event::Anexo) -> Result<std::path::PathBuf> {
+        let pasta = self.inner.pasta.clone().ok_or_else(|| anyhow!("sem pasta de ficheiros"))?;
+        if pasta.tem(&anexo.hash) {
+            return Ok(pasta.caminho(&anexo.hash));
+        }
+        ensure!(anexo.size <= crate::ficheiros::MAX_FICHEIRO, "ficheiro demasiado grande");
+        let mut alvos: Vec<iroh::PublicKey> = Vec::new();
+        if let Ok(k) = iroh::PublicKey::from_bytes(&anexo.de) {
+            alvos.push(k);
+        }
+        if let Ok(Some(info)) = self.inner.store().group(group) {
+            alvos.push(info.owner);
+        }
+        for k in self.inner.presence(group).borrow().keys() {
+            if let Ok(k) = iroh::PublicKey::from_bytes(k) {
+                alvos.push(k);
+            }
+        }
+        let mut vistos = Vec::new();
+        let mut ultimo = anyhow!("ninguém online tem este ficheiro");
+        for k in alvos {
+            if vistos.contains(&k) || *k.as_bytes() == self.inner.endpoint_id || vistos.len() >= 8 {
+                continue;
+            }
+            vistos.push(k);
+            let addr = iroh::EndpointAddr::new(k);
+            let _ = self.apresentar(&addr).await;
+            match crate::ficheiros::pedir(self.router.endpoint(), addr, &pasta, group, anexo.hash).await {
+                Ok(p) => return Ok(p),
+                Err(e) => ultimo = e,
+            }
+        }
+        Err(ultimo)
+    }
+
+    /// Chave iroh deste dispositivo (vai nos anexos, para pedirem o ficheiro aqui).
+    pub fn endpoint_id(&self) -> [u8; 32] {
+        self.inner.endpoint_id
+    }
+
     /// As salas de voz que se sabe estarem ativas num grupo, com quem aloja cada uma e
     /// quem lá está (as deste dispositivo e as que outros anunciaram).
     pub fn salas_conhecidas(&self, group: GroupId) -> Vec<crate::voz::Anuncio> {
@@ -831,6 +886,35 @@ impl GroupHandle {
             text: text.into(),
         })
         .await
+    }
+
+    /// Envia uma mensagem com resposta e/ou anexos.
+    pub async fn post(
+        &self,
+        channel: &str,
+        text: &str,
+        reply_to: Option<[u8; 32]>,
+        files: Vec<crate::event::Anexo>,
+    ) -> Result<[u8; 32]> {
+        if reply_to.is_none() && files.is_empty() {
+            return self.send_message(channel, text).await;
+        }
+        self.publish(EventKind::Post { channel: channel.into(), text: text.into(), reply_to, files }).await
+    }
+
+    /// Muda o texto de uma mensagem tua.
+    pub async fn edit_message(&self, target: [u8; 32], text: &str) -> Result<[u8; 32]> {
+        self.publish(EventKind::Edit { target, text: text.into() }).await
+    }
+
+    /// Apaga uma mensagem (tua, ou de qualquer pessoa se fores o dono).
+    pub async fn delete_message(&self, target: [u8; 32]) -> Result<[u8; 32]> {
+        self.publish(EventKind::Delete { target }).await
+    }
+
+    /// Põe ou tira uma reação.
+    pub async fn react(&self, target: [u8; 32], emoji: &str, on: bool) -> Result<[u8; 32]> {
+        self.publish(EventKind::React { target, emoji: emoji.into(), on }).await
     }
 
     async fn publish(&self, kind: EventKind) -> Result<[u8; 32]> {

@@ -143,6 +143,10 @@ impl Ativa {
             .ok_or_else(|| "Grupo desconhecido.".into())
     }
 
+    pub(crate) fn tem_servidor(&self) -> bool {
+        self.servidor
+    }
+
     fn online(&self, g: GroupId) -> bool {
         self.ligacoes.lock().unwrap().get(&g).is_some_and(|l| l.online)
     }
@@ -267,7 +271,10 @@ impl Ativa {
 
     fn emitir(&self, app: &AppHandle, g: GroupId, ev: &SignedEvent) {
         match &ev.body.kind {
-            EventKind::Message { channel, .. } => {
+            EventKind::Message { channel, .. } | EventKind::Post { channel, .. } => {
+                if self.node.with_store(|s| s.group(g)).ok().flatten().is_some_and(|i| i.hosted) {
+                    crate::mensagens::guardar_copias(self, g, ev);
+                }
                 let channel_id = format!("{}/{channel}", hex(&g.0));
                 if self.eu(&ev.body.author) {
                     // a minha mensagem voltou do anfitrião: está guardada no grupo
@@ -277,8 +284,17 @@ impl Ativa {
                 // dispositivo da conta (a interface ignora as que já tem)
                 let _ = app.emit(
                     "message",
-                    json!({ "channelId": channel_id, "groupId": hex(&g.0), "message": self.mensagem(ev) }),
+                    json!({ "channelId": channel_id, "groupId": hex(&g.0), "message": crate::mensagens::nova_json(self, g, ev) }),
                 );
+            }
+            EventKind::Edit { target, .. } | EventKind::Delete { target } | EventKind::React { target, .. } => {
+                if let Some((ch, m)) = crate::mensagens::uma(self, g, target) {
+                    let channel_id = format!("{}/{ch}", hex(&g.0));
+                    let _ = app.emit(
+                        "message_update",
+                        json!({ "channelId": channel_id, "groupId": hex(&g.0), "id": hex(target), "message": m }),
+                    );
+                }
             }
             _ => {
                 let _ = app.emit("group_changed", json!({ "groupId": hex(&g.0) }));
@@ -286,18 +302,6 @@ impl Ativa {
         }
     }
 
-    fn mensagem(&self, ev: &SignedEvent) -> Value {
-        let text = match &ev.body.kind {
-            EventKind::Message { text, .. } => text.as_str(),
-            _ => "",
-        };
-        json!({
-            "id": hex(&ev.id()),
-            "ts": ev.body.timestamp_ms,
-            "from": self.pessoa_id(&ev.body.author),
-            "text": text,
-        })
-    }
 
     /// Quem está online no grupo agora, e em que sala de voz.
     fn presenca(&self, g: GroupId) -> tasca_core::protocol::Presence {
@@ -599,7 +603,8 @@ pub(crate) async fn ativa(app: &AppHandle, rede: &Rede, contas: &Contas) -> Res<
     // o telemóvel tem chave própria e apresenta-se com certificado da conta: assim não
     // tira o lugar ao PC na rede quando os dois estão ligados
     let dispositivo = if cfg!(mobile) { Some(chave_dispositivo(&pasta)?) } else { None };
-    let node = Node::spawn(id.clone(), store, NodeOptions { servidor: servidor.clone(), dispositivo, ..Default::default() })
+    let ficheiros = Some(pasta.join("ficheiros"));
+    let node = Node::spawn(id.clone(), store, NodeOptions { servidor: servidor.clone(), dispositivo, ficheiros, ..Default::default() })
         .await
         .map_err(txt)?;
     let caminho_sinc = pasta.join("sincronia.json");
@@ -739,48 +744,11 @@ pub async fn list_categories(app: AppHandle, rede: State<'_, Rede>, c: State<'_,
 #[tauri::command]
 pub async fn list_messages(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>, channel_id: String) -> Res<Vec<Value>> {
     if channel_id.starts_with("dm-") {
-        return Ok(vec![]); // conversas privadas ainda não estão ligadas
+        return Ok(vec![]); // conversas privadas: ver dms.rs
     }
     let a = ativa(&app, &rede, &c).await?;
     let (g, ch) = canal(&channel_id)?;
-    let eventos = a.node.with_store(|s| s.events_since(g, 0)).map_err(txt)?;
-    let msgs: Vec<Value> = eventos
-        .iter()
-        .filter(|(_, ev)| matches!(&ev.body.kind, EventKind::Message { channel, .. } if *channel == ch))
-        .map(|(_, ev)| a.mensagem(ev))
-        .collect();
-    let de = msgs.len().saturating_sub(500);
-    Ok(msgs[de..].to_vec())
-}
-
-#[tauri::command]
-pub async fn send_message(
-    app: AppHandle,
-    rede: State<'_, Rede>,
-    c: State<'_, Contas>,
-    channel_id: String,
-    text: String,
-) -> Res<Value> {
-    let a = ativa(&app, &rede, &c).await?;
-    let (g, ch) = canal(&channel_id)?;
-    let h = a.handle(g)?;
-    let ligado = h.is_connected();
-    let hosted = h.is_hosted();
-    if !ligado && !a.servidor {
-        return Err("O anfitrião está offline. Tenta quando ele voltar.".into());
-    }
-    let id = tokio::time::timeout(Duration::from_secs(20), h.send_message(&ch, &text))
-        .await
-        .map_err(|_| "O envio demorou demasiado.".to_string())?
-        .map_err(txt)?;
-    Ok(json!({
-        "id": hex(&id),
-        "ts": tasca_core::event::now_ms(),
-        "from": "me",
-        "text": text,
-        // ligado a outro PC: fica pendente até o anfitrião a devolver (message_ack)
-        "pending": ligado && !hosted,
-    }))
+    crate::mensagens::listar(&a, g, &ch)
 }
 
 #[tauri::command]

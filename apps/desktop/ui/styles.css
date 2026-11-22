@@ -1680,3 +1680,86 @@ details.row.adv .btn { justify-self: start; }
 /* Quem aloja a chamada (página de antes de entrar) */
 .vs-host{display:flex;gap:8px;align-items:center;justify-content:center;margin:0 16px 10px;color:var(--muted,#9aa);font-size:13px;text-align:center}
 .vs-host svg{width:15px;height:15px;flex:none;color:var(--gold,#e0b04a)}
+
+/* ---------- Mensagens: ações, resposta, edição, anexos ---------- */
+.msg-acts {
+  position: absolute; right: 16px; top: -14px; z-index: 3; display: none; align-items: center; gap: 1px;
+  padding: 2px; border-radius: 10px; background: var(--painel); border: 1px solid var(--linha); box-shadow: 0 4px 14px rgba(0,0,0,.25);
+}
+.msg-acts button { width: 30px; height: 28px; border-radius: 7px; display: grid; place-items: center; font-size: 15px; color: var(--texto-2); }
+.msg-acts button:hover { background: var(--hover); color: var(--texto); }
+.msg-acts svg { width: 17px; height: 17px; }
+.msg:hover .msg-acts, .msg:focus-within .msg-acts { display: flex; animation: pop-in .12s ease-out; }
+.mobile .msg-acts, .mobile .msg:hover .msg-acts { display: none; }
+@media (hover: none) { .msg:hover .msg-acts { display: none; } }
+.msg .edited { font-size: 11px; color: var(--texto-3); }
+.reply-ref {
+  display: flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0; margin: 2px 0 3px; padding: 0 4px 0 0;
+  font-size: 12.5px; color: var(--texto-2); text-align: left;
+}
+.reply-ref svg { width: 14px; height: 14px; flex: none; transform: scaleY(-1); color: var(--texto-3); }
+.reply-ref b { flex: none; color: var(--texto); font-weight: 600; }
+.reply-ref span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .85; }
+.reply-ref:hover span { color: var(--texto); }
+.att-img { display: block; margin-top: 6px; padding: 0; border-radius: var(--r-m); overflow: hidden; max-width: min(360px, 100%); background: var(--caixa); border: 1px solid var(--linha); }
+.att-img img { display: block; max-width: 100%; max-height: 320px; min-width: 80px; min-height: 60px; object-fit: contain; }
+.att-img img:not([src]) { width: 240px; height: 160px; }
+.attach .icon-btn { margin-left: auto; flex: none; }
+.attach > div { min-width: 0; }
+.attach b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cbar {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 6px; padding: 6px 6px 6px 12px; border-radius: 10px;
+  background: var(--caixa); font-size: 13px; color: var(--texto-2); animation: pop-in .15s ease-out;
+}
+.cbar > svg { width: 15px; height: 15px; flex: none; }
+.cbar span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cbar i { color: var(--texto-3); }
+.cbar .icon-btn { width: 28px; height: 28px; flex: none; }
+.att-chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 8px; }
+.att-chip {
+  position: relative; display: flex; align-items: center; gap: 8px; flex: none; max-width: 220px; padding: 6px 30px 6px 6px;
+  border-radius: 10px; background: var(--caixa); border: 1px solid var(--linha); animation: pop-in .15s ease-out;
+}
+.att-chip img, .att-chip .ext { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; flex: none; }
+.att-chip .ext { background: var(--azulejo); color: var(--cal); display: grid; place-items: center; font-size: 10px; font-weight: 800; }
+.att-chip .nm { min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-chip .nm small { display: block; color: var(--texto-3); }
+.att-chip.busy { opacity: .7; }
+.att-chip .icon-btn { position: absolute; top: 2px; right: 2px; width: 24px; height: 24px; }
+.att-chip .icon-btn svg { width: 14px; height: 14px; }
+.modal.wide { width: min(720px, calc(100vw - 32px)); }
+.lightbox { display: grid; place-items: center; margin: -4px 0 8px; }
+.lightbox img { max-width: 100%; max-height: 70vh; border-radius: 10px; }
+.lb-name { margin-right: auto; font-size: 13px; color: var(--texto-3); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.modal .quote { padding: 10px 12px; border-left: 3px solid var(--linha); background: var(--caixa); border-radius: 6px; margin: 8px 0 4px; max-height: 160px; overflow: auto; overflow-wrap: anywhere; }
+.find-res { max-height: min(60vh, 520px); overflow: auto; margin: 0 -8px; }
+.find-hit { display: flex; gap: 10px; width: 100%; padding: 8px; border-radius: 8px; text-align: left; align-items: flex-start; }
+.find-hit:hover { background: var(--hover); }
+.find-hit > span:last-child { min-width: 0; flex: 1; }
+.find-hit small { color: var(--texto-3); }
+.find-txt { display: block; color: var(--texto-2); overflow-wrap: anywhere; }
+.find-txt mark { background: var(--mencao-bg); color: var(--mencao-fg); border-radius: 3px; padding: 0 2px; }
+.ch-mention { min-width: 8px; height: 8px; border-radius: 50%; background: var(--perigo); }
+/* Folha de ações de uma mensagem (telemóvel) */
+.msg-sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 61; padding: 8px 12px calc(12px + var(--safe-b, 0px));
+  background: var(--painel); border-radius: 18px 18px 0 0; box-shadow: 0 -8px 30px rgba(0,0,0,.35);
+  animation: sheet-in .22s cubic-bezier(.2,.8,.2,1);
+}
+.scrim.closing .msg-sheet { animation: sheet-out .2s ease-in forwards; }
+.msg-sheet .sheet-grip { display: block; }
+.ms-reacts { display: flex; justify-content: space-between; gap: 6px; padding: 6px 2px 12px; }
+.ms-reacts button { flex: 1; height: 48px; border-radius: 14px; background: var(--caixa); font-size: 24px; display: grid; place-items: center; }
+.ms-reacts button svg { width: 22px; height: 22px; color: var(--texto-2); }
+.ms-list { display: flex; flex-direction: column; border-radius: 14px; overflow: hidden; background: var(--caixa); }
+.ms-list button { display: flex; align-items: center; gap: 14px; padding: 14px 16px; font-size: 15px; text-align: left; }
+.ms-list button + button { border-top: 1px solid var(--linha); }
+.ms-list button svg { width: 20px; height: 20px; color: var(--texto-2); }
+.ms-list button.danger, .ms-list button.danger svg { color: var(--perigo); }
+.ms-list button:active { background: var(--hover); }
+@keyframes pop-in { from { opacity: 0; transform: translateY(4px) scale(.97); } }
+.messages .msg > div.msg-acts { display: none; flex-direction: row; position: absolute; width: auto; max-width: none; margin: 0; }
+.messages .msg:hover > div.msg-acts, .messages .msg:focus-within > div.msg-acts { display: flex; }
+.mobile .messages .msg > div.msg-acts { display: none !important; }
+@media (hover: none) { .messages .msg:hover > div.msg-acts { display: none; } }
+.messages.bubbles .msg.mine .reply-ref { margin-left: auto; }

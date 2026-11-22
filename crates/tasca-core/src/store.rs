@@ -18,6 +18,13 @@ const MAX_CHANNELS: usize = 200;
 const MAX_CATEGORIES: usize = 50;
 /// Tamanho máximo da foto de perfil (`data:` URL), em carateres.
 pub const MAX_PHOTO_CHARS: usize = 256 * 1024;
+/// Anexos por mensagem.
+pub const MAX_ANEXOS: usize = 10;
+
+/// Mensagem de texto (simples ou com anexos/resposta).
+pub fn e_mensagem(k: &EventKind) -> bool {
+    matches!(k, EventKind::Message { .. } | EventKind::Post { .. })
+}
 
 /// Perfil de um membro: cor e foto (o nome fica em `members`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -234,6 +241,41 @@ impl Store {
                     "mensagem demasiado longa"
                 );
             }
+            EventKind::Post { channel, text, files, .. } => {
+                ensure!(member, "só membros podem enviar mensagens");
+                check_name(channel)?;
+                ensure!(!text.trim().is_empty() || !files.is_empty(), "mensagem vazia");
+                ensure!(text.chars().count() <= MAX_MESSAGE_CHARS, "mensagem demasiado longa");
+                ensure!(files.len() <= MAX_ANEXOS, "demasiados anexos");
+                for f in files {
+                    ensure!(!f.name.is_empty() && f.name.chars().count() <= 200, "nome de ficheiro inválido");
+                    ensure!(f.mime.len() <= 100, "tipo de ficheiro inválido");
+                    if let Some(t) = &f.thumb {
+                        ensure!(t.starts_with("data:image/") && t.len() <= MAX_PHOTO_CHARS, "miniatura inválida");
+                    }
+                }
+            }
+            EventKind::Edit { target, text } => {
+                let alvo = self.event_by_id(group, target)?.ok_or_else(|| anyhow!("mensagem desconhecida"))?;
+                ensure!(alvo.body.author == ev.body.author, "só podes editar as tuas mensagens");
+                ensure!(e_mensagem(&alvo.body.kind), "só se editam mensagens");
+                ensure!(!text.trim().is_empty(), "mensagem vazia");
+                ensure!(text.chars().count() <= MAX_MESSAGE_CHARS, "mensagem demasiado longa");
+            }
+            EventKind::Delete { target } => {
+                let alvo = self.event_by_id(group, target)?.ok_or_else(|| anyhow!("mensagem desconhecida"))?;
+                ensure!(
+                    alvo.body.author == ev.body.author || author == info.owner,
+                    "só o autor ou o dono do grupo apagam mensagens"
+                );
+                ensure!(e_mensagem(&alvo.body.kind), "só se apagam mensagens");
+            }
+            EventKind::React { target, emoji, .. } => {
+                ensure!(member, "só membros reagem");
+                ensure!(!emoji.is_empty() && emoji.len() <= 64, "reação inválida");
+                let alvo = self.event_by_id(group, target)?.ok_or_else(|| anyhow!("mensagem desconhecida"))?;
+                ensure!(e_mensagem(&alvo.body.kind), "só se reage a mensagens");
+            }
             EventKind::Layout { channels, categories } => {
                 ensure!(author == info.owner, "só o dono pode mudar os canais");
                 check_layout(channels, categories)?;
@@ -295,6 +337,19 @@ impl Store {
         apply(&tx, group, ev)?;
         tx.commit()?;
         Ok(true)
+    }
+
+    /// Um evento do grupo pelo id.
+    pub fn event_by_id(&self, group: GroupId, id: &[u8; 32]) -> Result<Option<SignedEvent>> {
+        let data: Option<Vec<u8>> = self
+            .conn
+            .query_row(
+                "SELECT data FROM events WHERE group_id = ?1 AND id = ?2",
+                params![group.0, id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        data.map(|d| Ok(postcard::from_bytes(&d)?)).transpose()
     }
 
     pub fn events_since(&self, group: GroupId, since: u64) -> Result<Vec<(u64, SignedEvent)>> {
@@ -560,7 +615,11 @@ fn apply(conn: &Connection, group: GroupId, ev: &SignedEvent) -> Result<()> {
                 params![group.0, ev.body.author, display_name],
             )?;
         }
-        EventKind::Message { .. } => {}
+        EventKind::Message { .. }
+        | EventKind::Post { .. }
+        | EventKind::Edit { .. }
+        | EventKind::Delete { .. }
+        | EventKind::React { .. } => {}
         EventKind::Layout { channels, categories } => {
             conn.execute(
                 "INSERT OR REPLACE INTO layouts (group_id, data) VALUES (?1, ?2)",
