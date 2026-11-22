@@ -4,3 +4,5 @@ target/
 *.db-shm
 *.chave
 node_modules/
+# Copiado da app pelo workflow site.yml
+site/assets/termos.js

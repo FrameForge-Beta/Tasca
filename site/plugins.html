@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plugins da Tasca</title>
+<meta name="description" content="Guia para criar plugins para a Tasca: ganchos disponíveis, exemplos e como publicar na loja.">
+<meta property="og:title" content="Plugins da Tasca">
+<meta property="og:description" content="Guia para criar plugins para a Tasca: ganchos disponíveis, exemplos e como publicar na loja.">
+<meta property="og:image" content="https://rubenfernandes2004.github.io/Tasca/tasca-banner-1200x630.png">
+<meta name="theme-color" content="#1C1714">
+<link rel="icon" href="tasca-icon.svg" type="image/svg+xml">
+<link rel="alternate icon" href="favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<div data-topo></div>
+
+<main id="conteudo">
+<div class="cabeca padrao">
+  <div class="contentor" style="position:relative">
+    <span class="sobre-titulo">Para programadores</span>
+    <h1>Cria plugins para a Tasca</h1>
+    <p>A Tasca foi pensada para ser mudada por quem a usa. Esta é a documentação para criar plugins: o que já funciona hoje e o que vem a seguir.</p>
+  </div>
+</div>
+
+<div class="contentor doc">
+  <nav class="doc-nav" aria-label="Índice">
+    <input class="procura" type="search" placeholder="Procurar" aria-label="Procurar na documentação">
+    <button class="abrir-indice" type="button">Índice <span aria-hidden="true">▾</span></button>
+    <div class="grupos">
+      <div class="grupo"><span>Começar</span>
+        <a href="#visao">Visão geral</a>
+        <a href="#estado">Estado atual</a>
+        <a href="#primeiro">O primeiro plugin</a>
+      </div>
+      <div class="grupo"><span>Referência</span>
+        <a href="#ganchos">Ganchos</a>
+        <a href="#usermenu">userMenu</a>
+        <a href="#profilecard">profileCard</a>
+        <a href="#friendstabs">friendsTabs</a>
+        <a href="#menu">Itens de menu</a>
+        <a href="#estilos">Estilos e cores</a>
+      </div>
+      <div class="grupo"><span>Publicar</span>
+        <a href="#manifesto">Manifesto</a>
+        <a href="#permissoes">Permissões</a>
+        <a href="#loja">Loja e revisão</a>
+        <a href="#boas-praticas">Boas práticas</a>
+      </div>
+      <p class="sem-resultados">Nada encontrado.</p>
+    </div>
+  </nav>
+
+  <article class="doc-corpo">
+    <section id="visao">
+      <h2>Visão geral</h2>
+      <p>Um plugin da Tasca é JavaScript que corre dentro da app e se liga a <strong>ganchos</strong>: pontos onde a interface pergunta aos plugins se querem acrescentar alguma coisa, como uma opção num menu, uma secção num perfil ou um separador novo.</p>
+      <p>O objetivo é que quase tudo seja extensível: comandos no chat, bots, temas, botões, e até a disposição do ecrã. Plugins mais pesados vão poder ser escritos em <strong>WebAssembly</strong> (por exemplo em Rust).</p>
+    </section>
+
+    <section id="estado">
+      <h2>Estado atual</h2>
+      <div class="aviso"><b>A API de plugins está a nascer.</b> Os ganchos desta página já existem na app. O carregamento de plugins a partir de uma pasta, as permissões e a loja estão em desenvolvimento. Os nomes podem mudar até à versão 1.0.</div>
+      <div class="tabela-wrap">
+        <table>
+          <thead><tr><th>Parte</th><th>Estado</th></tr></thead>
+          <tbody>
+            <tr><td>Ganchos <code>userMenu</code>, <code>profileCard</code>, <code>friendsTabs</code></td><td class="sim">Disponível</td></tr>
+            <tr><td>Carregar um plugin de uma pasta</td><td class="nao">Em breve</td></tr>
+            <tr><td>Manifesto e permissões</td><td class="nao">Em breve</td></tr>
+            <tr><td>Comandos de chat, eventos de mensagens, bots</td><td class="nao">Em breve</td></tr>
+            <tr><td>Temas e mudar a disposição do ecrã</td><td class="nao">Em breve</td></tr>
+            <tr><td>Plugins em WebAssembly</td><td class="nao">Planeado</td></tr>
+            <tr><td>Loja com plugins revistos e assinados</td><td class="nao">Planeado</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="primeiro">
+      <h2>O primeiro plugin</h2>
+      <p>Enquanto o carregamento por pasta não chega, podes experimentar os ganchos na pré-visualização da interface, que corre num browser normal com dados de teste:</p>
+      <ol>
+        <li>Clona o repositório: <code>git clone https://github.com/RubenFernandes2004/Tasca</code></li>
+        <li>Abre <code>apps/desktop/ui/index.html</code> no browser (ou corre um servidor local nessa pasta).</li>
+        <li>Abre a consola do browser e cola o código abaixo.</li>
+        <li>Carrega com o botão direito numa pessoa da lista de membros.</li>
+      </ol>
+<pre class="codigo"><span class="c">// Acrescenta "Dizer olá" ao menu de cada pessoa</span>
+window.tascaHooks.userMenu.<span class="f">push</span>((pessoa, ctx) =&gt; [
+  {
+    label: <span class="s">`Dizer olá a ${pessoa.name}`</span>,
+    <span class="f">onClick</span>: () =&gt; <span class="f">alert</span>(<span class="s">"Olá, "</span> + pessoa.name + <span class="s">"!"</span>),
+  },
+]);</pre>
+      <p>Pronto: a opção aparece no fim do menu, separada por uma linha.</p>
+    </section>
+
+    <section id="ganchos">
+      <h2>Ganchos</h2>
+      <p>Todos os ganchos estão em <code>window.tascaHooks</code>. Cada gancho é uma lista: o teu plugin faz <code>push</code> de uma função. A Tasca chama todas as funções da lista quando precisa, e se uma der erro, ignora-a e continua.</p>
+      <p>Várias funções recebem um <code>ctx</code> (contexto):</p>
+<pre class="codigo">ctx = {
+  where: <span class="s">"card"</span> | <span class="s">"full"</span> | <span class="s">"menu"</span>,  <span class="c">// onde está a ser mostrado</span>
+  groupId: <span class="s">"…"</span>                         <span class="c">// o grupo aberto, se houver</span>
+}</pre>
+      <p>E uma <code>pessoa</code>, com pelo menos <code>id</code>, <code>name</code>, <code>username</code>, <code>color</code> e <code>status</code>.</p>
+    </section>
+
+    <section id="usermenu">
+      <h2>userMenu</h2>
+      <p><code>(pessoa, ctx) =&gt; itens[]</code>. Acrescenta itens ao menu de botão direito de uma pessoa (lista de membros, mensagens, amigos, chamada). Devolve uma lista de <a href="#menu">itens de menu</a>, ou uma lista vazia para não mostrar nada.</p>
+<pre class="codigo">window.tascaHooks.userMenu.<span class="f">push</span>((pessoa, ctx) =&gt; {
+  <span class="k">if</span> (!ctx.groupId) <span class="k">return</span> [];
+  <span class="k">return</span> [{
+    label: <span class="s">"Desafiar para xadrez"</span>,
+    items: [
+      { label: <span class="s">"Partida rápida (5 min)"</span>, <span class="f">onClick</span>: () =&gt; <span class="f">desafiar</span>(pessoa, <span class="n">5</span>) },
+      { label: <span class="s">"Partida lenta (30 min)"</span>, <span class="f">onClick</span>: () =&gt; <span class="f">desafiar</span>(pessoa, <span class="n">30</span>) },
+    ],
+  }];
+});</pre>
+    </section>
+
+    <section id="profilecard">
+      <h2>profileCard</h2>
+      <p><code>(pessoa, ctx) =&gt; html</code>. Acrescenta uma secção ao cartão de perfil (<code>ctx.where === "card"</code>) e ao perfil completo (<code>"full"</code>). Devolve uma string de HTML, ou <code>""</code>.</p>
+<pre class="codigo">window.tascaHooks.profileCard.<span class="f">push</span>((pessoa) =&gt; {
+  <span class="k">const</span> elo = ratings[pessoa.id];
+  <span class="k">if</span> (!elo) <span class="k">return</span> <span class="s">""</span>;
+  <span class="k">return</span> <span class="s">`&lt;div class="sec"&gt;&lt;h4&gt;Xadrez&lt;/h4&gt;&lt;p&gt;Elo ${elo}&lt;/p&gt;&lt;/div&gt;`</span>;
+});</pre>
+      <div class="aviso perigo"><b>Escapa o texto.</b> Nunca metas nomes ou mensagens de outras pessoas diretamente no HTML: escapa <code>&lt; &gt; &amp; "</code> primeiro.</div>
+    </section>
+
+    <section id="friendstabs">
+      <h2>friendsTabs</h2>
+      <p><code>() =&gt; [{ id, label, render() }]</code>. Acrescenta separadores à página Amigos. <code>render()</code> devolve o HTML do separador.</p>
+<pre class="codigo">window.tascaHooks.friendsTabs.<span class="f">push</span>(() =&gt; [{
+  id: <span class="s">"aniversarios"</span>,
+  label: <span class="s">"Aniversários"</span>,
+  <span class="f">render</span>() {
+    <span class="k">return</span> <span class="s">`&lt;p&gt;O Rui faz anos amanhã 🎂&lt;/p&gt;`</span>;
+  },
+}]);</pre>
+    </section>
+
+    <section id="menu">
+      <h2>Itens de menu</h2>
+      <p>Os menus da Tasca aceitam itens neste formato, ou <code>"-"</code> para uma linha separadora:</p>
+      <div class="tabela-wrap">
+        <table>
+          <thead><tr><th>Campo</th><th>O que faz</th></tr></thead>
+          <tbody>
+            <tr><td><code>label</code></td><td>Texto do item</td></tr>
+            <tr><td><code>onClick</code></td><td>Função chamada ao escolher</td></tr>
+            <tr><td><code>hint</code></td><td>Texto pequeno à direita, como um atalho</td></tr>
+            <tr><td><code>icon</code></td><td>SVG do ícone</td></tr>
+            <tr><td><code>danger</code></td><td>Mostra o item a vermelho</td></tr>
+            <tr><td><code>disabled</code>, <code>checked</code></td><td>Desligado; com visto</td></tr>
+            <tr><td><code>items</code></td><td>Submenu (lista de itens)</td></tr>
+            <tr><td><code>range</code></td><td><code>{ value, min, max, step, fmt, onInput }</code>: uma barra deslizante que não fecha o menu</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="estilos">
+      <h2>Estilos e cores</h2>
+      <p>Usa as variáveis CSS da Tasca para o plugin combinar com o tema escuro (Madeira) e o claro (Cal):</p>
+<pre class="codigo">--vinho  <span class="c">#9B2C3F  cor principal, botões</span>
+--azulejo <span class="c">#2A5CAA  links, seleção, foco</span>
+--ocre   <span class="c">#E3A72F  menções, destaques</span>
+--oliva  <span class="c">#5E8C4A  online, sucesso</span>
+--fundo, --painel, --caixa, --texto  <span class="c">mudam com o tema</span></pre>
+    </section>
+
+    <section id="manifesto">
+      <h2>Manifesto <span class="estado breve">Proposta</span></h2>
+      <p>Cada plugin vai ter um <code>tasca-plugin.json</code> a descrevê-lo. Esta é a proposta atual:</p>
+<pre class="codigo">{
+  <span class="s">"id"</span>: <span class="s">"pt.exemplo.xadrez"</span>,
+  <span class="s">"nome"</span>: <span class="s">"Xadrez"</span>,
+  <span class="s">"versao"</span>: <span class="s">"1.0.0"</span>,
+  <span class="s">"autor"</span>: <span class="s">"@marta_cx"</span>,
+  <span class="s">"descricao"</span>: <span class="s">"Desafia amigos para partidas de xadrez."</span>,
+  <span class="s">"runtime"</span>: <span class="s">"js"</span>,
+  <span class="s">"entrada"</span>: <span class="s">"main.js"</span>,
+  <span class="s">"permissoes"</span>: [<span class="s">"ui.menus"</span>, <span class="s">"mensagens.enviar"</span>]
+}</pre>
+    </section>
+
+    <section id="permissoes">
+      <h2>Permissões <span class="estado breve">Proposta</span></h2>
+      <p>Um plugin só faz o que o utilizador aceitar ao instalá-lo. Ideias de permissões: acrescentar à interface, ler mensagens do canal aberto, enviar mensagens, usar a rede, guardar dados próprios. Um plugin sem permissões de rede não consegue enviar nada para fora.</p>
+    </section>
+
+    <section id="loja">
+      <h2>Loja e revisão <span class="estado breve">Planeado</span></h2>
+      <p>A loja vai ser um catálogo num repositório do GitHub. Para publicar, abres um pull request com o teu plugin; a equipa revê o código, e se estiver tudo bem, o plugin é <strong>assinado</strong> e aparece na loja com o selo <strong>Verificado</strong>. A app recusa plugins da loja sem assinatura válida.</p>
+      <p>Plugins carregados à mão continuam a ser possíveis, com um aviso de que não foram revistos.</p>
+    </section>
+
+    <section id="boas-praticas">
+      <h2>Boas práticas</h2>
+      <ul>
+        <li>Escapa sempre o texto de outras pessoas antes de o meter em HTML.</li>
+        <li>As funções dos ganchos correm muitas vezes: mantém-nas rápidas e sem pedidos de rede.</li>
+        <li>Escreve os textos em português de Portugal, curtos e claros, como o resto da Tasca.</li>
+        <li>Pede só as permissões de que precisas.</li>
+        <li>Tens uma ideia de gancho novo? <a href="https://github.com/RubenFernandes2004/Tasca/issues/new">Abre uma issue</a>.</li>
+      </ul>
+    </section>
+  </article>
+  <aside class="doc-toc" aria-label="Nesta secção"></aside>
+</div>
+</main>
+
+<div data-rodape></div>
+<script src="assets/site.js"></script>
+
+</body>
+</html>
