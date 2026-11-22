@@ -181,36 +181,37 @@
     delete V.pubs[kind];
   }
 
-  function canvas(key) {
-    let c = V.canvases.get(key);
+  // Um <canvas> por sítio onde o vídeo aparece (por exemplo, a chamada e a miniatura do
+  // painel ao mesmo tempo): `i` é a posição. Todos recebem cada imagem.
+  function canvas(key, i = 0) {
+    let l = V.canvases.get(key);
+    if (!l) V.canvases.set(key, (l = []));
+    let c = l[i];
     if (!c) {
-      c = document.createElement("canvas");
+      c = l[i] = document.createElement("canvas");
       c.className = "live-video";
-      V.canvases.set(key, c);
     }
     return c;
   }
 
-  function receber(data) {
-    const buf = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data);
-    const idLen = buf[0];
-    const id = new TextDecoder().decode(buf.subarray(1, 1 + idLen));
-    const flags = buf[1 + idLen], codecId = buf[2 + idLen];
-    const img = buf.subarray(3 + idLen);
-    const key = id + ":" + (flags & 2 ? "screen" : "cam");
-    const isKey = !!(flags & 1);
+  function desenhar(key, frame) {
+    const l = V.canvases.get(key) || [canvas(key)];
+    l.forEach((c, i) => {
+      if (i > 0 && !c.isConnected) return;
+      if (c.width !== frame.displayWidth || c.height !== frame.displayHeight) { c.width = frame.displayWidth; c.height = frame.displayHeight; }
+      c.getContext("2d").drawImage(frame, 0, 0);
+    });
+    frame.close();
+  }
+
+  function decodificar(key, codecId, isKey, img) {
     let d = V.decs[key];
     if (d && d.codecId !== codecId) { try { d.dec.close(); } catch {} d = null; }
     if (!d || d.dec.state === "closed") {
       if (!isKey) return; // espera por uma imagem chave
       if (!window.VideoDecoder) return;
       const dec = new VideoDecoder({
-        output: (frame) => {
-          const c = canvas(key);
-          if (c.width !== frame.displayWidth || c.height !== frame.displayHeight) { c.width = frame.displayWidth; c.height = frame.displayHeight; }
-          c.getContext("2d").drawImage(frame, 0, 0);
-          frame.close();
-        },
+        output: (frame) => desenhar(key, frame),
         error: (e) => { console.warn("descodificador:", e); },
       });
       dec.configure({ codec: codecId === 1 ? "avc1.42E034" : "vp8", optimizeForLatency: true, ...(codecId === 1 ? { avc: { format: "annexb" } } : {}) });
@@ -218,7 +219,22 @@
     }
     if (d.dec.decodeQueueSize > 4 && !isKey) return;
     try { d.dec.decode(new EncodedVideoChunk({ type: isKey ? "key" : "delta", timestamp: performance.now() * 1000, data: img })); }
-    catch (e) { console.warn("vídeo recebido:", e); try { d.dec.close(); } catch {} delete V.decs[key]; }
+    catch (e) { console.warn("vídeo:", e); try { d.dec.close(); } catch {} delete V.decs[key]; }
+  }
+
+  function receber(data) {
+    const buf = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data);
+    const idLen = buf[0];
+    const id = new TextDecoder().decode(buf.subarray(1, 1 + idLen));
+    const flags = buf[1 + idLen], codecId = buf[2 + idLen];
+    decodificar(id + ":" + (flags & 2 ? "screen" : "cam"), codecId, !!(flags & 1), buf.subarray(3 + idLen));
+  }
+
+  // O teu ecrã partilhado pela Tasca (ecra.rs) chega já codificado: mostra-o no teu quadrado.
+  function showLocal(key, codecId, bytes, isKey) { decodificar(key, codecId, isKey, bytes); }
+  function dropLocal(key) {
+    const d = V.decs[key]; if (d) { try { d.dec.close(); } catch {} delete V.decs[key]; }
+    V.canvases.delete(key);
   }
 
   function subscribe() {
@@ -237,7 +253,7 @@
 
   window.vozAudio = {
     start, stop,
-    video: { publish, unpublish, sendRaw, canvas, subscribe, clear: limparVideo },
+    video: { publish, unpublish, sendRaw, canvas, subscribe, showLocal, dropLocal, clear: limparVideo },
     get active() { return !!A.ctx; },
     set transmit(f) { A.transmit = f; },
     set onFrame(f) { A.onFrame = f; },
