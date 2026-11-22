@@ -173,6 +173,25 @@ impl Anuncio {
     }
 }
 
+/// "Grupo" de uma chamada privada entre duas contas: o mesmo para os dois lados e
+/// impossível de adivinhar por quem não é nenhuma delas.
+pub fn grupo_privado(a: &iroh::PublicKey, b: &iroh::PublicKey) -> GroupId {
+    let (x, y) = if a.as_bytes() <= b.as_bytes() { (a, b) } else { (b, a) };
+    let mut h = blake3::Hasher::new_derive_key("tasca 2026 chamada privada v1");
+    h.update(x.as_bytes());
+    h.update(y.as_bytes());
+    GroupId(*h.finalize().as_bytes())
+}
+
+/// Alguém está a ligar-te (chamada privada).
+#[derive(Debug, Clone)]
+pub struct Toque {
+    /// Conta de quem liga.
+    pub de: [u8; 32],
+    /// Dispositivo de onde liga (é lá que a chamada está).
+    pub endpoint: iroh::EndpointAddr,
+}
+
 /// O anfitrião mandou ligar a outra pessoa (ver [`NovoHost`]).
 #[derive(Debug)]
 pub struct Redirecionar(pub NovoHost);
@@ -228,6 +247,8 @@ pub(crate) enum VozCliente {
     PassarHost { para: u16 },
     /// Para o dono do grupo saber quem aloja (e dizer a quem perguntar).
     Anunciar(Anuncio),
+    /// Chamada privada: "estou a ligar-te" (o grupo é [`grupo_privado`] dos dois).
+    Tocar { group: GroupId },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -667,6 +688,16 @@ impl HostVoz {
         let (mut send, mut recv) = conn.accept_bi().await?;
         let (group, room) = match read_frame(&mut recv).await? {
             Some(VozCliente::Entrar { group, room }) => (group, room),
+            Some(VozCliente::Tocar { group }) => {
+                if let Some(inner) = self.inner.upgrade() {
+                    if group == grupo_privado(&inner.identity().public(), &remote) {
+                        let endpoint = iroh::EndpointAddr::from_parts(conn.remote_id(), enderecos_de(&conn));
+                        let _ = inner.toques.send(Toque { de: key, endpoint });
+                    }
+                }
+                send.finish()?;
+                return Ok(());
+            }
             Some(VozCliente::Anunciar(a)) => {
                 if let Some(inner) = self.inner.upgrade() {
                     if inner.guardar_anuncio(a) {
@@ -696,8 +727,9 @@ impl HostVoz {
             let inner = self.inner.upgrade().ok_or_else(|| anyhow!("nó desligado"))?;
             let store = inner.store();
             let info = store.group(group)?;
+            let privada = group == grupo_privado(&inner.identity().public(), &remote);
             Ok((
-                room.len() <= MAX_SALA && info.is_some() && store.is_member(group, &remote)?,
+                room.len() <= MAX_SALA && (privada || (info.is_some() && store.is_member(group, &remote)?)),
                 info.is_some_and(|g| g.owner == remote),
             ))
         })()?;
@@ -790,7 +822,9 @@ impl HostVoz {
                         }
                     }
                 }
-                Ok(Some(VozCliente::Entrar { .. } | VozCliente::Quem { .. } | VozCliente::Anunciar(_))) => bail!("Entrar repetido"),
+                Ok(Some(VozCliente::Entrar { .. } | VozCliente::Quem { .. } | VozCliente::Anunciar(_) | VozCliente::Tocar { .. })) => {
+                    bail!("Entrar repetido")
+                }
                 Ok(None) => break,
                 Err(e) => {
                     debug!("voz: ligação de {remote} caiu: {e:#}");

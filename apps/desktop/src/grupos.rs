@@ -661,6 +661,18 @@ pub(crate) async fn ativa(app: &AppHandle, rede: &Rede, contas: &Contas) -> Res<
         let (a2, ap) = (a.clone(), app.clone());
         a.tarefa(async move { a2.ler_conta(ap).await });
     }
+    // chamadas privadas a chegar
+    let (mut toques, ap) = (a.node.toques(), app.clone());
+    a.tarefa(async move {
+        use tokio::sync::broadcast::error::RecvError;
+        loop {
+            match toques.recv().await {
+                Ok(t) => crate::voz::tocou(&ap, t),
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => break,
+            }
+        }
+    });
     *g = Some(a.clone());
     Ok(a)
 }

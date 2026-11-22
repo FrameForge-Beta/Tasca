@@ -36,6 +36,21 @@ type Res<T> = Result<T, String>;
 #[derive(Default)]
 pub struct Voz {
     atual: Mutex<Option<Arc<EmChamada>>>,
+    /// Quem nos ligou há pouco, e de onde (para atender ligando a esse dispositivo).
+    toques: StdMutex<std::collections::HashMap<String, (tasca_core::EndpointAddr, std::time::Instant)>>,
+}
+
+/// Alguém está a ligar-te: a interface mostra o ecrã de atender e o sistema avisa.
+pub fn tocou(app: &AppHandle, t: tasca_core::voz::Toque) {
+    use tauri::Manager;
+    let id = hex(&t.de);
+    if let Some(v) = app.try_state::<Voz>() {
+        let mut m = v.toques.lock().unwrap();
+        m.retain(|_, (_, quando)| quando.elapsed() < Duration::from_secs(120));
+        m.insert(id.clone(), (t.endpoint, std::time::Instant::now()));
+    }
+    let _ = app.emit("incoming_call", json!({ "userId": id }));
+    crate::avisos::mensagem(app, &format!("dm-{id}"), None, "Chamada", "Estão a ligar-te na Tasca");
 }
 
 struct EmChamada {
@@ -238,7 +253,16 @@ pub async fn join_voice(
     sensitivity: Option<u8>,
 ) -> Res<serde_json::Value> {
     let a = ativa(&app, &rede, &c).await?;
-    let (g, sala) = canal(&channel_id)?;
+    // Chamada privada com um amigo: "dm-<chave>".
+    let privada = channel_id.strip_prefix("dm-").map(|k| {
+        let pk = crate::grupos::unhex32(k).and_then(|b| tasca_core::PublicKey::from_bytes(&b).ok());
+        (k.to_string(), pk)
+    });
+    let (g, sala) = match &privada {
+        Some((_, Some(pk))) => (tasca_core::voz::grupo_privado(&a.node.identity().public(), pk), "privada".to_string()),
+        Some((_, None)) => return Err("Pessoa desconhecida.".into()),
+        None => canal(&channel_id)?,
+    };
     let mut atual = voz.atual.lock().await;
     if let Some(velha) = atual.take() {
         if velha.canal == channel_id {
@@ -250,12 +274,19 @@ pub async fn join_voice(
     let f = filtro(modo(noise.as_deref())).await;
     let mut captura = Captura::new(f).map_err(|e| e.to_string())?;
     captura.sensibilidade = sensitivity.unwrap_or(0).min(100);
-    let chamada = a.node.entrar_voz(g, &sala).await.map_err(|e| {
+    let chamada = match &privada {
+        Some((k, Some(pk))) => {
+            let onde = voz.toques.lock().unwrap().remove(k).map(|(e, _)| e);
+            a.node.ligar_privado(*pk, onde).await
+        }
+        _ => a.node.entrar_voz(g, &sala).await,
+    }
+    .map_err(|e| {
         eprintln!("voz: {e:#}");
         format!("Não consegui entrar na chamada: {e}")
     })?;
     // O dono do grupo (se estiver ligado) mostra aos outros em que sala estás.
-    if let Ok(h) = a.handle(g) {
+    if let (None, Ok(h)) = (&privada, a.handle(g)) {
         let s = sala.clone();
         tauri::async_runtime::spawn(async move {
             let _ = h.set_voice(Some(s)).await;

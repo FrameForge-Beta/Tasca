@@ -1763,3 +1763,9 @@ details.row.adv .btn { justify-self: start; }
 .mobile .messages .msg > div.msg-acts { display: none !important; }
 @media (hover: none) { .messages .msg:hover > div.msg-acts { display: none; } }
 .messages.bubbles .msg.mine .reply-ref { margin-left: auto; }
+.ring-card { display: grid; justify-items: center; gap: 6px; padding: 8px 0 4px; text-align: center; }
+.ring-card .av.big { width: 88px; height: 88px; font-size: 30px; animation: pulse 1.6s ease-in-out infinite; }
+.ring-card h2 { margin: 8px 0 0; }
+.ring-card p { margin: 0; color: var(--texto-3); }
+.ring-actions { justify-content: center; }
+.ring-actions .btn svg { width: 16px; height: 16px; margin-right: 6px; vertical-align: -3px; }

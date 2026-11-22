@@ -62,6 +62,10 @@ pub(crate) struct Inner {
     /// Chave iroh deste dispositivo.
     endpoint_id: [u8; 32],
     endpoint: iroh::Endpoint,
+    /// Chamadas privadas a chegar.
+    pub(crate) toques: broadcast::Sender<crate::voz::Toque>,
+    /// Chamadas privadas conhecidas: grupo → (conta do amigo, onde a chamada pode estar).
+    privadas: Mutex<HashMap<GroupId, (iroh::PublicKey, Option<iroh::EndpointAddr>)>>,
     pasta: Option<crate::ficheiros::Pasta>,
 }
 
@@ -136,6 +140,10 @@ impl Inner {
         true
     }
 
+    pub(crate) fn identity(&self) -> &Identity {
+        &self.identity
+    }
+
     pub(crate) fn meus_enderecos(&self) -> Vec<iroh::TransportAddr> {
         self.endpoint.addr().addrs.into_iter().collect()
     }
@@ -203,6 +211,8 @@ impl Node {
             anuncios: Default::default(),
             endpoint_id: *endpoint.id().as_bytes(),
             endpoint: endpoint.clone(),
+            toques: broadcast::channel(16).0,
+            privadas: Default::default(),
             pasta: opts.ficheiros.clone().map(crate::ficheiros::Pasta),
         });
         let voz = Arc::new(crate::voz::Hub::new(Arc::downgrade(&inner), *endpoint.id().as_bytes()));
@@ -573,13 +583,28 @@ impl Node {
     /// Entra numa sala de voz de um grupo. Se alguém já está a alojar a sala, liga-se a
     /// essa pessoa; se não, passa a alojá-la este dispositivo (quem entra primeiro aloja).
     pub async fn entrar_voz(&self, group: GroupId, room: &str) -> Result<crate::voz::Chamada> {
+        if self.voz.hospeda(group, room) {
+            return Ok(self.chamada_local(group, room));
+        }
+        let privada = self.inner.privadas.lock().unwrap().get(&group).cloned();
+        if let Some((amigo, onde)) = privada {
+            // Chamada privada: a chamada está no dispositivo de onde nos ligaram ou no PC
+            // do amigo; se não estiver em nenhum, fica aqui.
+            let alvos = onde
+                .into_iter()
+                .map(|a| (a, std::time::Duration::from_secs(3)))
+                .chain(std::iter::once((iroh::EndpointAddr::new(amigo), std::time::Duration::ZERO)));
+            for (alvo, espera) in alvos {
+                if let Ok(c) = self.entrar_voz_em(group, room, alvo, espera).await {
+                    return Ok(c);
+                }
+            }
+            return Ok(self.chamada_local(group, room));
+        }
         self.inner
             .store()
             .group(group)?
             .ok_or_else(|| anyhow!("grupo desconhecido"))?;
-        if self.voz.hospeda(group, room) {
-            return Ok(self.chamada_local(group, room));
-        }
         let mut tentados = Vec::new();
         for perguntar in [false, true] {
             if perguntar {
@@ -609,6 +634,46 @@ impl Node {
     fn chamada_local(&self, group: GroupId, room: &str) -> crate::voz::Chamada {
         let me = *self.inner.identity.public().as_bytes();
         crate::voz::Chamada::local(self.voz.clone(), group, room, me)
+    }
+
+    /// Chamada privada com um amigo. `onde`: dispositivo de onde ele nos ligou (de um
+    /// [`crate::voz::Toque`]). Se a chamada ainda não existir, fica a ser alojada aqui e o
+    /// PC do amigo recebe um toque.
+    pub async fn ligar_privado(&self, amigo: iroh::PublicKey, onde: Option<iroh::EndpointAddr>) -> Result<crate::voz::Chamada> {
+        let eu = self.inner.identity.public();
+        let g = crate::voz::grupo_privado(&eu, &amigo);
+        self.inner.privadas.lock().unwrap().insert(g, (amigo, onde));
+        let c = self.entrar_voz(g, "privada").await?;
+        if c.e_anfitriao() {
+            let node = self.clone();
+            tokio::spawn(async move {
+                let r: Result<()> = async {
+                    let addr = iroh::EndpointAddr::new(amigo);
+                    let _ = node.apresentar(&addr).await;
+                    let conn = tokio::time::timeout(
+                        std::time::Duration::from_secs(10),
+                        node.router.endpoint().connect(addr, crate::voz::VOZ_ALPN),
+                    )
+                    .await??;
+                    let (mut send, mut recv) = conn.open_bi().await?;
+                    write_frame(&mut send, &crate::voz::VozCliente::Tocar { group: g }).await?;
+                    send.finish()?;
+                    let _ = tokio::time::timeout(std::time::Duration::from_secs(3), recv.read_to_end(16)).await;
+                    conn.close(0u32.into(), b"ok");
+                    Ok(())
+                }
+                .await;
+                if let Err(e) = r {
+                    debug!("toque não chegou: {e:#}");
+                }
+            });
+        }
+        Ok(c)
+    }
+
+    /// Chamadas privadas a chegar.
+    pub fn toques(&self) -> broadcast::Receiver<crate::voz::Toque> {
+        self.inner.toques.subscribe()
     }
 
     /// Liga-se à chamada alojada num dispositivo concreto (por exemplo depois de um

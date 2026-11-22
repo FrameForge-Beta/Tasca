@@ -231,3 +231,27 @@ async fn dono_do_grupo_pode_mudar_quem_aloja() {
     let n = timeout(Duration::from_secs(5), nh.wait_for(|n| n.is_some())).await.unwrap().unwrap().clone().unwrap();
     assert_eq!(n.conta, *host.identity().public().as_bytes());
 }
+
+#[tokio::test]
+async fn chamada_privada_entre_dois() {
+    let ana = node().await;
+    let ze = node().await;
+    let estranho = node().await;
+    let mut toques = ze.toques();
+    // A Ana liga ao Zé: aloja ela e o PC do Zé recebe um toque. (Na rede local de teste,
+    // o Zé só é encontrado pelo endereço; na rede a sério basta a chave.)
+    let zk = ze.identity().public();
+    let _ = ana.amigos();
+    // dá à Ana o endereço do Zé, como a descoberta do iroh faria
+    let c = ana.ligar_privado(zk, Some(ze.addr())).await.unwrap();
+    assert!(c.e_anfitriao());
+    let t = timeout(Duration::from_secs(5), toques.recv()).await.expect("sem toque").unwrap();
+    assert_eq!(t.de, *ana.identity().public().as_bytes());
+    // O Zé atende, ligando-se a quem tocou.
+    let z = ze.ligar_privado(ana.identity().public(), Some(t.endpoint)).await.unwrap();
+    assert!(!z.e_anfitriao());
+    sala_com(&c, 2).await;
+    // Um estranho não entra, mesmo sabendo onde está a chamada.
+    let g = tasca_core::voz::grupo_privado(&ana.identity().public(), &zk);
+    assert!(estranho.entrar_voz_em(g, "privada", ana.addr(), Duration::from_millis(500)).await.is_err());
+}

@@ -319,7 +319,7 @@
   function renderVoiceBar() {
     if (!S.voice) return "";
     const c = findChannel(S.voice.channelId);
-    const g = S.groups.find((x) => x.id === S.voice.groupId);
+    const g = voiceGroup();
     const q = S.voice.ping < 60 ? 3 : S.voice.ping < 120 ? 2 : 1;
     const bars = [1, 2, 3].map((i) => `<i class="${i <= q ? "on" : ""}" style="height:${4 + i * 3}px"></i>`).join("");
     const share = S.sharing ? `
@@ -820,7 +820,15 @@
       <div class="cat"><span>Offline · ${off.length}</span></div>${off.map(row).join("")}`;
   }
 
+  // Grupo da chamada em curso (numa chamada privada não há grupo).
+  function voiceGroup() {
+    return (S.voice && S.groups.find((x) => x.id === S.voice.groupId)) || { id: null, name: "Chamada privada", owner: null, host: { online: true }, color: null };
+  }
   function findChannel(id) {
+    if (String(id).startsWith("dm-")) {
+      const p = who(id.slice(3));
+      return { id, kind: "voice", name: p.name, inVoice: S.voice && S.voice.channelId === id ? (S.dmInVoice || ["me"]) : [] };
+    }
     for (const g of S.groups) { const list = S.allChannels[g.id] || []; const c = list.find((x) => x.id === id); if (c) return c; }
     return S.channels.find((x) => x.id === id);
   }
@@ -857,7 +865,7 @@
 
   function renderVoice() {
     const c = findChannel(S.voice.channelId);
-    const g = S.groups.find((x) => x.id === S.voice.groupId);
+    const g = voiceGroup();
     const ppl = (c.inVoice || []).map((id) => S.people[id]);
     const items = [];
     if (c.inVoice.includes("rui") && c.id === "v-sala") items.push({ id: "rui:screen", who: "rui", kind: "screen", label: "Rui", meta: "1080p 60fps" });
@@ -1828,15 +1836,19 @@
       return toast(msg);
     }
     sfx.join();
-    S.voice = { channelId: id, groupId: S.groupId, ...info };
+    const dmCall = String(id).startsWith("dm-");
+    S.voice = { channelId: id, groupId: dmCall ? null : S.groupId, ...info };
+    S.dmInVoice = ["me"];
     S.voiceStates = {};
     if (S.muted || S.deaf) api.set_voice_state({ muted: S.muted, deaf: S.deaf });
     applyUserVolumes();
     syncVideo();
     if (!micAllowed()) { S.muted = true; api.set_voice_state({ muted: true, deaf: S.deaf }); toast("Entraste só a ouvir: o microfone está desligado nas permissões."); }
     startVad();
-    S.channels = await api.list_channels({ groupId: S.groupId });
-    S.allChannels[S.groupId] = S.channels;
+    if (!dmCall) {
+      S.channels = await api.list_channels({ groupId: S.groupId });
+      S.allChannels[S.groupId] = S.channels;
+    }
     S.view = "voice"; S.navOpen = false; render();
     return null;
   }
@@ -1846,8 +1858,10 @@
     stopVad();
     stopCamera(); stopShare(true);
     const gid = S.voice.groupId; S.voice = null;
-    S.allChannels[gid] = await api.list_channels({ groupId: gid });
-    if (S.groupId === gid) S.channels = S.allChannels[gid];
+    if (gid) {
+      S.allChannels[gid] = await api.list_channels({ groupId: gid });
+      if (S.groupId === gid) S.channels = S.allChannels[gid];
+    }
     if (S.view === "voice") S.view = "chat";
     render(); toast("Saíste da chamada.");
   }
@@ -1965,7 +1979,13 @@
         // como no balcão: começa pelos amigos; as conversas ficam na barra ao lado
         S.home = true; S.view = window.tascaAmigos ? "friends" : "chat"; S.channelId = null; S.messages = []; S.navOpen = false; return render();
       }
-      case "dm-call": case "dm-video": return toast("Chamadas privadas: em breve. Vão diretamente entre os dois PCs.");
+      case "dm-call": case "dm-video": {
+        if (!S.channelId || !S.channelId.startsWith("dm-")) return;
+        if (api.isMock) return toast("Na app instalada, a chamada vai diretamente entre os dois dispositivos.");
+        const err = await joinVoice(S.channelId);
+        if (!err && d.act === "dm-video" && !S.camera) { const b = document.querySelector('[data-act="camera"]'); if (b) b.click(); }
+        return;
+      }
       case "new-dm": return toast("Escolhe alguém da lista de membros de um grupo para começar a conversar.");
       case "new-group": return openNewGroup();
       case "plugins":
@@ -1998,8 +2018,8 @@
         if (S.sharing) { stopShare(); return render(); }
         return openSharePicker();
       case "call-sidebar": S.callSidebar = !S.callSidebar; return render();
-      case "call-min": { S.view = "chat"; if (S.groupId !== S.voice.groupId) { await openGroup(S.voice.groupId); return; } if (!channel() || channel().kind !== "text") { const t = S.channels.find((x) => x.kind === "text"); if (t) return openChannel(t.id); } return render(); }
-      case "invite-call": { if (S.groupId !== S.voice.groupId) await openGroup(S.voice.groupId); return openInvite(); }
+      case "call-min": { if (!S.voice.groupId) { S.view = "chat"; return openDm(S.voice.channelId); } S.view = "chat"; if (S.groupId !== S.voice.groupId) { await openGroup(S.voice.groupId); return; } if (!channel() || channel().kind !== "text") { const t = S.channels.find((x) => x.kind === "text"); if (t) return openChannel(t.id); } return render(); }
+      case "invite-call": { if (!S.voice.groupId) return toast("As chamadas privadas são só entre os dois."); if (S.groupId !== S.voice.groupId) await openGroup(S.voice.groupId); return openInvite(); }
       case "voice-quick": return openVoiceSettings();
       case "voicepre-back": S.view = S.prevView && S.prevView !== "voicepre" ? S.prevView : "chat"; return render();
       case "voicepre-invite": { const c = findChannel(S.preVoice); const g = S.groups.find((x) => (S.allChannels[x.id] || []).some((y) => y.id === c.id)); if (g && S.groupId !== g.id) await openGroup(g.id); S.view = "voicepre"; render(); return openInvite(); }
@@ -2012,7 +2032,7 @@
         if (fail) { S.preVoiceErr = fail; if (S.view === "voicepre") render(); }
         return;
       }
-      case "call-chat": { const gid = S.voice.groupId; if (S.groupId !== gid) await openGroup(gid); else await openChannel(S.channels.find((x) => x.kind === "text").id); return; }
+      case "call-chat": { const gid = S.voice.groupId; if (!gid) return openDm(S.voice.channelId); if (S.groupId !== gid) await openGroup(gid); else await openChannel(S.channels.find((x) => x.kind === "text").id); return; }
       case "fullscreen": {
         try {
           if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -2328,6 +2348,21 @@
     if (g && (S.home || S.groupId !== groupId)) g.unread = (g.unread || 0) + 1;
     if (c || g) rerenderKeepInput();
   });
+  // Chamada privada a chegar: ecrã para atender ou recusar.
+  api.on("incoming_call", ({ userId }) => {
+    const p = who(userId);
+    if (S.voice && S.voice.channelId === "dm-" + userId) return;
+    haptic(30);
+    try { sfx.join(); } catch {}
+    document.querySelectorAll(".scrim.ring").forEach((x) => x.remove());
+    modal(`<div class="ring-card">${avatar(p).replace('class="av ', 'class="av big ')}<h2>${esc(p.name)}</h2><p>Está a ligar-te</p></div>
+      <div class="actions ring-actions"><button class="btn danger" data-close>Recusar</button><button class="btn primary" id="ring-ok">${I.phone}Atender</button></div>`,
+    (el, close) => {
+      el.classList.add("ring");
+      const t = setTimeout(close, 45000);
+      $("#ring-ok", el).onclick = async () => { clearTimeout(t); close(); if (S.voice) await leaveVoice(); const e = await joinVoice("dm-" + userId); if (e) toast(e); };
+    });
+  });
   // editada, apagada ou com reações novas (por ti noutro dispositivo ou por outra pessoa)
   api.on("message_update", ({ channelId, id, message }) => {
     if (channelId !== S.channelId) return;
@@ -2394,6 +2429,7 @@
   });
   api.on("voice_members", ({ channelId, members }) => {
     if (!S.voice || S.voice.channelId !== channelId) return;
+    if (!S.voice.groupId) S.dmInVoice = members.map((m) => m.id);
     const h = members.find((m) => m.host);
     const antes = S.voice.hostId;
     S.voice.hostId = h ? h.id : null;
