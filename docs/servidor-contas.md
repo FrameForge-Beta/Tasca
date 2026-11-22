@@ -7,7 +7,13 @@ Ele guarda, por cada utilizador:
 - a chave pública;
 - um verificador da palavra-passe.
 
-Nunca vê a palavra-passe e não consegue abrir os cofres. Mensagens, grupos e chamadas não passam por ele.
+Nunca vê a palavra-passe e não consegue abrir os cofres.
+
+Guarda também as **caixas** das conversas e dos grupos: blocos cifrados de ponta a ponta,
+pela ordem em que chegam. Os grupos vivem aí, por isso funcionam com o PC do dono
+desligado. O servidor não sabe de que grupo é cada caixa nem o que lá está. Diz também
+quem está online em cada grupo (blocos cifrados que só guarda em memória durante 90 s).
+Chamadas e ficheiros não passam por ele.
 
 ## 1. Arrancar no mini servidor (Docker)
 
@@ -27,6 +33,17 @@ O Caddy pede sozinho o certificado HTTPS ao Let's Encrypt. Para isso:
 As contas ficam no volume Docker `contas`, no ficheiro `contas.db`. Faz cópias desse volume de vez em quando.
 
 Para confirmar que está tudo a funcionar, abre `https://o-teu-dominio/saude` no browser. Deve aparecer `ok`.
+
+### Atualizar
+
+Quando sai uma versão nova do servidor:
+
+```sh
+cd tasca && git pull
+cd deploy/servidor && docker compose up -d --build
+```
+
+Os dados ficam no volume, não se perdem.
 
 ### Não tens domínio?
 

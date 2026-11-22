@@ -249,8 +249,8 @@ pub async fn send_message(
         "ts": tasca_core::event::now_ms(),
         "from": "me",
         "text": text,
-        // ligado a outro PC: fica pendente até o anfitrião a devolver (message_ack)
-        "pending": ligado && !hosted,
+        // fica pendente até voltar do grupo (message_ack)
+        "pending": a.tem_servidor() || (ligado && !hosted),
     });
     if !files.is_empty() {
         v["files"] = files.iter().map(anexo_json).collect();

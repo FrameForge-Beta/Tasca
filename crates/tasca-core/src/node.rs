@@ -75,6 +75,20 @@ pub(crate) struct Inner {
     /// Última vez que a caixa de cada grupo foi lida do servidor. Com a leitura em dia,
     /// os anúncios das chamadas (que também vão para a caixa) estão todos cá.
     caixa_lida: Mutex<HashMap<GroupId, std::time::Instant>>,
+    /// Grupo na caixa: a sala de voz onde estou em cada grupo (vai na presença).
+    minhas_salas: Mutex<HashMap<GroupId, Option<String>>>,
+    /// Convites com que estou a entrar (para abrir a chave nova se ela rodar entretanto).
+    convites: Mutex<HashMap<GroupId, Vec<Identity>>>,
+    /// Eventos meus que as regras do grupo recusaram: id → motivo.
+    rejeitados: Mutex<HashMap<[u8; 32], String>>,
+    /// Em que época mandei cada evento meu (para o reenviar se a chave mudar entretanto).
+    enviados: Mutex<HashMap<[u8; 32], (GroupId, u32)>>,
+    /// Quando rodei a chave de cada grupo pela última vez (para não repetir).
+    rodadas: Mutex<HashMap<GroupId, std::time::Instant>>,
+    /// Uma leitura da caixa de cada vez, por grupo.
+    leituras: Mutex<HashMap<GroupId, Arc<tokio::sync::Mutex<()>>>>,
+    /// Passagem dos grupos antigos para a caixa (uma de cada vez).
+    migracao: tokio::sync::Mutex<()>,
 }
 
 /// O que um moderador fez a alguém nas chamadas.
@@ -322,6 +336,13 @@ impl Node {
             moderados: Default::default(),
             recusas: broadcast::channel(16).0,
             caixa_lida: Default::default(),
+            minhas_salas: Default::default(),
+            convites: Default::default(),
+            rejeitados: Default::default(),
+            enviados: Default::default(),
+            rodadas: Default::default(),
+            leituras: Default::default(),
+            migracao: Default::default(),
         });
         {
             // quem já estava silenciado por um moderador continua
@@ -524,6 +545,18 @@ impl Node {
     /// desligado). As mensagens vão para a caixa do servidor e o anfitrião aceita-as quando voltar.
     pub fn open_offline(&self, group: GroupId) -> Result<GroupHandle> {
         ensure!(self.inner.store().group(group)?.is_some(), "grupo desconhecido");
+        if self.inner.has_server() {
+            // o grupo vive na caixa: estou sempre "ligado"
+            let me = *self.inner.identity.public().as_bytes();
+            let sala = self.inner.minhas_salas.lock().unwrap().get(&group).cloned().flatten();
+            self.inner.presence(group).send_if_modified(|p| {
+                if p.get(&me) == Some(&sala) {
+                    return false;
+                }
+                p.insert(me, sala);
+                true
+            });
+        }
         Ok(GroupHandle { group, inner: self.inner.clone(), remote: None, alive: None })
     }
 
@@ -594,6 +627,7 @@ impl Node {
 
     /// Liga-se ao anfitrião de um grupo usando um convite, e entra se ainda não for membro.
     pub async fn join(&self, invite: &Invite, display_name: &str) -> Result<GroupHandle> {
+        ensure!(!self.inner.has_server(), "este convite é antigo; pede um convite novo");
         let handle = self
             .connect(invite.host.clone(), invite.group, Some(invite.token))
             .await?;
@@ -617,6 +651,7 @@ impl Node {
             .group(group)?
             .ok_or_else(|| anyhow!("grupo desconhecido"))?;
         ensure!(!info.hosted, "este grupo é hospedado aqui");
+        ensure!(!self.inner.has_server(), "o grupo vive na caixa do servidor");
         self.connect(iroh::EndpointAddr::new(info.owner), group, None)
             .await
     }
@@ -1045,6 +1080,8 @@ impl Node {
     }
 
     pub async fn shutdown(self) -> Result<()> {
+        #[cfg(feature = "servidor")]
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(3), self.inner.sair_presenca()).await;
         self.router.shutdown().await.map_err(|e| anyhow!("{e}"))
     }
 }
@@ -1090,6 +1127,22 @@ impl GroupHandle {
 
     /// Diz ao grupo em que sala de voz estás (`None` = saíste).
     pub async fn set_voice(&self, channel: Option<String>) -> Result<()> {
+        #[cfg(feature = "servidor")]
+        if self.inner.has_server() {
+            let channel = channel.filter(|c| c.chars().count() <= 64);
+            self.inner.minhas_salas.lock().unwrap().insert(self.group, channel.clone());
+            let me = *self.inner.identity.public().as_bytes();
+            self.inner.presence(self.group).send_modify(|p| {
+                p.insert(me, channel);
+            });
+            let (inner, g) = (self.inner.clone(), self.group);
+            tokio::spawn(async move {
+                if let Err(e) = inner.presenca(g).await {
+                    debug!("presença não enviada: {e:#}");
+                }
+            });
+            return Ok(());
+        }
         if let Some(send) = &self.remote {
             return write_frame(&mut *send.lock().await, &ClientMsg::Voice(channel)).await;
         }
@@ -1235,6 +1288,19 @@ impl GroupHandle {
         Ok(Invite { host, group: self.group, token })
     }
 
+    /// Cria um convite que funciona sem o dono ligado (o grupo vive na caixa do servidor).
+    /// `max_uses` 0 = sem limite; `expires_ms` 0 = não expira.
+    pub async fn criar_convite(&self, max_uses: u32, expires_ms: u64) -> Result<crate::invite::Convite> {
+        let (epoch, chave, _, _) = self
+            .inner
+            .store()
+            .group_key(self.group)?
+            .ok_or_else(|| anyhow!("ainda não tenho a chave deste grupo"))?;
+        let c = crate::invite::Convite { group: self.group, token: rand_bytes(), epoch, chave: *chave.as_bytes() };
+        self.publish(EventKind::InviteCreated { hash: c.publica(), max_uses, expires_ms }).await?;
+        Ok(c)
+    }
+
     pub async fn revoke_invite(&self, hash: [u8; 32]) -> Result<[u8; 32]> {
         self.publish(EventKind::InviteRevoked { hash }).await
     }
@@ -1247,6 +1313,17 @@ impl GroupHandle {
     async fn publish(&self, kind: EventKind) -> Result<[u8; 32]> {
         let ev = SignedEvent::sign(&self.inner.identity, Some(self.group), kind);
         let id = ev.id();
+        #[cfg(feature = "servidor")]
+        if self.inner.has_server() {
+            // O grupo vive na caixa: o evento vale quando voltar de lá (todos aplicam as
+            // mesmas regras pela mesma ordem). Até lá fica à vista como "a enviar".
+            self.inner.migrar(self.group).await?;
+            self.inner.enviar_item(self.group, crate::caixa::ItemGrupo::Pedido { event: ev.clone() }, Some(id)).await?;
+            if let Ok(true) = self.inner.store().add_pending(self.group, &ev) {
+                self.inner.evento_novo(self.group, 0, ev);
+            }
+            return Ok(id);
+        }
         if let Some(send) = &self.remote {
             let sent = write_frame(&mut *send.lock().await, &ClientMsg::Publish(ev.clone())).await;
             match sent {
@@ -1300,6 +1377,13 @@ impl HostProtocol {
         else {
             bail!("esperava Hello");
         };
+        if self.inner.has_server() {
+            // Os grupos vivem na caixa do servidor: já não há anfitrião.
+            write_frame(&mut send, &HostMsg::Rejected("atualiza a Tasca".into())).await?;
+            send.finish()?;
+            conn.closed().await;
+            return Ok(());
+        }
 
         let admitted = {
             let store = self.inner.store();
@@ -1513,103 +1597,487 @@ impl Inner {
     }
 }
 
+/// Presença num grupo (vai cifrada para o servidor, que a guarda só uns minutos).
+#[cfg(feature = "servidor")]
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Presenca {
+    conta: [u8; 32],
+    sala: Option<String>,
+    online: bool,
+}
+
+/// Entradas devolvidas pelo servidor numa leitura (se vierem tantas, há mais).
+#[cfg(feature = "servidor")]
+const LEITURA_CHEIA: usize = 500;
+
+#[cfg(feature = "servidor")]
+impl Inner {
+    fn srv(&self) -> Result<crate::servidor::AccountServer> {
+        self.servidor.clone().ok_or_else(|| anyhow!("sem servidor configurado"))
+    }
+
+    /// Põe um item na caixa atual do grupo (a da época mais alta).
+    async fn enviar_item(&self, group: GroupId, item: crate::caixa::ItemGrupo, id: Option<[u8; 32]>) -> Result<()> {
+        let srv = self.srv()?;
+        let (epoch, key, _, _) = self
+            .store()
+            .group_key(group)?
+            .ok_or_else(|| anyhow!("ainda não tenho a chave deste grupo"))?;
+        let bloco = key.seal_item(&item)?;
+        srv.caixa_enviar_bloco(&key, bloco).await?;
+        if let Some(id) = id {
+            let mut m = self.enviados.lock().unwrap();
+            if m.len() > 5000 {
+                m.clear();
+            }
+            m.insert(id, (group, epoch));
+        }
+        Ok(())
+    }
+
+    /// Passa um grupo antigo (que vivia no PC do dono) para a caixa, uma vez:
+    /// - no PC do dono, copia para a caixa o que ainda lá não estava e guarda nas caixas
+    ///   novas as chaves antigas (para quem entrar ler o histórico todo);
+    /// - em todos, volta a ler a caixa desde o início para aplicar o que ficou à espera.
+    async fn migrar(&self, group: GroupId) -> Result<()> {
+        use crate::caixa::ItemGrupo;
+        let _vez = self.migracao.lock().await;
+        if !self.store().migrar_para_caixa(group)? {
+            return Ok(());
+        }
+        let hosted = self.store().group(group)?.is_some_and(|g| g.hosted);
+        if hosted {
+            let srv = self.srv()?;
+            let atual = self.store().group_key(group)?;
+            if let Some((epoch, key, mut mirrored, _)) = atual {
+                let falta = self.store().events_since(group, mirrored)?;
+                for (seq, event) in falta {
+                    let item = ItemGrupo::registo(&self.identity, &group, seq, event);
+                    srv.caixa_enviar_bloco(&key, key.seal_item(&item)?).await?;
+                    mirrored = seq;
+                    self.store().set_key_cursors(group, epoch, mirrored, 0)?;
+                }
+            }
+            let eps = self.store().epocas(group)?;
+            for par in eps.windows(2) {
+                let (antes, depois) = (&par[0], &par[1]);
+                let item = ItemGrupo::Anterior { epoch: antes.0, chave: *antes.1.as_bytes() };
+                srv.caixa_enviar_bloco(&depois.1, depois.1.seal_item(&item)?).await?;
+            }
+        }
+        self.store().migracao_feita(group)
+    }
+
+    fn lugar_presenca(&self, key: &crate::caixa::ChaveCaixa) -> [u8; 16] {
+        let mut h = blake3::Hasher::new_keyed(key.as_bytes());
+        h.update(b"presenca");
+        h.update(self.identity.public().as_bytes());
+        // cada dispositivo da conta tem o seu lugar (o PC a fechar não tira o telemóvel)
+        h.update(&self.endpoint_id);
+        h.finalize().as_bytes()[..16].try_into().expect("16 bytes")
+    }
+
+    /// Diz ao grupo que estou online (e em que sala de voz) e lê quem mais está.
+    pub(crate) async fn presenca(&self, group: GroupId) -> Result<()> {
+        let srv = self.srv()?;
+        let Some((_, key, _, _)) = self.store().group_key(group)? else { return Ok(()) };
+        let me = *self.identity.public().as_bytes();
+        let sala = self.minhas_salas.lock().unwrap().get(&group).cloned().flatten();
+        let p = Presenca { conta: me, sala: sala.clone(), online: true };
+        srv.presenca_enviar(&key, &self.lugar_presenca(&key), key.selar(&postcard::to_stdvec(&p)?)?).await?;
+        let lista = srv.presenca_ler(&key).await?;
+        let mut novo = Presence::new();
+        novo.insert(me, sala);
+        {
+            let store = self.store();
+            for (b, _) in lista {
+                let Ok(d) = key.abrir(&b) else { continue };
+                let Ok(p) = postcard::from_bytes::<Presenca>(&d) else { continue };
+                let Ok(pk) = iroh::PublicKey::from_bytes(&p.conta) else { continue };
+                if p.online && p.conta != me && store.is_member(group, &pk).unwrap_or(false) {
+                    // a mesma conta em dois dispositivos: vale o que estiver numa sala
+                    let e = novo.entry(p.conta).or_insert(None);
+                    if let Some(sala) = p.sala.filter(|s| s.chars().count() <= 64) {
+                        *e = Some(sala);
+                    }
+                }
+            }
+        }
+        self.presence(group).send_if_modified(|m| {
+            if *m == novo {
+                return false;
+            }
+            *m = novo;
+            true
+        });
+        Ok(())
+    }
+
+    /// Ao fechar a app: diz a todos os grupos que saí.
+    async fn sair_presenca(&self) {
+        let Ok(srv) = self.srv() else { return };
+        let grupos = self.store().groups().unwrap_or_default();
+        for g in grupos {
+            let Ok(Some((_, key, _, _))) = self.store().group_key(g.id) else { continue };
+            let p = Presenca { conta: *self.identity.public().as_bytes(), sala: None, online: false };
+            let Ok(bloco) = postcard::to_stdvec(&p).map_err(anyhow::Error::from).and_then(|b| key.selar(&b)) else { continue };
+            let _ = srv.presenca_enviar(&key, &self.lugar_presenca(&key), bloco).await;
+        }
+    }
+}
+
 #[cfg(feature = "servidor")]
 impl Node {
-    /// Sincroniza um grupo com a caixa no servidor. Devolve quantos eventos novos entraram
-    /// na base de dados local.
+    /// Porque é que as regras do grupo recusaram um evento meu (se recusaram).
+    pub fn motivo_recusa(&self, id: &[u8; 32]) -> Option<String> {
+        self.inner.rejeitados.lock().unwrap().remove(id)
+    }
+
+    /// Diz ao grupo que estou online e atualiza quem mais está (ver [`Node::presence`]).
+    /// Chamar de 30 em 30 segundos enquanto a app estiver aberta.
+    pub async fn presenca(&self, group: GroupId) -> Result<()> {
+        self.inner.presenca(group).await
+    }
+
+    /// Entra num grupo com um convite novo. Não precisa do dono ligado: o convite traz a
+    /// chave da caixa, o histórico vem do servidor e todos os membros confirmam a entrada.
+    pub async fn entrar_por_convite(&self, c: &crate::invite::Convite, display_name: &str) -> Result<()> {
+        let g = c.group;
+        self.inner.convites.lock().unwrap().entry(g).or_default().push(c.identidade());
+        self.inner
+            .store()
+            .set_group_key(g, c.epoch, &crate::caixa::ChaveCaixa::from_bytes(c.chave), 0)?;
+        self.sync_group(g, 0).await?;
+        ensure!(self.inner.store().group(g)?.is_some(), "não encontrei o grupo deste convite");
+        let eps = self.inner.store().epocas(g)?;
+        ensure!(eps.last().is_some_and(|e| !e.3), "este convite já não funciona; pede um convite novo");
+        let me = self.inner.identity.public();
+        if self.inner.store().is_member(g, &me)? {
+            return Ok(());
+        }
+        ensure!(!self.inner.store().is_banned(g, me.as_bytes())?, "foste banido deste grupo");
+        let ev = SignedEvent::sign(
+            &self.inner.identity,
+            Some(g),
+            EventKind::MemberJoined { display_name: display_name.trim().to_string() },
+        );
+        let id = ev.id();
+        let item = crate::caixa::ItemGrupo::Entrada { prova: c.prova(&ev), convite: c.publica(), event: ev };
+        self.inner.enviar_item(g, item, None).await?;
+        let ate = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            self.sync_group(g, 2).await?;
+            if self.inner.store().is_member(g, &me)? {
+                return Ok(());
+            }
+            if let Some(motivo) = self.inner.rejeitados.lock().unwrap().remove(&id) {
+                bail!("{motivo}");
+            }
+            ensure!(std::time::Instant::now() < ate, "o grupo não respondeu a tempo; tenta outra vez");
+        }
+    }
+
+    /// Lê a caixa do grupo e aplica o que for novo. Devolve quantos eventos novos entraram.
     ///
-    /// - Anfitrião: aceita os pedidos que os membros deixaram e copia para a caixa os
-    ///   eventos que ainda lá não estão (assinados por ele, com o número de ordem).
-    /// - Membro: lê da caixa os eventos que o anfitrião já aceitou.
+    /// A caixa é o registo do grupo: o servidor dá a ordem e cada dispositivo aplica as
+    /// regras do grupo (permissões, castigos, convites, AutoMod) por essa ordem, com a hora
+    /// do servidor. Assim todos chegam ao mesmo estado sem precisar do PC do dono. Registos
+    /// antigos (de quando o dono aceitava tudo) entram tal como estão.
     ///
     /// `espera` (segundos) deixa o pedido de leitura à espera de novidades.
     pub async fn sync_group(&self, group: GroupId, espera: u32) -> Result<usize> {
         use crate::caixa::ItemGrupo;
-        let srv = self.inner.servidor.clone().ok_or_else(|| anyhow!("sem servidor configurado"))?;
-        let Some((epoch, key, mut mirrored, mut read)) = self.inner.store().group_key(group)? else {
-            return Ok(0);
-        };
-        let info = self.inner.store().group(group)?;
-        let hosted = info.as_ref().is_some_and(|g| g.hosted);
+        let srv = self.inner.srv()?;
+        self.inner.migrar(group).await?;
+        if self.inner.store().last_seq(group)? == 0 {
+            self.descobrir_anteriores(group, &srv).await?;
+        }
+        let vez = self.inner.leituras.lock().unwrap().entry(group).or_default().clone();
+        let me = *self.inner.identity.public().as_bytes();
         let mut novos = 0;
-
-        let blocos = srv.caixa_ler_blocos(&key, read, if hosted { 0 } else { espera }).await?;
-        self.inner.caixa_lida.lock().unwrap().insert(group, std::time::Instant::now());
-        for (pos, bloco) in blocos {
-            read = pos;
-            let item = match key.open_item(&bloco) {
-                Ok(i) => i,
-                Err(e) => {
-                    warn!("entrada {pos} da caixa ignorada: {e:#}");
-                    continue;
-                }
-            };
-            match (hosted, item) {
-                (true, ItemGrupo::Pedido { event }) => {
-                    if event.body.group != Some(group) {
+        let mut esperou = false;
+        loop {
+            let eps = self.inner.store().epocas(group)?;
+            let Some(maior) = eps.last().map(|e| e.0) else { return Ok(novos) };
+            let Some((epoch, key, lido, _)) = eps.iter().find(|e| !e.3).cloned() else { return Ok(novos) };
+            let ultima = epoch == maior;
+            let blocos = srv
+                .caixa_ler_entradas(&key, lido, if ultima && !esperou { espera } else { 0 })
+                .await?;
+            if ultima {
+                esperou = true;
+                self.inner.caixa_lida.lock().unwrap().insert(group, std::time::Instant::now());
+            }
+            let cheio = blocos.len() >= LEITURA_CHEIA;
+            let _vez = vez.lock().await;
+            // outra leitura passou à frente entretanto: volta a ler daí
+            let agora = self.inner.store().epocas(group)?;
+            if agora.iter().find(|e| e.0 == epoch).map(|e| (e.2, e.3)) != Some((lido, false)) {
+                continue;
+            }
+            let mut read = lido;
+            let mut fechou = false;
+            for (pos, bloco, em) in blocos {
+                read = pos;
+                let item = match key.open_item(&bloco) {
+                    Ok(i) => i,
+                    Err(e) => {
+                        warn!("entrada {pos} da caixa ignorada: {e:#}");
                         continue;
                     }
-                    let r = self.inner.aceitar(event, None);
-                    match r {
-                        Ok(Some(_)) => {
-                            novos += 1;
+                };
+                match item {
+                    ItemGrupo::Pedido { event } => {
+                        if event.group_id() == group {
+                            novos += self.aplicar(group, event, em, None);
                         }
-                        Ok(None) => {}
-                        Err(e) => warn!("pedido recusado: {e:#}"),
                     }
-                }
-                (false, ItemGrupo::Pedido { event }) => {
-                    // anfitrião desligado: mostra já o que os outros escreveram
-                    let r = self.inner.store().add_pending(group, &event);
-                    if let Ok(true) = r {
-                        novos += 1;
-                        self.inner.evento_novo(group, 0, event);
-                    }
-                }
-                (_, ItemGrupo::Voz(a)) => {
-                    if a.group == group && self.inner.guardar_anuncio(a.clone()) {
-                        self.juntar_chamadas(&a);
-                        self.voz.tocar();
-                    }
-                }
-                (false, item @ ItemGrupo::Registo { .. }) => {
-                    let ItemGrupo::Registo { seq, event, .. } = &item else { unreachable!() };
-                    // O dono vem do histórico; no primeiro evento, do próprio GroupCreated.
-                    let dono = match self.inner.store().group(group)? {
-                        Some(g) => g.owner,
-                        None if *seq == 1 && event.group_id() == group => event.author()?,
-                        None => continue,
-                    };
-                    if let Err(e) = item.verify_registo(&group, &dono) {
-                        warn!("{e:#}");
-                        continue;
-                    }
-                    let r = self.inner.store().insert_replica(group, *seq, event);
-                    match r {
-                        Ok(true) => {
-                            novos += 1;
-                            self.inner.evento_novo(group, *seq, event.clone());
+                    ItemGrupo::Entrada { event, convite, prova } => {
+                        let ok = event.body.group == Some(group)
+                            && matches!(event.body.kind, EventKind::MemberJoined { .. })
+                            && crate::invite::verificar_prova(&convite, &group, &event.id(), &prova);
+                        if ok {
+                            novos += self.aplicar(group, event, em, Some(convite));
                         }
-                        Ok(false) => {}
-                        Err(e) => warn!("registo {seq} não aplicado: {e:#}"),
                     }
+                    item @ ItemGrupo::Registo { .. } => {
+                        let ItemGrupo::Registo { seq, event, .. } = &item else { unreachable!() };
+                        // O dono vem do histórico; no primeiro evento, do próprio GroupCreated.
+                        let dono = match self.inner.store().group(group)? {
+                            Some(g) => g.owner,
+                            None if *seq == 1 && event.group_id() == group => event.author()?,
+                            None => continue,
+                        };
+                        if event.group_id() != group {
+                            continue;
+                        }
+                        if let Err(e) = item.verify_registo(&group, &dono) {
+                            warn!("{e:#}");
+                            continue;
+                        }
+                        let r = self.inner.store().inserir_registo(event);
+                        match r {
+                            Ok(Some(n)) => {
+                                novos += 1;
+                                self.inner.evento_novo(group, n, event.clone());
+                            }
+                            Ok(None) => {}
+                            Err(e) => warn!("registo {seq} não aplicado: {e:#}"),
+                        }
+                    }
+                    ItemGrupo::Voz(a) => {
+                        if a.group == group && self.inner.guardar_anuncio(a.clone()) {
+                            self.juntar_chamadas(&a);
+                            self.voz.tocar();
+                        }
+                    }
+                    ItemGrupo::Chave(c) => {
+                        let valida = c.group == group
+                            && c.epoch == epoch + 1
+                            && self.inner.store().chave_nova_valida(group, &c.autor, em)?;
+                        if !valida {
+                            continue;
+                        }
+                        let nova = c.abrir(&self.inner.identity).or_else(|| {
+                            let conv = self.inner.convites.lock().unwrap();
+                            conv.get(&group).and_then(|l| l.iter().find_map(|i| c.abrir(i)))
+                        });
+                        {
+                            let store = self.inner.store();
+                            store.fechar_epoca(group, epoch)?;
+                            store.set_lido(group, epoch, read)?;
+                            if let Some(k) = &nova {
+                                store.set_group_key(group, c.epoch, k, 0)?;
+                            }
+                        }
+                        if let (Some(k), true) = (&nova, c.autor == me) {
+                            // quem rodou guarda a chave antiga na caixa nova (para o histórico)
+                            let item = ItemGrupo::Anterior { epoch, chave: *key.as_bytes() };
+                            if let Err(e) = srv.caixa_enviar_bloco(k, k.seal_item(&item)?).await {
+                                warn!("chave antiga não guardada na caixa nova: {e:#}");
+                            }
+                        }
+                        fechou = true;
+                        break;
+                    }
+                    ItemGrupo::Anterior { .. } => {}
                 }
-                _ => {}
             }
-        }
-
-        if hosted {
-            let pendentes = self.inner.store().events_since(group, mirrored)?;
-            for (seq, event) in pendentes {
-                let item = ItemGrupo::registo(&self.inner.identity, &group, seq, event);
-                srv.caixa_enviar_bloco(&key, key.seal_item(&item)?).await?;
-                mirrored = seq;
-                // Guarda o progresso a cada evento, para não repetir se a ligação cair.
-                self.inner.store().set_key_cursors(group, epoch, mirrored, read)?;
+            self.inner.store().set_lido(group, epoch, read)?;
+            if fechou || cheio {
+                continue;
             }
+            if !ultima {
+                // caixa antiga lida até ao fim sem chave nova lá dentro: a chave foi rodada
+                // pelo anfitrião antigo; passa à seguinte
+                self.inner.store().fechar_epoca(group, epoch)?;
+                continue;
+            }
+            break;
         }
-        self.inner.store().set_key_cursors(group, epoch, mirrored, read)?;
+        self.depois_de_ler(group, &srv).await;
         Ok(novos)
+    }
+
+    /// Aplica um evento da caixa e avisa quem está à escuta. Devolve 1 se entrou.
+    fn aplicar(&self, group: GroupId, ev: SignedEvent, em: u64, convite: Option<[u8; 32]>) -> usize {
+        let me = *self.inner.identity.public().as_bytes();
+        let meu = ev.body.author == me;
+        let id = ev.id();
+        let r = self.inner.store().aplicar_caixa(&ev, em, convite);
+        let caso = self.inner.store().take_automod();
+        let n = match r {
+            Ok(Some(seq)) => {
+                self.inner.evento_novo(group, seq, ev);
+                1
+            }
+            Ok(None) => 0,
+            Err(e) => {
+                debug!("evento recusado: {e:#}");
+                if meu {
+                    let motivo = format!("{e:#}");
+                    {
+                        let mut m = self.inner.rejeitados.lock().unwrap();
+                        if m.len() > 1000 {
+                            m.clear();
+                        }
+                        m.insert(id, motivo.clone());
+                    }
+                    // só se avisa do que foi recusado agora (não do histórico)
+                    if crate::event::now_ms().saturating_sub(em) < 5 * 60_000 {
+                        let _ = self.inner.recusas.send((group, motivo));
+                    }
+                }
+                0
+            }
+        };
+        // Alerta do AutoMod: escreve-o o dono, se estiver ligado.
+        if let Some(c) = caso {
+            let dono = self.inner.store().group(group).ok().flatten().is_some_and(|g| *g.owner.as_bytes() == me);
+            if let (true, Some(canal)) = (dono && crate::event::now_ms().saturating_sub(em) < 5 * 60_000, c.bloqueio.alert_channel.clone()) {
+                let nome = self.inner.store().display_name(group, &match iroh::PublicKey::from_bytes(&c.autor) {
+                    Ok(k) => k,
+                    Err(_) => return n,
+                });
+                let nome = nome.ok().flatten().unwrap_or_else(|| "alguém".into());
+                let texto: String = c.texto.chars().take(300).collect();
+                let k = EventKind::Message {
+                    channel: canal,
+                    text: format!(
+                        "🛡️ AutoMod ({}): {} de {nome} em #{}: «{texto}»",
+                        c.bloqueio.regra,
+                        if c.bloqueio.block { "bloqueei uma mensagem" } else { "mensagem marcada" },
+                        c.canal
+                    ),
+                };
+                let ev = SignedEvent::sign(&self.inner.identity, Some(group), k);
+                let inner = self.inner.clone();
+                tokio::spawn(async move {
+                    let id = ev.id();
+                    if let Err(e) = inner.enviar_item(group, crate::caixa::ItemGrupo::Pedido { event: ev }, Some(id)).await {
+                        warn!("alerta do AutoMod não enviado: {e:#}");
+                    }
+                });
+            }
+        }
+        n
+    }
+
+    /// Depois de ler tudo: roda a chave se alguém foi expulso e reenvia o que ficou numa
+    /// caixa que entretanto fechou.
+    async fn depois_de_ler(&self, group: GroupId, srv: &crate::servidor::AccountServer) {
+        let me = *self.inner.identity.public().as_bytes();
+        let Ok(Some((epoch, key, _, _))) = self.inner.store().group_key(group) else { return };
+        // ainda não li tudo (por exemplo, a entrar no grupo): não rodo nem reenvio
+        let em_dia = self.inner.store().epocas(group).ok().is_some_and(|e| e.iter().filter(|x| !x.3).count() == 1);
+        if !em_dia {
+            return;
+        }
+        let pendente = self.inner.store().rodar_pendente(group);
+        if let Ok(Some((quando, quem, banido))) = pendente {
+            let pode = {
+                let store = self.inner.store();
+                let dono = store.group(group).ok().flatten().is_some_and(|g| *g.owner.as_bytes() == me);
+                let perms = store.perms(group, &me, None).unwrap_or(0);
+                quem == me
+                    || (crate::event::now_ms().saturating_sub(quando) > 90_000
+                        && (dono || perms & (crate::cargos::EXPULSAR | crate::cargos::BANIR) != 0))
+            };
+            let recente = self
+                .inner
+                .rodadas
+                .lock()
+                .unwrap()
+                .get(&group)
+                .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(60));
+            if pode && !recente {
+                self.inner.rodadas.lock().unwrap().insert(group, std::time::Instant::now());
+                let destinos: Vec<[u8; 32]> = {
+                    let store = self.inner.store();
+                    let mut d: Vec<[u8; 32]> =
+                        store.members(group).unwrap_or_default().into_iter().map(|(k, _)| *k.as_bytes()).collect();
+                    // depois de expulsar, os convites abertos continuam a servir (quem foi
+                    // expulso pode voltar); depois de banir, não
+                    if !banido {
+                        d.extend(store.convites_abertos(group).unwrap_or_default());
+                    }
+                    d
+                };
+                let r: Result<()> = async {
+                    let nova = crate::caixa::ChaveCaixa::generate()?;
+                    let c = crate::caixa::NovaChave::criar(&self.inner.identity, group, epoch + 1, &nova, &destinos);
+                    srv.caixa_enviar_bloco(&key, key.seal_item(&crate::caixa::ItemGrupo::Chave(c))?).await?;
+                    Ok(())
+                }
+                .await;
+                if let Err(e) = r {
+                    warn!("não consegui trocar a chave do grupo: {e:#}");
+                }
+            }
+        }
+        // o que mandei para uma caixa que entretanto fechou vai outra vez, para a nova
+        let pendentes = self.inner.store().meus_pendentes(group, &me).unwrap_or_default();
+        for ev in pendentes {
+            let id = ev.id();
+            let antiga = self.inner.enviados.lock().unwrap().get(&id).is_some_and(|(g, e)| *g == group && *e < epoch);
+            if antiga {
+                let _ = self.inner.enviar_item(group, crate::caixa::ItemGrupo::Pedido { event: ev }, Some(id)).await;
+            }
+        }
+    }
+
+    /// Quem entra só com a chave mais recente procura, em cada caixa, a chave da anterior
+    /// (o histórico de antes de a chave mudar).
+    async fn descobrir_anteriores(&self, group: GroupId, srv: &crate::servidor::AccountServer) -> Result<()> {
+        loop {
+            let eps = self.inner.store().epocas(group)?;
+            let Some((menor, key, _, _)) = eps.first().cloned() else { return Ok(()) };
+            if menor == 0 {
+                return Ok(());
+            }
+            let mut desde = 0;
+            let mut achou = None;
+            'ler: loop {
+                let blocos = srv.caixa_ler_entradas(&key, desde, 0).await?;
+                let n = blocos.len();
+                for (pos, bloco, _) in blocos {
+                    desde = pos;
+                    if let Ok(crate::caixa::ItemGrupo::Anterior { epoch, chave }) = key.open_item(&bloco) {
+                        if epoch + 1 == menor {
+                            achou = Some(chave);
+                            break 'ler;
+                        }
+                    }
+                }
+                if n < LEITURA_CHEIA {
+                    break;
+                }
+            }
+            match achou {
+                Some(k) => self.inner.store().set_group_key(group, menor - 1, &crate::caixa::ChaveCaixa::from_bytes(k), 0)?,
+                None => return Ok(()),
+            }
+        }
     }
 }
 

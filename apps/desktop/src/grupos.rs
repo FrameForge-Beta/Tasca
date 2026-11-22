@@ -3,10 +3,10 @@
 //! Ao desbloquear a conta, o primeiro comando de grupos arranca um nó iroh com a identidade
 //! da conta e a base de dados `contas/<chave>/grupos.db`. Para cada grupo:
 //!
-//! - anfitrião (este PC): o grupo fica aberto e aceita membros enquanto a app estiver aberta;
-//! - membro: há uma tarefa que mantém a ligação ao PC do anfitrião e volta a ligar quando
-//!   ela cai. Sem anfitrião, as mensagens vão para a caixa cifrada no servidor;
-//! - com servidor de contas, outra tarefa sincroniza a caixa do grupo.
+//! - com servidor de contas (o normal): o grupo vive na caixa cifrada do servidor. Uma
+//!   tarefa lê a caixa (com espera longa) e outra diz quem está online. Não é preciso o PC
+//!   do dono ligado para nada (só as chamadas e os ficheiros vão de PC para PC);
+//! - sem servidor (testes, rede local): o grupo vive no PC do dono e os membros ligam-se a ele.
 //!
 //! Os eventos novos chegam à interface como `message`, `message_ack`, `group_changed` e
 //! `host_status`.
@@ -75,6 +75,10 @@ struct Sinc {
     /// Grupos de que saíste neste dispositivo (não voltam pela sincronia da conta).
     #[serde(default)]
     esquecidos: Vec<String>,
+    /// Os grupos já foram publicados com a chave da caixa (os outros dispositivos da conta
+    /// abrem-nos sem precisar do PC do dono).
+    #[serde(default)]
+    grupos_com_chave: bool,
 }
 
 struct Ligacao {
@@ -241,7 +245,21 @@ impl Ativa {
             }
         });
 
-        if info.hosted {
+        if self.servidor {
+            // o grupo vive na caixa do servidor: está sempre disponível
+            let h = self.node.open_offline(g).map_err(txt)?;
+            self.definir(app, g, h, true);
+            // quem está online (de 30 em 30 segundos)
+            let a = self.clone();
+            self.tarefa(async move {
+                loop {
+                    if let Err(e) = a.node.presenca(g).await {
+                        eprintln!("presença no grupo {g}: {e:#}");
+                    }
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                }
+            });
+        } else if info.hosted {
             let h = self.node.open_hosted(g).map_err(txt)?;
             self.definir(app, g, h, true);
         } else {
@@ -255,12 +273,10 @@ impl Ativa {
 
         if self.servidor {
             let a = self.clone();
-            let hosted = info.hosted;
             self.tarefa(async move {
                 loop {
                     let t = Instant::now();
                     let pausa = match a.node.sync_group(g, 25).await {
-                        Ok(_) if hosted => Duration::from_secs(4),
                         // espera longa: só volta logo se houve novidades (ou ainda sem chave)
                         Ok(_) if t.elapsed() < Duration::from_secs(1) => Duration::from_secs(3),
                         Ok(_) => Duration::from_millis(200),
@@ -409,7 +425,7 @@ impl Ativa {
 
     fn grupo_json(&self, g: GroupId) -> Res<Value> {
         let info = self.node.with_store(|s| s.group(g)).map_err(txt)?.ok_or("Grupo desconhecido.")?;
-        let online = info.hosted || self.online(g);
+        let online = info.hosted || self.servidor || self.online(g);
         let def = self.node.with_store(|s| s.settings(g)).map_err(txt)?;
         let perms = self.node.with_store(|s| s.perms(g, &self.conta, None)).unwrap_or(0);
         Ok(json!({
@@ -424,7 +440,9 @@ impl Ativa {
             "short": iniciais(&info.name),
             "owner": self.pessoa_id(info.owner.as_bytes()),
             "color": cor(&g.0),
-            "host": if info.hosted {
+            "host": if self.servidor {
+                json!({ "online": true, "route": "Sempre disponível", "ping": null })
+            } else if info.hosted {
                 json!({ "online": true, "route": "este PC", "ping": 0 })
             } else {
                 json!({ "online": online, "route": "P2P", "ping": null, "lastSeen": "há pouco" })
@@ -492,11 +510,18 @@ impl Ativa {
 
     fn item_grupo(&self, g: GroupId) -> Option<crate::sincronia::Item> {
         let info = self.node.with_store(|s| s.group(g)).ok()??;
+        let chave = self
+            .node
+            .with_store(|s| s.group_key(g))
+            .ok()
+            .flatten()
+            .map(|(e, k, _, _)| format!("{e}:{}", hex(k.as_bytes())));
         Some(crate::sincronia::Item::Grupo {
             id: hex(&g.0),
             nome: info.name,
             dono: hex(info.owner.as_bytes()),
             em: now_ms(),
+            chave,
         })
     }
 
@@ -510,7 +535,11 @@ impl Ativa {
     /// Lê a caixa da conta: grupos e perfil vindos dos outros dispositivos.
     async fn ler_conta(self: Arc<Self>, app: AppHandle) {
         let Some(srv) = self.srv.clone() else { return };
-        if !self.sinc.lock().unwrap().grupos_publicados {
+        let falta = {
+            let s = self.sinc.lock().unwrap();
+            !s.grupos_publicados || !s.grupos_com_chave
+        };
+        if falta {
             let grupos = self.node.with_store(|s| s.groups()).unwrap_or_default();
             let mut tudo = true;
             for info in grupos {
@@ -522,7 +551,10 @@ impl Ativa {
                 }
             }
             if tudo {
-                self.sinc.lock().unwrap().grupos_publicados = true;
+                let mut s = self.sinc.lock().unwrap();
+                s.grupos_publicados = true;
+                s.grupos_com_chave = true;
+                drop(s);
                 self.guardar_sinc();
             }
         }
@@ -549,14 +581,25 @@ impl Ativa {
     fn aplicar_conta(self: &Arc<Self>, app: &AppHandle, it: crate::sincronia::Item) {
         use crate::sincronia::{Item, marca};
         match it {
-            Item::Grupo { id, nome, dono, .. } => {
+            Item::Grupo { id, nome, dono, chave, .. } => {
                 let (Some(g), Some(dono)) = (unhex32(&id).map(GroupId), unhex32(&dono)) else { return };
                 let Ok(dono_pk) = PublicKey::from_bytes(&dono) else { return };
-                if self.node.with_store(|s| s.group(g)).ok().flatten().is_some() || self.sinc.lock().unwrap().esquecidos.contains(&id) {
+                if self.sinc.lock().unwrap().esquecidos.contains(&id) {
                     return;
                 }
-                // grupo meu que este PC não tem: só o PC que o criou o pode hospedar
-                if dono == self.conta && !self.node.e_dispositivo() {
+                // a chave da caixa do grupo: com ela, este dispositivo lê o grupo sozinho
+                let chave = chave.as_deref().and_then(|c| {
+                    let (e, k) = c.split_once(':')?;
+                    Some((e.parse::<u32>().ok()?, unhex32(k)?))
+                });
+                if let Some((e, k)) = chave {
+                    let _ = self.node.with_store(|s| s.set_group_key(g, e, &tasca_core::ChaveCaixa::from_bytes(k), 0));
+                }
+                if self.node.with_store(|s| s.group(g)).ok().flatten().is_some() {
+                    return;
+                }
+                // sem servidor, um grupo meu só vive no PC que o criou
+                if dono == self.conta && !self.node.e_dispositivo() && !self.servidor {
                     return;
                 }
                 let nome: String = nome.chars().take(100).collect();
@@ -916,8 +959,8 @@ pub async fn list_messages(app: AppHandle, rede: State<'_, Rede>, c: State<'_, C
 #[tauri::command]
 pub async fn create_group(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>, name: String) -> Res<Value> {
     let a = ativa(&app, &rede, &c).await?;
-    if a.node.e_dispositivo() {
-        return Err("No telemóvel ainda não dá para criar grupos: o grupo vive no PC de quem o cria. Cria-o no PC e ele aparece aqui.".into());
+    if a.node.e_dispositivo() && !a.servidor {
+        return Err("No telemóvel ainda não dá para criar grupos. Cria-o no PC e ele aparece aqui.".into());
     }
     let nome = c.nome().await.unwrap_or_else(|| "Eu".into());
     let g = a.node.create_group(&name, &nome).map_err(txt)?;
@@ -963,7 +1006,7 @@ pub async fn import_local_group(
     categories: Option<Vec<String>>,
 ) -> Res<Value> {
     let a = ativa(&app, &rede, &c).await?;
-    if a.node.e_dispositivo() {
+    if a.node.e_dispositivo() && !a.servidor {
         return Err("No telemóvel não dá para criar grupos.".into());
     }
     let nome = c.nome().await.unwrap_or_else(|| "Eu".into());
@@ -988,8 +1031,57 @@ pub async fn import_local_group(
 
 #[tauri::command]
 pub async fn join_group(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>, invite: String) -> Res<Value> {
-    let convite = Invite::decode(invite.trim())
-        .map_err(|_| "Este código não parece um convite da Tasca. Os convites começam por «tasca1».".to_string())?;
+    let codigo = invite.trim();
+    // o código pode vir dentro de um link
+    let codigo = codigo.rsplit(['/', '=', '#', ' ']).next().unwrap_or(codigo);
+    if let Ok(convite) = tasca_core::invite::Convite::decode(codigo) {
+        let a = ativa(&app, &rede, &c).await?;
+        if !a.servidor {
+            return Err("Para entrar com este convite, a Tasca precisa de estar ligada à Internet.".into());
+        }
+        let g = convite.group;
+        let ja = a.node.with_store(|s| -> anyhow::Result<bool> {
+            Ok(s.group(g)?.is_some() && s.is_member(g, &PublicKey::from_bytes(&a.conta)?)?)
+        });
+        if ja.unwrap_or(false) && a.ligacoes.lock().unwrap().contains_key(&g) {
+            return a.grupo_json(g);
+        }
+        let nome = c.nome().await.unwrap_or_else(|| "Eu".into());
+        tokio::time::timeout(Duration::from_secs(60), a.node.entrar_por_convite(&convite, &nome))
+            .await
+            .map_err(|_| "Demorou demasiado. Tenta outra vez.".to_string())?
+            .map_err(|e| {
+                eprintln!("entrar no grupo: {e:#}");
+                let s = e.to_string();
+                if s.contains("banido") {
+                    "Foste banido deste grupo.".to_string()
+                } else if s.contains("convite") || s.contains("pausa") || s.contains("entradas") {
+                    let mut c = s.chars();
+                    match c.next() {
+                        Some(p) => p.to_uppercase().chain(c).collect::<String>() + ".",
+                        None => s,
+                    }
+                } else if s.contains("não encontrei") {
+                    "Este convite não está a funcionar. Pede um convite novo.".to_string()
+                } else {
+                    "Não foi possível entrar agora. Verifica a ligação à Internet e tenta outra vez.".to_string()
+                }
+            })?;
+        if !a.ligacoes.lock().unwrap().contains_key(&g) {
+            a.arrancar(&app, g, None)?;
+        }
+        a.partilhar_grupo(g);
+        let _ = app.emit("group_changed", json!({ "groupId": hex(&g.0) }));
+        return a.grupo_json(g);
+    }
+    if Invite::decode(codigo).is_ok() {
+        let a = ativa(&app, &rede, &c).await?;
+        if a.servidor {
+            return Err("Este convite é antigo e já não funciona. Pede um convite novo.".into());
+        }
+    }
+    let convite = Invite::decode(codigo)
+        .map_err(|_| "Este código não parece um convite da Tasca.".to_string())?;
     let a = ativa(&app, &rede, &c).await?;
     let g = convite.group;
     let conhecido = a.node.with_store(|s| s.group(g)).map_err(txt)?;
@@ -1049,6 +1141,17 @@ pub async fn create_invite(
         0 => 0,
         s => now_ms() + s.min(365 * 24 * 3600) * 1000,
     };
+    if a.servidor {
+        let p = a.node.with_store(|s| s.perms(g, &a.conta, None)).unwrap_or(0);
+        if p & tasca_core::cargos::CRIAR_CONVITES == 0 {
+            return Err("Não tens permissão para criar convites.".into());
+        }
+        let inv = tokio::time::timeout(Duration::from_secs(20), h.criar_convite(max, exp))
+            .await
+            .map_err(|_| "Demorou demasiado.".to_string())?
+            .map_err(txt)?;
+        return Ok(json!({ "code": inv.encode(), "expires": if exp == 0 { Value::Null } else { json!(exp) }, "maxUses": max, "pending": false }));
+    }
     let inv = tokio::time::timeout(Duration::from_secs(20), h.create_invite(max, exp))
         .await
         .map_err(|_| "Demorou demasiado.".to_string())?

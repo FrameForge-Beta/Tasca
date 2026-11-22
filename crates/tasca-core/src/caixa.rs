@@ -14,8 +14,10 @@
 //! Conversas privadas: a chave sai de uma troca Diffie-Hellman (X25519) entre as chaves
 //! de identidade dos dois, por isso não é preciso combinar nada antes.
 //!
-//! Grupos: o dono gera a chave ao criar o grupo e entrega-a a quem entra (pela ligação
-//! iroh, que já é cifrada). Quando alguém é expulso, o dono roda a chave e o grupo passa
+//! Grupos: o dono gera a chave ao criar o grupo e o convite leva-a a quem entra. A caixa
+//! do grupo é o registo do grupo: o servidor dá a ordem e cada dispositivo aplica as
+//! mesmas regras pela mesma ordem, por isso o grupo funciona sem o PC do dono ligado.
+//! Quando alguém é expulso, quem o expulsou roda a chave ([`NovaChave`]) e o grupo passa
 //! para uma caixa nova.
 
 use anyhow::{Result, anyhow, ensure};
@@ -156,6 +158,8 @@ impl ChaveCaixa {
         let item: ItemGrupo = postcard::from_bytes(&self.open_bytes(bloco)?)?;
         match &item {
             ItemGrupo::Voz(a) => a.verificar()?,
+            ItemGrupo::Chave(c) => c.verificar()?,
+            ItemGrupo::Anterior { .. } => {}
             _ => item.event().expect("registo ou pedido").verify()?,
         }
         Ok(item)
@@ -203,13 +207,21 @@ pub enum ItemGrupo {
     Pedido { event: SignedEvent },
     /// Quem está a alojar uma sala de voz (assinado por essa pessoa).
     Voz(crate::voz::Anuncio),
+    /// Entrada com convite: o `MemberJoined` mais a prova de que quem entra tem o código
+    /// (assinatura com a chave do convite, ver [`crate::invite::Convite`]).
+    Entrada { event: SignedEvent, convite: [u8; 32], prova: Vec<u8> },
+    /// Chave nova do grupo (depois de expulsar ou banir alguém). Fecha esta caixa.
+    Chave(NovaChave),
+    /// A chave da época anterior, guardada na caixa nova, para quem entra depois conseguir
+    /// ler o histórico todo.
+    Anterior { epoch: u32, chave: [u8; 32] },
 }
 
 impl ItemGrupo {
     pub fn event(&self) -> Option<&SignedEvent> {
         match self {
-            Self::Registo { event, .. } | Self::Pedido { event } => Some(event),
-            Self::Voz(_) => None,
+            Self::Registo { event, .. } | Self::Pedido { event } | Self::Entrada { event, .. } => Some(event),
+            Self::Voz(_) | Self::Chave(_) | Self::Anterior { .. } => None,
         }
     }
 
@@ -235,6 +247,69 @@ impl ItemGrupo {
         let sig: [u8; 64] = anfitriao.as_slice().try_into().map_err(|_| anyhow!("assinatura inválida"))?;
         dono.verify(&Self::registo_msg(group, *seq, event), &iroh::Signature::from_bytes(&sig))
             .map_err(|_| anyhow!("registo não assinado pelo anfitrião"))
+    }
+}
+
+/// Chave nova de um grupo, cifrada para cada membro (e para cada convite ativo, para quem
+/// entrar com um convite antigo). Assinada por quem a rodou.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct NovaChave {
+    pub group: GroupId,
+    /// Época nova.
+    pub epoch: u32,
+    pub autor: [u8; 32],
+    /// (chave pública do destinatário, chave nova cifrada para ele)
+    pub para: Vec<([u8; 32], Vec<u8>)>,
+    pub assinatura: Vec<u8>,
+}
+
+impl NovaChave {
+    fn msg(group: &GroupId, epoch: u32, autor: &[u8; 32], para: &[([u8; 32], Vec<u8>)]) -> Vec<u8> {
+        let mut h = blake3::Hasher::new_derive_key("tasca 2026 chave nova v1");
+        h.update(&group.0);
+        h.update(&epoch.to_be_bytes());
+        h.update(autor);
+        for (k, c) in para {
+            h.update(k);
+            h.update(&(c.len() as u64).to_be_bytes());
+            h.update(c);
+        }
+        h.finalize().as_bytes().to_vec()
+    }
+
+    /// Cifra `nova` para cada destinatário e assina.
+    pub fn criar(autor: &Identity, group: GroupId, epoch: u32, nova: &ChaveCaixa, destinos: &[[u8; 32]]) -> Self {
+        let mut para = Vec::new();
+        for d in destinos {
+            let Ok(pk) = PublicKey::from_bytes(d) else { continue };
+            let Ok(k) = ChaveCaixa::privada(autor, &pk) else { continue };
+            if let Ok(c) = k.seal_bytes(nova.as_bytes()) {
+                if !para.iter().any(|(x, _)| x == d) {
+                    para.push((*d, c));
+                }
+            }
+        }
+        let a = *autor.public().as_bytes();
+        let assinatura = autor.secret().sign(&Self::msg(&group, epoch, &a, &para)).to_bytes().to_vec();
+        Self { group, epoch, autor: a, para, assinatura }
+    }
+
+    pub fn verificar(&self) -> Result<()> {
+        let sig: [u8; 64] = self.assinatura.as_slice().try_into().map_err(|_| anyhow!("assinatura inválida"))?;
+        PublicKey::from_bytes(&self.autor)
+            .map_err(|_| anyhow!("autor inválido"))?
+            .verify(&Self::msg(&self.group, self.epoch, &self.autor, &self.para), &iroh::Signature::from_bytes(&sig))
+            .map_err(|_| anyhow!("chave nova com assinatura inválida"))
+    }
+
+    /// A chave nova, se vier cifrada para `eu`.
+    pub fn abrir(&self, eu: &Identity) -> Option<ChaveCaixa> {
+        let me = eu.public();
+        let (_, c) = self.para.iter().find(|(k, _)| k == me.as_bytes())?;
+        let autor = PublicKey::from_bytes(&self.autor).ok()?;
+        let k = ChaveCaixa::privada(eu, &autor).ok()?;
+        let b: [u8; 32] = k.open_bytes(c).ok()?.as_slice().try_into().ok()?;
+        Some(ChaveCaixa::from_bytes(b))
     }
 }
 
@@ -300,6 +375,57 @@ mod cliente {
                 }
             }
             Ok(out)
+        }
+
+        /// Lê as entradas depois de `desde` (bloco e hora do servidor), sem as abrir.
+        pub async fn caixa_ler_entradas(
+            &self,
+            chave: &ChaveCaixa,
+            desde: u64,
+            espera: u32,
+        ) -> Result<Vec<(u64, Vec<u8>, u64)>> {
+            let r: Entradas = self
+                .send(
+                    self.http()
+                        .get(self.url(&format!("v1/caixas/{}", chave.id_hex())))
+                        .query(&[("desde", desde), ("espera", u64::from(espera.min(25)))])
+                        .timeout(std::time::Duration::from_secs(u64::from(espera.min(25)) + 20))
+                        .bearer_auth(hex::encode(chave.token().as_ref())),
+                )
+                .await?
+                .json()
+                .await?;
+            r.entradas.into_iter().map(|e| Ok((e.seq, unb64(&e.dados)?, e.em))).collect()
+        }
+
+        /// Deixa um bloco de presença (quem está online) no lugar `lugar` da caixa. O
+        /// servidor guarda-o só uns minutos.
+        pub async fn presenca_enviar(&self, chave: &ChaveCaixa, lugar: &[u8; 16], bloco: Vec<u8>) -> Result<()> {
+            self.send(
+                self.http()
+                    .post(self.url(&format!("v1/caixas/{}/presenca", chave.id_hex())))
+                    .query(&[("lugar", hex::encode(lugar))])
+                    .timeout(std::time::Duration::from_secs(15))
+                    .bearer_auth(hex::encode(chave.token().as_ref()))
+                    .body(bloco),
+            )
+            .await?;
+            Ok(())
+        }
+
+        /// Os blocos de presença que ainda valem (bloco, hora do servidor).
+        pub async fn presenca_ler(&self, chave: &ChaveCaixa) -> Result<Vec<(Vec<u8>, u64)>> {
+            let r: Entradas = self
+                .send(
+                    self.http()
+                        .get(self.url(&format!("v1/caixas/{}/presenca", chave.id_hex())))
+                        .timeout(std::time::Duration::from_secs(15))
+                        .bearer_auth(hex::encode(chave.token().as_ref())),
+                )
+                .await?
+                .json()
+                .await?;
+            r.entradas.into_iter().map(|e| Ok((unb64(&e.dados)?, e.em))).collect()
         }
 
         /// Lê os blocos cifrados depois de `desde`, sem os abrir.

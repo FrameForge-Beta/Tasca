@@ -1,7 +1,10 @@
 //! Núcleo da Tasca: identidade, registo de eventos assinado, armazenamento e rede P2P.
 //!
-//! Cada grupo vive no PC do anfitrião (o dono). Os membros ligam-se diretamente
-//! ao anfitrião através do iroh e guardam uma cópia local do histórico.
+//! Com o servidor de contas, cada grupo vive na sua caixa cifrada no servidor: o servidor
+//! dá a ordem aos eventos e cada dispositivo aplica as regras do grupo por essa ordem,
+//! por isso o grupo funciona sem o PC do dono ligado. Chamadas e ficheiros vão de
+//! dispositivo para dispositivo (iroh). Sem servidor, o grupo vive no PC do dono e os
+//! membros ligam-se a ele.
 
 pub mod account;
 pub mod amigos;

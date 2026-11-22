@@ -1758,7 +1758,7 @@
       <div class="field"><label for="new-name">Nome do grupo novo</label><input class="input" id="new-name" placeholder="Ex.: Malta do Futsal" maxlength="40"></div>
       <div class="actions"><button class="btn primary" id="do-create">Criar grupo</button></div>
       <div class="day" style="margin:4px 0">ou</div>
-      <div class="field"><label for="invite-code">Convite</label><textarea class="input mono" id="invite-code" rows="2" placeholder="tasca1…"></textarea></div>
+      <div class="field"><label for="invite-code">Convite</label><textarea class="input mono" id="invite-code" rows="2" placeholder="tasca2…"></textarea></div>
       <p id="join-err" style="color:var(--perigo)" hidden></p>
       <div class="actions"><button class="btn ghost" data-close>Cancelar</button><button class="btn blue" id="do-join">Entrar</button></div>`,
     (el, close) => {

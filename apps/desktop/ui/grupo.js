@@ -408,7 +408,7 @@
     Mencoes: ["Demasiadas menções", "Mensagens com muitas @menções (spam de menções)."],
     Repetidas: ["Mensagens repetidas", "A mesma mensagem várias vezes seguidas."],
     Maiusculas: ["Tudo em maiúsculas", "Mensagens que são quase só maiúsculas."],
-    Convites: ["Convites de outros grupos", "Mensagens com convites da Tasca (tasca1…)."],
+    Convites: ["Convites de outros grupos", "Mensagens com convites da Tasca."],
     Emojis: ["Demasiados emojis", "Mensagens com emojis a mais."],
   };
   const ruleKind = (r) => (typeof r.tipo === "string" ? r.tipo : Object.keys(r.tipo || {})[0]);

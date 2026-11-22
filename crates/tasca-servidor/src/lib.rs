@@ -131,6 +131,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/renomear", post(rename))
         .route("/v1/utilizador/{nome}", get(lookup))
         .route("/v1/caixas/{id}", get(caixas::ler).post(caixas::escrever))
+        .route("/v1/caixas/{id}/presenca", get(caixas::presenca_ler).post(caixas::presenca_escrever))
         .layer(DefaultBodyLimit::max(tasca_core::caixa::MAX_BLOCO))
         .with_state(state)
 }

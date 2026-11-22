@@ -5,7 +5,7 @@
 //! que mudou e lê o que os outros deixaram, com espera longa (chega logo):
 //!
 //! - **amigos**: quem é amigo, pedidos enviados, bloqueados (ver `amigos.rs`);
-//! - **grupos**: os grupos onde a conta está (o telemóvel liga-se ao anfitrião sozinho);
+//! - **grupos**: os grupos onde a conta está, com a chave da caixa de cada um;
 //! - **perfil**: cor, bio, foto e banner.
 //!
 //! As mensagens não passam por aqui: as privadas já estão nas caixas das conversas e as
@@ -25,8 +25,15 @@ use tasca_core::{ChaveCaixa, Identity, caixa::MAX_BLOCO, servidor::AccountServer
 pub(crate) enum Item {
     /// Uma pessoa da lista de amigos mudou (`dados = None`: saiu da lista).
     Pessoa { chave: String, dados: Option<Value>, em: u64 },
-    /// A conta está neste grupo.
-    Grupo { id: String, nome: String, dono: String, em: u64 },
+    /// A conta está neste grupo. `chave` = "época:chave em hex" da caixa do grupo.
+    Grupo {
+        id: String,
+        nome: String,
+        dono: String,
+        em: u64,
+        #[serde(default)]
+        chave: Option<String>,
+    },
     /// Cor e bio do perfil.
     Perfil { cor: String, bio: String, em: u64 },
     /// Foto ou banner do perfil (`campo` = "foto" ou "banner"; `valor = None`: tirou).
