@@ -529,9 +529,9 @@
       if (first) {
         const tag = p.bot ? '<span class="tag bot">plugin</span>' : g.owner === p.id ? '<span class="tag">anfitrião</span>' : "";
         const nm = dm ? p.name : gname(p.id), col = dm ? p.color : gcolor(p.id);
-        out += `<div class="${cls}" data-mid="${esc(m.id)}"${qTitle}>${acts}<button type="button" class="msg-av" data-person="${esc(p.id)}" aria-label="Perfil de ${esc(nm)}">${avatar(p)}</button><div>${reply}<div class="bubble"><div class="meta"><button type="button" class="author" data-person="${esc(p.id)}" style="--a:${col}">${esc(nm)}</button>${dm ? "" : gicon(p.id)}${tag}${m.pinned ? `<span class="tag pin" title="Fixada">${PIN}</span>` : ""}<span class="time">${esc(m.at)}</span></div>${m.text ? `<div class="body">${fmt(m.text)}${edited}${state}</div>` : ""}${file}</div>${reacts}${fail}</div></div>`;
+        out += `<div class="${cls}" data-mid="${esc(m.id)}"${qTitle}><button type="button" class="msg-av" data-person="${esc(p.id)}" aria-label="Perfil de ${esc(nm)}">${avatar(p)}</button><div>${acts}${reply}<div class="bubble"><div class="meta"><button type="button" class="author" data-person="${esc(p.id)}" style="--a:${col}">${esc(nm)}</button>${dm ? "" : gicon(p.id)}${tag}${m.pinned ? `<span class="tag pin" title="Fixada">${PIN}</span>` : ""}<span class="time">${esc(m.at)}</span></div>${m.text ? `<div class="body">${fmt(m.text)}${edited}${state}</div>` : ""}${file}</div>${reacts}${fail}</div></div>`;
       } else {
-        out += `<div class="${cls}" data-mid="${esc(m.id)}">${acts}<span class="gutter">${esc(m.at)}</span><div>${reply}<div class="bubble">${m.text ? `<div class="body">${fmt(m.text)}${edited}${state}</div>` : ""}${file}</div>${reacts}${fail}</div></div>`;
+        out += `<div class="${cls}" data-mid="${esc(m.id)}"><span class="gutter">${esc(m.at)}</span><div>${acts}${reply}<div class="bubble">${m.text ? `<div class="body">${fmt(m.text)}${edited}${state}</div>` : ""}${file}</div>${reacts}${fail}</div></div>`;
       }
       return out;
     }).join("");
@@ -2096,6 +2096,17 @@
   }
 
   // ---------------- eventos da UI ----------------
+  // barra de ações nos balões: ao lado do balão se couber, senão por cima (nunca por cima da mensagem)
+  document.addEventListener("mouseover", (e) => {
+    const m = e.target.closest && e.target.closest(".messages.bubbles .msg");
+    if (!m) return;
+    const acts = m.querySelector(".msg-acts"), wrap = acts && acts.parentElement, list = m.closest(".messages");
+    if (!acts || !list) return;
+    const w = wrap.getBoundingClientRect(), l = list.getBoundingClientRect();
+    const bw = acts.offsetWidth || acts.children.length * 31 + 6;
+    const fits = m.classList.contains("mine") ? w.left - 6 - bw >= l.left + 4 : w.right + 6 + bw <= l.right - 4;
+    m.classList.toggle("acts-up", !fits);
+  });
   document.addEventListener("click", async (e) => {
     const t = e.target.closest("button, a, [data-chan-name]");
     if (!t) return;

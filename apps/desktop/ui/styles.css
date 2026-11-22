@@ -1768,10 +1768,17 @@ details.row.adv .btn { justify-self: start; }
 .ms-list button.danger, .ms-list button.danger svg { color: var(--perigo); }
 .ms-list button:active { background: var(--hover); }
 @keyframes pop-in { from { opacity: 0; transform: translateY(4px) scale(.97); } }
-.messages .msg > div.msg-acts { display: none; flex-direction: row; position: absolute; width: auto; max-width: none; margin: 0; }
-.messages .msg:hover > div.msg-acts, .messages .msg:focus-within > div.msg-acts { display: flex; }
-.mobile .messages .msg > div.msg-acts { display: none !important; }
-@media (hover: none) { .messages .msg:hover > div.msg-acts { display: none; } }
+.messages .msg div.msg-acts { display: none; flex-direction: row; position: absolute; width: auto; max-width: none; margin: 0; }
+.messages .msg:hover div.msg-acts, .messages .msg:focus-within div.msg-acts { display: flex; }
+.mobile .messages .msg div.msg-acts { display: none !important; }
+@media (hover: none) { .messages .msg:hover div.msg-acts { display: none; } }
+/* balões: a barra de ações fica ao lado do balão, no espaço vazio, para nunca tapar
+   a mensagem nem a resposta citada; se não houver espaço ao lado, vai para cima do balão */
+.messages.bubbles .msg > div:not(.msg-acts) { position: relative; width: fit-content; max-width: min(640px, 100%); }
+.messages.bubbles .msg.mine > div:not(.msg-acts) { justify-self: end; }
+.messages.bubbles .msg div.msg-acts { top: 50%; bottom: auto; margin-top: -17px; left: calc(100% + 6px); right: auto; }
+.messages.bubbles .msg.mine div.msg-acts { left: auto; right: calc(100% + 6px); }
+.messages.bubbles .msg.acts-up div.msg-acts { top: auto; bottom: calc(100% + 2px); margin-top: 0; left: auto; right: 0; }
 .messages.bubbles .msg.mine .reply-ref { margin-left: auto; }
 .ring-card { display: grid; justify-items: center; gap: 6px; padding: 8px 0 4px; text-align: center; }
 .ring-card .av.big { width: 88px; height: 88px; font-size: 30px; animation: pulse 1.6s ease-in-out infinite; }
