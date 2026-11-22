@@ -17,7 +17,12 @@
   const remember = (e) => { try { localStorage.setItem(KEY, JSON.stringify([e, ...recent().filter((x) => x !== e)].slice(0, 24))); } catch {} };
 
   let pop = null;
-  function close() { if (pop) { pop.el.remove(); pop.btn.classList.remove("on"); pop.btn.setAttribute("aria-expanded", "false"); pop = null; } }
+  // fecha com animação (no telemóvel desce como uma folha)
+  function close() {
+    if (!pop) return;
+    const el = pop.el; el.classList.add("out"); setTimeout(() => el.remove(), 200);
+    pop.btn.classList.remove("on"); pop.btn.setAttribute("aria-expanded", "false"); pop = null;
+  }
 
   function insert(input, e) {
     if (!input.isConnected && input.id) input = document.getElementById(input.id) || input; // o ecrã pode ter sido redesenhado
@@ -29,6 +34,8 @@
 
   function open(btn, input) {
     if (pop && pop.btn === btn) return close();
+    // no telemóvel o teclado sai da frente para o painel caber
+    if (window.innerWidth <= 720 && typeof input !== "function" && document.activeElement === input) input.blur();
     close();
     const rec = recent();
     const el = document.createElement("div");
@@ -42,6 +49,12 @@
     el.style.width = w + "px";
     el.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + "px";
     el.style.bottom = window.innerHeight - r.top + 8 + "px";
+    if (window.innerWidth <= 720) el.insertAdjacentHTML("afterbegin", '<span class="sheet-grip" aria-hidden="true"></span>');
+    // no telemóvel, puxar o separador para baixo fecha
+    let y0 = null;
+    el.addEventListener("touchstart", (e) => { if (!e.target.closest(".emoji-body")) y0 = e.touches[0].clientY; }, { passive: true });
+    el.addEventListener("touchmove", (e) => { if (y0 != null) { const d = Math.max(0, e.touches[0].clientY - y0); el.style.transform = `translateY(${d}px)`; } }, { passive: true });
+    el.addEventListener("touchend", (e) => { if (y0 == null) return; const d = e.changedTouches[0].clientY - y0; y0 = null; if (d > 70) close(); else el.style.transform = ""; });
     btn.classList.add("on"); btn.setAttribute("aria-expanded", "true");
     pop = { el, btn, input };
     const body = el.querySelector(".emoji-body");
@@ -58,7 +71,9 @@
       const j = ev.target.closest("[data-jump]");
       if (j) { const s = el.querySelector(`[data-sec="${j.dataset.jump}"]`); body.scrollTop = s.offsetTop - body.offsetTop; return; }
       const b = ev.target.closest("[data-emoji]"); if (!b) return;
-      remember(b.dataset.emoji); insert(input, b.dataset.emoji);
+      remember(b.dataset.emoji);
+      if (typeof input === "function") { input(b.dataset.emoji); close(); return; }
+      insert(input, b.dataset.emoji);
       if (!ev.shiftKey) close();
     });
   }
@@ -67,5 +82,5 @@
   document.addEventListener("keydown", (e) => { if (pop && e.key === "Escape") { e.preventDefault(); e.stopPropagation(); const i = pop.input; close(); i.focus(); } }, true);
   window.addEventListener("resize", close);
 
-  window.tascaEmoji = { open, close };
+  window.tascaEmoji = { open, close, isOpen: () => !!pop };
 })();

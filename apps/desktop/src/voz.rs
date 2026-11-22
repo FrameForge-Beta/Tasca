@@ -36,6 +36,21 @@ type Res<T> = Result<T, String>;
 #[derive(Default)]
 pub struct Voz {
     atual: Mutex<Option<Arc<EmChamada>>>,
+    /// Quem nos ligou há pouco, e de onde (para atender ligando a esse dispositivo).
+    toques: StdMutex<std::collections::HashMap<String, (tasca_core::EndpointAddr, std::time::Instant)>>,
+}
+
+/// Alguém está a ligar-te: a interface mostra o ecrã de atender e o sistema avisa.
+pub fn tocou(app: &AppHandle, t: tasca_core::voz::Toque) {
+    use tauri::Manager;
+    let id = hex(&t.de);
+    if let Some(v) = app.try_state::<Voz>() {
+        let mut m = v.toques.lock().unwrap();
+        m.retain(|_, (_, quando)| quando.elapsed() < Duration::from_secs(120));
+        m.insert(id.clone(), (t.endpoint, std::time::Instant::now()));
+    }
+    let _ = app.emit("incoming_call", json!({ "userId": id }));
+    crate::avisos::mensagem(app, &format!("dm-{id}"), None, "Chamada", "Estão a ligar-te na Tasca");
 }
 
 struct EmChamada {
@@ -144,7 +159,7 @@ impl EmChamada {
                 let _ = me.app.emit("group_changed", json!({ "groupId": gid }));
                 let estados: Vec<_> = l
                     .iter()
-                    .map(|p| json!({ "id": me.ativa.pessoa_id(&p.key), "muted": p.muted, "deaf": p.deaf, "camera": p.camera, "screen": p.screen }))
+                    .map(|p| json!({ "id": me.ativa.pessoa_id(&p.key), "muted": p.muted, "deaf": p.deaf, "camera": p.camera, "screen": p.screen, "host": p.anfitriao }))
                     .collect();
                 let _ = me.app.emit("voice_members", json!({ "channelId": me.canal, "members": estados }));
             }
@@ -154,7 +169,7 @@ impl EmChamada {
     fn estado_ligacao(&self) -> serde_json::Value {
         let c = self.chamada();
         match c.ligacao() {
-            None if c.ligada() => json!({ "route": "este PC é o anfitrião", "ping": 0, "connected": true }),
+            None if c.ligada() => json!({ "route": "estás a alojar a chamada", "ping": 0, "connected": true, "hosting": true }),
             None => json!({ "route": "sem ligação", "ping": 0, "connected": false }),
             Some((rtt, relay)) => json!({
                 "route": if relay { "pelo relay do iroh" } else { "direto P2P" },
@@ -164,24 +179,52 @@ impl EmChamada {
         }
     }
 
-    /// Vigia a ligação: mostra o ping e volta a entrar na sala se a ligação cair.
+    /// Vigia a ligação: mostra o ping, segue a chamada quando muda de anfitrião e volta a
+    /// entrar na sala se a ligação cair.
     fn vigiar(self: &Arc<Self>) {
         let me = Arc::downgrade(self);
         let h = tauri::async_runtime::spawn(async move {
             let mut espera = 1;
             loop {
-                tokio::time::sleep(Duration::from_secs(2)).await;
+                let mut novo = match me.upgrade() {
+                    Some(eu) => eu.chamada().novo_host(),
+                    None => break,
+                };
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+                    _ = novo.wait_for(|n| n.is_some()) => {}
+                }
                 let Some(eu) = me.upgrade() else { break };
                 let _ = eu.app.emit("voice_status", eu.estado_ligacao());
-                if eu.chamada().ligada() {
+                let c = eu.chamada();
+                let destino = c.novo_host().borrow().clone();
+                if destino.is_none() && c.ligada() {
                     espera = 1;
                     continue;
                 }
-                let (node, g, room) = (eu.ativa.node.clone(), eu.group, eu.chamada().room.clone());
-                drop(eu);
-                tokio::time::sleep(Duration::from_secs(espera)).await;
-                espera = (espera * 2).min(30);
-                if let Ok(c) = node.entrar_voz(g, &room).await {
+                // Para onde ir: quem o anfitrião indicou ou, se a ligação caiu sem aviso, quem
+                // fica com a chamada (todos escolhem a mesma pessoa).
+                let alvo = destino.or_else(|| c.sucessor()).and_then(|n| n.addr().ok());
+                let (node, g, room) = (eu.ativa.node.clone(), eu.group, c.room.clone());
+                drop((eu, c));
+                let r = match alvo {
+                    Some(alvo) => {
+                        let _ = me.upgrade().map(|eu| eu.app.emit("voice_status", json!({ "route": "a mudar de anfitrião", "ping": 0, "connected": false })));
+                        match node.entrar_voz_em(g, &room, alvo, Duration::from_secs(12)).await {
+                            Ok(c) => Ok(c),
+                            Err(e) => {
+                                eprintln!("voz: não consegui seguir a chamada: {e:#}");
+                                node.entrar_voz(g, &room).await
+                            }
+                        }
+                    }
+                    None => {
+                        tokio::time::sleep(Duration::from_secs(espera)).await;
+                        espera = (espera * 2).min(30);
+                        node.entrar_voz(g, &room).await
+                    }
+                };
+                if let Ok(c) = r {
                     let Some(eu) = me.upgrade() else { break };
                     let (m, d) = (eu.muted.load(Ordering::Relaxed), eu.deaf.load(Ordering::Relaxed));
                     let _ = c.set_estado(m, d).await;
@@ -210,7 +253,16 @@ pub async fn join_voice(
     sensitivity: Option<u8>,
 ) -> Res<serde_json::Value> {
     let a = ativa(&app, &rede, &c).await?;
-    let (g, sala) = canal(&channel_id)?;
+    // Chamada privada com um amigo: "dm-<chave>".
+    let privada = channel_id.strip_prefix("dm-").map(|k| {
+        let pk = crate::grupos::unhex32(k).and_then(|b| tasca_core::PublicKey::from_bytes(&b).ok());
+        (k.to_string(), pk)
+    });
+    let (g, sala) = match &privada {
+        Some((_, Some(pk))) => (tasca_core::voz::grupo_privado(&a.node.identity().public(), pk), "privada".to_string()),
+        Some((_, None)) => return Err("Pessoa desconhecida.".into()),
+        None => canal(&channel_id)?,
+    };
     let mut atual = voz.atual.lock().await;
     if let Some(velha) = atual.take() {
         if velha.canal == channel_id {
@@ -222,10 +274,24 @@ pub async fn join_voice(
     let f = filtro(modo(noise.as_deref())).await;
     let mut captura = Captura::new(f).map_err(|e| e.to_string())?;
     captura.sensibilidade = sensitivity.unwrap_or(0).min(100);
-    let chamada = a.node.entrar_voz(g, &sala).await.map_err(|e| {
+    let chamada = match &privada {
+        Some((k, Some(pk))) => {
+            let onde = voz.toques.lock().unwrap().remove(k).map(|(e, _)| e);
+            a.node.ligar_privado(*pk, onde).await
+        }
+        _ => a.node.entrar_voz(g, &sala).await,
+    }
+    .map_err(|e| {
         eprintln!("voz: {e:#}");
-        "Não consegui entrar na chamada: o anfitrião do grupo não respondeu.".to_string()
+        format!("Não consegui entrar na chamada: {e}")
     })?;
+    // O dono do grupo (se estiver ligado) mostra aos outros em que sala estás.
+    if let (None, Ok(h)) = (&privada, a.handle(g)) {
+        let s = sala.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = h.set_voice(Some(s)).await;
+        });
+    }
     let em = Arc::new(EmChamada {
         canal: channel_id,
         group: g,
@@ -252,7 +318,30 @@ pub async fn join_voice(
 
 #[tauri::command]
 pub async fn leave_voice(voz: State<'_, Voz>) -> Res<bool> {
-    voz.atual.lock().await.take();
+    if let Some(em) = voz.atual.lock().await.take() {
+        if let Ok(h) = em.ativa.handle(em.group) {
+            tauri::async_runtime::spawn(async move {
+                let _ = h.set_voice(None).await;
+            });
+        }
+    }
+    Ok(true)
+}
+
+/// Passa a chamada para outra pessoa que lá está. Quem aloja pode sempre; o dono do grupo
+/// também (o anfitrião da chamada ignora os outros).
+#[tauri::command]
+pub async fn pass_voice_host(voz: State<'_, Voz>, user_id: String) -> Res<bool> {
+    let em = voz.atual.lock().await.clone().ok_or("Não estás numa chamada.")?;
+    let c = em.chamada();
+    let para = c
+        .sala()
+        .borrow()
+        .iter()
+        .find(|p| em.ativa.pessoa_id(&p.key) == user_id)
+        .map(|p| p.id)
+        .ok_or("Essa pessoa não está na chamada.")?;
+    c.passar_host(para).await.map_err(|e| e.to_string())?;
     Ok(true)
 }
 

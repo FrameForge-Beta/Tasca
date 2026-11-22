@@ -10,9 +10,12 @@
 //! listados em `ui/api.js` (plugins, cópias) ainda usam dados de teste no próprio JavaScript.
 
 mod amigos;
+mod avisos;
 mod contas;
 mod dms;
 mod grupos;
+mod mensagens;
+mod plugins;
 mod presenca;
 mod sincronia;
 mod voz;
@@ -108,7 +111,11 @@ fn sair_app(app: AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
+        .manage(avisos::Avisos::default())
+        .manage(plugins::Loja::default());
     #[cfg(desktop)]
     let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -158,7 +165,24 @@ pub fn run() {
             grupos::list_channels,
             grupos::list_categories,
             grupos::list_messages,
-            grupos::send_message,
+            avisos::set_notify_state,
+            grupos::leave_group,
+            grupos::backup_groups,
+            plugins::list_plugins,
+            plugins::install_plugin,
+            plugins::sideload_plugin,
+            plugins::uninstall_plugin,
+            plugins::set_plugin_enabled,
+            plugins::plugin_code,
+            mensagens::send_message,
+            mensagens::edit_message,
+            mensagens::delete_message,
+            mensagens::react_message,
+            mensagens::search_messages,
+            mensagens::unread_counts,
+            mensagens::upload_file,
+            mensagens::get_file,
+            mensagens::save_file,
             grupos::create_group,
             grupos::import_local_group,
             grupos::join_group,
@@ -174,6 +198,7 @@ pub fn run() {
             voz::join_voice,
             voz::leave_voice,
             voz::set_voice_state,
+            voz::pass_voice_host,
             voz::set_voice_options,
             voz::set_user_volume,
             voz::voice_frame,
@@ -200,6 +225,14 @@ pub fn run() {
         ])
         .setup(|app| {
             let app = app.handle().clone();
+            #[cfg(mobile)]
+            {
+                let a = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                    avisos::pedir_autorizacao(&a);
+                });
+            }
             tauri::async_runtime::spawn(async move {
                 // deixa o ecrã de arranque desenhar-se antes de começar
                 tokio::time::sleep(Duration::from_millis(400)).await;

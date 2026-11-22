@@ -45,6 +45,12 @@
     retry: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>',
     expand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>',
     signal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 20v-3M9 20v-7M14 20V9M19 20V4"/></svg>',
+    reply: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>',
+    edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>',
+    download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg>',
+    copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>',
+    more: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
   };
   const LOGO = '<svg viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="116" fill="#9B2C3F"/><path fill="#F6EEE1" d="M168,96 H344 A72,72 0 0 1 416,168 V300 A72,72 0 0 1 344,372 H226 L138,430 L152,364 A72,72 0 0 1 96,300 V168 A72,72 0 0 1 168,96Z"/><g transform="translate(256,234)"><path fill="#2A5CAA" d="M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z"/><path transform="rotate(90)" fill="#2A5CAA" d="M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z"/><path transform="rotate(180)" fill="#2A5CAA" d="M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z"/><path transform="rotate(270)" fill="#2A5CAA" d="M0,0 C40,-29.4 40,-65.52 0,-84 C-40,-65.52 -40,-29.4 0,0Z"/><circle r="16" fill="#E3A72F"/><circle r="7" fill="#F6EEE1"/></g></svg>';
   const TILE = "url(\"data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><g transform="translate(60,60)" fill="#2A5CAA"><path d="M0,0 C24,-17.6 24,-39.3 0,-50.4 C-24,-39.3 -24,-17.6 0,0Z"/><path transform="rotate(90)" d="M0,0 C24,-17.6 24,-39.3 0,-50.4 C-24,-39.3 -24,-17.6 0,0Z"/><path transform="rotate(180)" d="M0,0 C24,-17.6 24,-39.3 0,-50.4 C-24,-39.3 -24,-17.6 0,0Z"/><path transform="rotate(270)" d="M0,0 C24,-17.6 24,-39.3 0,-50.4 C-24,-39.3 -24,-17.6 0,0Z"/><path transform="translate(-60,-60)" d="M0,0 A26.4,26.4 0 0 1 26.4,0 A26.4,26.4 0 0 1 0,26.4Z"/><path transform="translate(60,-60) rotate(90)" d="M0,0 A26.4,26.4 0 0 1 26.4,0 A26.4,26.4 0 0 1 0,26.4Z"/><path transform="translate(60,60) rotate(180)" d="M0,0 A26.4,26.4 0 0 1 26.4,0 A26.4,26.4 0 0 1 0,26.4Z"/><path transform="translate(-60,60) rotate(270)" d="M0,0 A26.4,26.4 0 0 1 26.4,0 A26.4,26.4 0 0 1 0,26.4Z"/><circle r="7.2" fill="#E3A72F"/></g></svg>') + "\")";
@@ -79,8 +85,10 @@
     const t = document.createElement("div");
     t.className = "toast"; t.textContent = text;
     $("#toasts").appendChild(t);
-    setTimeout(() => t.remove(), 3200);
+    setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 220); }, 3200);
   }
+  // vibração curta ao tocar (só no telemóvel)
+  function haptic(ms = 8) { if (window.TASCA_MOBILE && navigator.vibrate) { try { navigator.vibrate(ms); } catch {} } }
   const store = {
     get(k, d) { try { const v = localStorage.getItem("tasca:" + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
     set(k, v) { try { localStorage.setItem("tasca:" + k, JSON.stringify(v)); } catch {} },
@@ -92,7 +100,7 @@
     groupId: null, channelId: null,
     view: "chat",              // chat | voice | plugins | settings
     voice: null,               // { channelId, groupId, route, ping, codec }
-    muted: false, deaf: false, speaking: [],
+    muted: !!store.get("voice-state", {}).muted, deaf: !!store.get("voice-state", {}).deaf, mutedBeforeDeaf: !!store.get("voice-state", {}).before, speaking: [],
     camera: false,             // câmara ligada
     sharing: null,             // { source, quality, audio } quando estou a partilhar o ecrã
     focus: null,               // id do quadrado em destaque ("rui:screen", "me:cam", …); null = grelha
@@ -103,7 +111,7 @@
     showMembers: store.get("members", true),
     pluginTab: "loja", pluginQuery: "",
     settingsTab: "aparencia",
-    typing: null, backupPct: null,
+    typing: null,
   };
   const group = () => S.groups.find((g) => g.id === S.groupId);
   // pessoa por id, mesmo que ainda não se saiba nada dela
@@ -185,8 +193,8 @@
   function render() {
     const app = $("#app");
     app.className = "app" + (S.showMembers && S.view === "chat" && !S.home ? "" : " no-members") +
-      (S.navOpen ? " show-nav" : "") + (S.membersOpen ? " show-members" : "") +
-      (S.view === "voice" && !S.callSidebar ? " call" : "");
+      (S.navOpen ? " show-nav" : "") + (S.membersOpen && S.view === "chat" && !S.home ? " show-members" : "") +
+      (S.view === "voice" && !S.callSidebar ? " call" : "") + (S.view === "settings" ? " no-sidebar" : "");
     $("#rail").innerHTML = renderRail();
     const tbp = document.getElementById("tb-plugins"); if (tbp) tbp.classList.toggle("on", S.view === "settings" && S.settingsTab === "plugins");
     document.body.classList.add("ready");
@@ -195,6 +203,9 @@
     if (S.view === "settings") app.style.gridTemplateColumns = window.innerWidth > 720 ? "72px minmax(0,1fr)" : "";
     else app.style.gridTemplateColumns = "";
     $("#main").innerHTML = renderMain();
+    pageTransition();
+    loadImages();
+    syncNotify();
     fitCallGrid();
     $("#members").innerHTML = S.view === "chat" && !S.home ? renderMembers() : "";
     const list = $(".messages");
@@ -202,6 +213,22 @@
     if (S.view === "settings" && S.settingsTab === "voz") { if (!meter && DEV.loaded) startMicMeter(); }
     else stopMicMeter();
     attachMedia();
+  }
+
+  // Troca de página (canal, conversa, amigos, definições, chamada): a página nova entra a deslizar.
+  let lastPage = null, pageTimer = 0;
+  const PAGE_DEPTH = { friends: 0, chat: 1, voicepre: 2, voice: 3, settings: 4 };
+  function pageTransition() {
+    const key = [S.view, S.home, S.groupId, S.channelId, S.view === "settings" ? S.settingsTab : ""].join("|");
+    if (lastPage && key !== lastPage) {
+      const main = $("#main");
+      const prevView = lastPage.split("|")[0];
+      main.classList.remove("enter", "back"); void main.offsetWidth;
+      main.classList.add("enter");
+      if ((PAGE_DEPTH[S.view] ?? 1) < (PAGE_DEPTH[prevView] ?? 1)) main.classList.add("back");
+      clearTimeout(pageTimer); pageTimer = setTimeout(() => main.classList.remove("enter", "back"), 320);
+    }
+    lastPage = key;
   }
 
   function renderRail() {
@@ -292,7 +319,7 @@
   function renderVoiceBar() {
     if (!S.voice) return "";
     const c = findChannel(S.voice.channelId);
-    const g = S.groups.find((x) => x.id === S.voice.groupId);
+    const g = voiceGroup();
     const q = S.voice.ping < 60 ? 3 : S.voice.ping < 120 ? 2 : 1;
     const bars = [1, 2, 3].map((i) => `<i class="${i <= q ? "on" : ""}" style="height:${4 + i * 3}px"></i>`).join("");
     const share = S.sharing ? `
@@ -380,10 +407,19 @@
   function renderMain() {
     if (S.view === "settings") return renderSettings();
     if (S.view === "voice") return renderVoice();
+    if (S.view === "voicepre") return renderVoicePre();
     if (S.view === "friends" && window.tascaAmigos) return window.tascaAmigos.renderFriends();
     return renderChat();
   }
 
+  const narrow = () => window.innerWidth <= 720;
+  // telemóvel: com a chamada a decorrer, uma barra por cima da caixa de escrita leva de volta
+  const callPill = () => {
+    if (!S.voice || !narrow()) return "";
+    const c = findChannel(S.voice.channelId); if (!c) return "";
+    const n = (c.inVoice || []).length;
+    return `<button class="call-pill" data-voice="${esc(c.id)}"><span class="cp-dot"></span><span class="cp-txt"><b>Em chamada</b><small>${esc(c.name)}${n ? " · " + n + (n === 1 ? " pessoa" : " pessoas") : ""}</small></span><span class="cp-mic ${S.muted ? "off" : ""}" data-act="mute" role="button" aria-label="${S.muted ? "Ligar microfone" : "Desligar microfone"}">${S.muted ? I.micOff : I.mic}</span><span class="cp-go">Voltar</span></button>`;
+  };
   const menuBtn = () => `<button class="icon-btn menu-btn" data-act="nav" aria-label="Grupos e canais">${I.menu}</button>`;
 
   // Sem grupos nem conversas (conta nova).
@@ -397,6 +433,7 @@
       </div>`;
   }
 
+  let seen = new Set(), seenCh = null;
   function renderChat() {
     const dm = S.home ? S.dms.find((d) => d.id === S.channelId) : null;
     const c = dm ? { id: dm.id, name: who(dm.with).name } : channel();
@@ -407,22 +444,30 @@
       const p = who(m.from);
       let out = "";
       if (m.day !== lastDay) { out += `<div class="day">${esc(m.day)}</div>`; lastDay = m.day; lastFrom = null; }
-      const first = m.from !== lastFrom || m.file || minutes(m.at) - minutes(lastAt) > 7;
+      if (S.newLine && S.newLine.ch === S.channelId && String(m.id) === S.newLine.id) { out += `<div class="day new-line">Novas</div>`; lastFrom = null; }
+      const first = m.from !== lastFrom || m.file || m.replyTo || minutes(m.at) - minutes(lastAt) > 7;
       lastFrom = m.from; lastAt = m.at;
-      const reacts = m.reactions ? `<div class="reactions">${m.reactions.map((r, i) => `<button class="reaction ${r.mine ? "mine" : ""}" data-react="${m.id}:${i}">${r.e} ${r.n}</button>`).join("")}</div>` : "";
-      const file = m.file ? `<div class="attach"><span class="ext">${esc(m.file.ext)}</span><div><b>${esc(m.file.name)}</b><small>${esc(m.file.size)} · enviado diretamente por ${esc(p.name)}</small></div></div>` : "";
+      const reacts = m.reactions && m.reactions.length ? `<div class="reactions">${m.reactions.map((r, i) => `<button class="reaction ${r.mine ? "mine" : ""}" data-react="${esc(m.id)}:${i}" aria-pressed="${!!r.mine}">${esc(r.e)} ${r.n}</button>`).join("")}</div>` : "";
+      const file = (m.file ? `<div class="attach"><span class="ext">${esc(m.file.ext)}</span><div><b>${esc(m.file.name)}</b><small>${esc(m.file.size)} · enviado diretamente por ${esc(p.name)}</small></div></div>` : "") + (m.files || []).map(fileHtml).join("");
+      const reply = m.replyTo ? `<button type="button" class="reply-ref" data-jump="${esc(m.replyTo.id)}">${I.reply}${m.replyTo.deleted ? "<span>Mensagem apagada</span>" : `<b>${esc(who(m.replyTo.from).name)}</b><span>${esc(m.replyTo.text || "")}</span>`}</button>` : "";
+      const edited = m.edited ? ` <span class="edited" title="Editada">(editada)</span>` : "";
+      const real = !m.pending && !m.failed && !String(m.id).startsWith("tmp-") && !dm;
+      const acts = real ? `<div class="msg-acts" role="toolbar" aria-label="Ações da mensagem">${["👍", "😂", "❤️"].map((e) => `<button type="button" data-mreact="${esc(m.id)}|${e}" aria-label="Reagir com ${e}">${e}</button>`).join("")}<button type="button" data-mpick="${esc(m.id)}" aria-label="Escolher reação" title="Reagir">${I.smile}</button><button type="button" data-mreply="${esc(m.id)}" aria-label="Responder" title="Responder">${I.reply}</button>${mineMsg(m) ? `<button type="button" data-medit="${esc(m.id)}" aria-label="Editar" title="Editar">${I.edit}</button>` : ""}<button type="button" data-mmore="${esc(m.id)}" aria-label="Mais" title="Mais">${I.more}</button></div>` : "";
       const state = ""; // a enviar: a mensagem só fica mais escura (classe "pending")
       const mine = m.from === "me";
-      const cls = `msg ${mine ? "mine" : ""} ${first ? "first" : ""} ${m.mentionsMe ? "mentioned" : ""} ${m.pending ? "pending" : ""} ${m.failed ? "failed" : ""}`;
+      const fresh = seenCh === S.channelId && !seen.has(String(m.id));
+      const cls = `msg ${mine ? "mine" : ""} ${first ? "first" : ""} ${m.mentionsMe ? "mentioned" : ""} ${m.pending ? "pending" : ""} ${m.failed ? "failed" : ""} ${fresh ? "new" : ""}`;
       const fail = m.failed ? `<div class="msg-fail"><small>Não foi enviada. Volta a tentar.</small><button class="retry" data-retry="${esc(m.id)}" aria-label="Tentar enviar outra vez" title="Tentar enviar outra vez">${I.retry}</button></div>` : "";
       if (first) {
         const tag = p.bot ? '<span class="tag bot">plugin</span>' : g.owner === p.id ? '<span class="tag">anfitrião</span>' : "";
-        out += `<div class="${cls}"><button type="button" class="msg-av" data-person="${esc(p.id)}" aria-label="Perfil de ${esc(p.name)}">${avatar(p)}</button><div><div class="bubble"><div class="meta"><button type="button" class="author" data-person="${esc(p.id)}" style="--a:${p.color}">${esc(p.name)}</button>${tag}<span class="time">${esc(m.at)}</span></div><div class="body">${fmt(m.text)}${state}</div>${file}</div>${reacts}${fail}</div></div>`;
+        out += `<div class="${cls}" data-mid="${esc(m.id)}">${acts}<button type="button" class="msg-av" data-person="${esc(p.id)}" aria-label="Perfil de ${esc(p.name)}">${avatar(p)}</button><div>${reply}<div class="bubble"><div class="meta"><button type="button" class="author" data-person="${esc(p.id)}" style="--a:${p.color}">${esc(p.name)}</button>${tag}<span class="time">${esc(m.at)}</span></div>${m.text ? `<div class="body">${fmt(m.text)}${edited}${state}</div>` : ""}${file}</div>${reacts}${fail}</div></div>`;
       } else {
-        out += `<div class="${cls}"><span class="gutter">${esc(m.at)}</span><div><div class="bubble"><div class="body">${fmt(m.text)}${state}</div>${file}</div>${reacts}${fail}</div></div>`;
+        out += `<div class="${cls}" data-mid="${esc(m.id)}">${acts}<span class="gutter">${esc(m.at)}</span><div>${reply}<div class="bubble">${m.text ? `<div class="body">${fmt(m.text)}${edited}${state}</div>` : ""}${file}</div>${reacts}${fail}</div></div>`;
       }
       return out;
     }).join("");
+    // as que já estavam no ecrã não voltam a animar
+    seen = new Set(S.messages.map((m) => String(m.id))); seenCh = S.channelId;
     if (dm) {
       const p = who(dm.with);
       const st = { online: "online", away: "ausente", dnd: "não incomodar", offline: "offline" }[p.status] || "offline";
@@ -438,7 +483,7 @@
         <div class="welcome">${avatar(p).replace('class="av ', 'class="av big ')}<h2>${esc(p.name)}</h2><p>Esta conversa é só entre ti e ${esc(p.name)}, cifrada de ponta a ponta: o servidor da Tasca guarda-a para chegar mesmo com um de vocês offline, mas não a consegue ler.</p></div>
         ${rows}
       </div>
-      <div class="composer">
+      <div class="composer">${callPill()}${composerExtras()}
         <form id="composer">
           <button type="button" class="icon-btn" data-act="attach" aria-label="Anexar ficheiro" title="Anexar ficheiro">${I.clip}</button>
           <label class="sr" for="msg-input">Mensagem</label>
@@ -449,12 +494,13 @@
         <div class="typing">${S.typing && S.typing.channelId === c.id ? `<b>${esc(S.typing.who)}</b> está a escrever…` : ""}</div>
       </div>`;
     }
-    const offline = !g.host.online ? `<div class="banner">${I.warn}<div><b>${g.owner === "me" ? "O teu PC" : esc(who(g.owner).name)}</b>, o anfitrião, está offline. Estás a ver a tua cópia local. O que escreveres fica guardado e é enviado quando ele voltar, ou quando outro membro assumir o grupo.</div></div>` : "";
+    const offline = !g.host.online ? `<div class="banner ${S.bannerOpen ? "open" : ""}" data-banner-toggle role="button" tabindex="0" aria-expanded="${!!S.bannerOpen}">${I.warn}<span class="banner-short"><b>Anfitrião offline</b> · a ver a tua cópia local</span><div class="banner-long"><b>${g.owner === "me" ? "O teu PC" : esc(who(g.owner).name)}</b>, o anfitrião, está offline. Estás a ver a tua cópia local. O que escreveres fica guardado e é enviado quando ele voltar, ou quando outro membro assumir o grupo.</div></div>` : "";
     const typing = S.typing && S.typing.channelId === c.id ? `<b>${esc(S.typing.who)}</b> está a escrever…` : "";
     return `
       <div class="main-head">${menuBtn()}
         <span class="title">${I.hash}${esc(c.name)}</span>
         <span class="topic">${esc(c.topic || "")}</span>
+        <button class="icon-btn" data-act="search" aria-label="Procurar mensagens" title="Procurar (Ctrl+F)">${I.search}</button>
         <button class="icon-btn ${S.showMembers ? "on" : ""}" data-act="toggle-members" aria-label="Mostrar membros" title="Membros">${I.users}</button>
       </div>
       ${offline}
@@ -463,7 +509,7 @@
         <div class="welcome"><div class="tile"><span>#</span></div><h2>Bem-vindo a #${esc(c.name)}</h2><p>Este é o início do canal #${esc(c.name)} em ${esc(g.name)}. As mensagens ficam guardadas no PC do anfitrião e numa cópia em cada membro.</p></div>
         ${rows}
       </div>
-      <div class="composer">
+      <div class="composer">${callPill()}${composerExtras()}
         <form id="composer">
           <button type="button" class="icon-btn" data-act="attach" aria-label="Anexar ficheiro" title="Anexar ficheiro">${I.clip}</button>
           <label class="sr" for="msg-input">Mensagem</label>
@@ -474,6 +520,294 @@
         <div class="typing">${typing}</div>
       </div>`;
   }
+
+  // ---------------- mensagens: responder, editar, apagar, reações, anexos ----------------
+  const mineMsg = (m) => m.from === "me";
+  const canDelete = (m) => mineMsg(m) || (!S.home && (group() || {}).owner === "me");
+  const findMsg = (id) => S.messages.find((x) => String(x.id) === String(id));
+  const human = (n) => n < 1024 ? n + " B" : n < 1048576 ? Math.round(n / 1024) + " KB" : (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + " MB";
+  const fileUrls = new Map();
+  const isImg = (f) => /^image\/(png|jpe?g|gif|webp|bmp|avif)$/i.test(f.mime || "");
+  function fileHtml(f) {
+    if (isImg(f)) {
+      const src = fileUrls.get(f.hash) || f.thumb || "";
+      return `<button type="button" class="att-img" data-view-file="${esc(f.hash)}" aria-label="Ver ${esc(f.name)}"><img ${src ? `src="${esc(src)}"` : ""} data-load-file="${esc(f.hash)}" data-size="${+f.size || 0}" alt="${esc(f.name)}"></button>`;
+    }
+    const ext = (String(f.name).split(".").pop() || "?").slice(0, 4).toUpperCase();
+    return `<div class="attach"><span class="ext">${esc(ext)}</span><div><b>${esc(f.name)}</b><small>${human(+f.size || 0)} · direto entre dispositivos</small></div><button type="button" class="icon-btn" data-save-file="${esc(f.hash)}" aria-label="Guardar ${esc(f.name)}" title="Guardar">${I.download}</button></div>`;
+  }
+  // As imagens chegam pela rede depois de a mensagem aparecer (primeiro a miniatura).
+  async function fileUrl(hash, mime) {
+    if (fileUrls.has(hash)) return fileUrls.get(hash);
+    const buf = await api.get_file({ channelId: S.channelId, hash });
+    if (!buf) return null;
+    const url = URL.createObjectURL(new Blob([buf], { type: mime || "" }));
+    fileUrls.set(hash, url);
+    return url;
+  }
+  const loading = new Set();
+  function loadImages() {
+    if (api.isMock) return;
+    for (const img of document.querySelectorAll("img[data-load-file]")) {
+      const h = img.dataset.loadFile;
+      if (fileUrls.has(h)) { if (img.src !== fileUrls.get(h)) img.src = fileUrls.get(h); continue; }
+      if (loading.has(h) || +img.dataset.size > 15 * 1048576) continue;
+      loading.add(h);
+      const f = S.messages.flatMap((m) => m.files || []).find((x) => x.hash === h);
+      fileUrl(h, f && f.mime).then((u) => { for (const i of document.querySelectorAll(`img[data-load-file="${h}"]`)) if (u) i.src = u; })
+        .catch((e) => console.warn("imagem:", e)).finally(() => loading.delete(h));
+    }
+  }
+  async function viewImage(hash) {
+    const f = S.messages.flatMap((m) => m.files || []).find((x) => x.hash === hash);
+    if (!f) return;
+    let src = fileUrls.get(hash) || f.thumb || "";
+    modal(`<div class="lightbox"><img src="${esc(src)}" alt="${esc(f.name)}"></div>
+      <div class="actions"><span class="lb-name">${esc(f.name)} · ${human(+f.size || 0)}</span><button class="btn ghost" data-save-file="${esc(hash)}">${I.download}Guardar</button><button class="btn primary" data-close>Fechar</button></div>`,
+    async (el) => {
+      el.querySelector(".modal").classList.add("wide");
+      if (!fileUrls.has(hash) && !api.isMock) {
+        try { const u = await fileUrl(hash, f.mime); const i = el.querySelector(".lightbox img"); if (i && u) i.src = u; } catch (e) { toast(String(e.message || e)); }
+      }
+    });
+  }
+  async function saveFile(hash) {
+    if (api.isMock) return toast("Na app instalada, o ficheiro vai para a pasta Transferências.");
+    if (window.TASCA_MOBILE) {
+      // no telemóvel abre-se no visualizador do sistema a partir da memória
+      try {
+        const f = S.messages.flatMap((m) => m.files || []).find((x) => x.hash === hash);
+        const u = await fileUrl(hash, f && f.mime);
+        const a = document.createElement("a"); a.href = u; a.download = f ? f.name : "ficheiro"; document.body.appendChild(a); a.click(); a.remove();
+      } catch (e) { toast(String(e.message || e)); }
+      return;
+    }
+    toast("A guardar…");
+    try { const p = await api.save_file({ channelId: S.channelId, hash }); toast("Guardado em " + p); }
+    catch (e) { toast(String(e.message || e)); }
+  }
+  // Anexos escolhidos, à espera de seguirem com a próxima mensagem.
+  S.attach = [];
+  function composerExtras() {
+    let bar = "";
+    if (S.editing) bar = `<div class="cbar">${I.edit}<span>A editar a mensagem</span><button type="button" class="icon-btn" data-act="cancel-compose" aria-label="Cancelar edição">${I.close}</button></div>`;
+    else if (S.reply) bar = `<div class="cbar">${I.reply}<span>A responder a <b>${esc(who(S.reply.from).name)}</b> <i>${esc((S.reply.text || "").slice(0, 80))}</i></span><button type="button" class="icon-btn" data-act="cancel-compose" aria-label="Cancelar resposta">${I.close}</button></div>`;
+    const chips = S.attach.length ? `<div class="att-chips">${S.attach.map((a, i) => `<span class="att-chip ${a.busy ? "busy" : ""}">${a.thumb ? `<img src="${esc(a.thumb)}" alt="">` : `<span class="ext">${esc((a.name.split(".").pop() || "?").slice(0, 4).toUpperCase())}</span>`}<span class="nm">${esc(a.name)}<small>${a.busy ? "a preparar…" : human(a.size)}</small></span><button type="button" class="icon-btn" data-unattach="${i}" aria-label="Tirar ${esc(a.name)}">${I.close}</button></span>`).join("")}</div>` : "";
+    return bar + chips;
+  }
+  function thumbOf(file) {
+    return new Promise((res) => {
+      if (!/^image\//.test(file.type)) return res(null);
+      const url = URL.createObjectURL(file), img = new Image();
+      img.onload = () => {
+        const k = Math.min(1, 360 / Math.max(img.width, img.height));
+        const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url); res(c.toDataURL("image/jpeg", 0.72));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); res(null); };
+      img.src = url;
+    });
+  }
+  async function addFiles(list) {
+    if (S.home) return toast("Para já, os ficheiros só se enviam nos grupos.");
+    for (const file of list) {
+      if (S.attach.length >= 10) { toast("No máximo 10 anexos por mensagem."); break; }
+      if (file.size > 100 * 1048576) { toast(file.name + " tem mais de 100 MB."); continue; }
+      const a = { name: file.name || "imagem.png", size: file.size, mime: file.type || "application/octet-stream", busy: true, thumb: null };
+      S.attach.push(a); rerenderKeepInput();
+      try {
+        a.thumb = await thumbOf(file);
+        const r = await api.upload_file({ data: await file.arrayBuffer(), name: a.name });
+        a.hash = r.hash; a.busy = false;
+        if (isImg(a) && !api.isMock) fileUrls.set(a.hash, URL.createObjectURL(file));
+      } catch (e) { S.attach.splice(S.attach.indexOf(a), 1); toast("Não consegui anexar " + a.name + ": " + (e.message || e)); }
+      rerenderKeepInput();
+    }
+  }
+  function pickFiles() {
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.multiple = true;
+    inp.onchange = () => addFiles([...inp.files]);
+    inp.click();
+  }
+  function startReply(m) { S.editing = null; S.reply = { id: m.id, from: m.from, text: m.text || ((m.files || [])[0] || {}).name || "" }; rerenderKeepInput(); const i = $("#msg-input"); if (i) i.focus(); }
+  function startEdit(m) {
+    S.reply = null; S.editing = { id: m.id }; rerenderKeepInput();
+    const i = $("#msg-input"); if (i) { i.value = m.text; i.focus(); i.dispatchEvent(new Event("input", { bubbles: true })); }
+  }
+  async function react(m, e, on) {
+    if (!m || String(m.id).startsWith("tmp-")) return;
+    m.reactions = m.reactions || [];
+    let r = m.reactions.find((x) => x.e === e);
+    if (on === undefined) on = !(r && r.mine);
+    if (r) { if (r.mine !== on) { r.mine = on; r.n += on ? 1 : -1; } } else if (on) { r = { e, n: 1, mine: true }; m.reactions.push(r); }
+    m.reactions = m.reactions.filter((x) => x.n > 0);
+    haptic(); rerenderKeepInput();
+    try { await api.react_message({ channelId: S.channelId, id: m.id, emoji: e, on }); }
+    catch (x) { toast("A reação não seguiu: " + (x.message || x)); }
+  }
+  function confirmDeleteMsg(m) {
+    modal(`<h2>Apagar mensagem?</h2><p>${mineMsg(m) ? "Desaparece para toda a gente no grupo." : "És o dono do grupo: a mensagem desaparece para toda a gente."}</p>
+      <div class="quote">${fmt((m.text || "").slice(0, 300))}</div>
+      <div class="actions"><button class="btn ghost" data-close>Cancelar</button><button class="btn danger" id="do-del">Apagar</button></div>`,
+    (el, close) => {
+      $("#do-del", el).onclick = async () => {
+        close();
+        const i = S.messages.indexOf(m); if (i >= 0) S.messages.splice(i, 1);
+        rerenderKeepInput();
+        try { await api.delete_message({ channelId: S.channelId, id: m.id }); toast("Mensagem apagada."); }
+        catch (x) { toast("Não consegui apagar: " + (x.message || x)); refreshMessages(); }
+      };
+    });
+  }
+  async function refreshMessages() { if (S.channelId && S.view === "chat") { S.messages = await api.list_messages({ channelId: S.channelId }); rerenderKeepInput(); } }
+  const copyText = (t) => navigator.clipboard.writeText(t).then(() => toast("Copiado."), () => toast("Não consegui copiar."));
+  function msgItems(m) {
+    const items = [];
+    if (!S.home) items.push(
+      { label: "Reagir", icon: I.smile, onClick: () => { const el = document.querySelector(`.msg[data-mid="${CSS.escape(String(m.id))}"]`); window.tascaEmoji.open(el || $("#msg-input"), (e) => react(m, e, true)); } },
+      { label: "Responder", icon: I.reply, onClick: () => startReply(m) });
+    if (m.text) items.push({ label: "Copiar texto", icon: I.copy, onClick: () => copyText(m.text) });
+    if (!S.home && mineMsg(m) && m.text !== undefined) items.push({ label: "Editar", icon: I.edit, onClick: () => startEdit(m) });
+    if (!S.home && canDelete(m)) items.push("-", { label: "Apagar mensagem", danger: true, icon: I.trash, onClick: () => confirmDeleteMsg(m) });
+    return items;
+  }
+  // Telemóvel: tocar e manter numa mensagem abre uma folha com reações e ações.
+  function openMsgSheet(m) {
+    if (String(m.id).startsWith("tmp-")) return;
+    haptic(15);
+    const items = msgItems(m);
+    const scrim = document.createElement("div");
+    scrim.className = "scrim sheet-scrim";
+    scrim.innerHTML = `<div class="msg-sheet" role="dialog" aria-label="Ações da mensagem"><span class="sheet-grip"></span>
+      ${S.home ? "" : `<div class="ms-reacts">${["👍", "😂", "❤️", "😮", "😢", "🔥"].map((e) => `<button type="button" data-ms-react="${e}">${e}</button>`).join("")}<button type="button" data-ms-pick aria-label="Mais reações">${I.plus}</button></div>`}
+      <div class="ms-list">${items.map((it, i) => it === "-" ? "" : `<button type="button" class="${it.danger ? "danger" : ""}" data-ms-i="${i}">${it.icon || ""}<span>${esc(it.label)}</span></button>`).join("")}</div></div>`;
+    document.body.appendChild(scrim);
+    S.msgMenu = scrim;
+    const close = () => { if (S.msgMenu === scrim) S.msgMenu = null; closeScrim(scrim); };
+    sheetDrag(scrim, scrim.querySelector(".msg-sheet"), () => { if (S.msgMenu === scrim) S.msgMenu = null; scrim.remove(); });
+    scrim.addEventListener("click", (e) => {
+      if (e.target === scrim) return close();
+      const r = e.target.closest("[data-ms-react]"); if (r) { close(); return react(m, r.dataset.msReact, true); }
+      if (e.target.closest("[data-ms-pick]")) { close(); const el = document.querySelector(`.msg[data-mid="${CSS.escape(String(m.id))}"]`); return window.tascaEmoji.open(el || $("#msg-input"), (em) => react(m, em, true)); }
+      const b = e.target.closest("[data-ms-i]"); if (b) { close(); items[+b.dataset.msI].onClick(); }
+    });
+  }
+  function closeMsgSheet() { const s = S.msgMenu; S.msgMenu = null; if (s) closeScrim(s); }
+  function jumpTo(id) {
+    const el = document.querySelector(`.msg[data-mid="${CSS.escape(String(id))}"]`);
+    if (!el) return toast("Essa mensagem já não está carregada.");
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+  }
+  // Até onde leste cada canal (para "Novas" e para os números por ler).
+  const lastRead = store.get("last-read", {});
+  function markRead(channelId) { if (!channelId || channelId.startsWith("dm-")) return; lastRead[channelId] = Date.now(); store.set("last-read", lastRead); }
+  async function refreshUnread(gid) {
+    if (api.isMock) return;
+    const chans = (S.allChannels[gid] || []).filter((c) => c.kind === "text");
+    const since = {};
+    for (const c of chans) { if (lastRead[c.id] == null) lastRead[c.id] = Date.now(); since[c.id] = lastRead[c.id]; }
+    store.set("last-read", lastRead);
+    try {
+      const r = await api.unread_counts({ groupId: gid, since });
+      let total = 0;
+      for (const c of chans) {
+        const x = r[c.id];
+        c.unread = c.id === S.channelId && S.view === "chat" ? 0 : x ? x.n : 0;
+        c.mention = !!(x && x.mention);
+        total += c.unread;
+      }
+      const g = S.groups.find((x) => x.id === gid);
+      if (g && !(g.id === S.groupId && !S.home)) g.unread = total;
+    } catch (e) { console.warn("por ler:", e); }
+  }
+  // Procurar nas mensagens do grupo (Ctrl+F).
+  function openSearch() {
+    const g = group();
+    if (S.home || !g) return toast("Abre um grupo para procurar nas mensagens.");
+    let t = 0;
+    modal(`<h2>Procurar em ${esc(g.name)}</h2>
+      <div class="field"><label class="sr" for="find-q">Procurar</label><input class="input" id="find-q" placeholder="Texto ou nome de ficheiro" autocomplete="off"></div>
+      <div class="find-res" id="find-res"><p class="hint">Escreve para procurar em todos os canais de texto.</p></div>`,
+    (el, close) => {
+      const q = $("#find-q", el), out = $("#find-res", el);
+      el.querySelector(".modal").classList.add("wide");
+      if (!window.TASCA_MOBILE) q.focus();
+      q.oninput = () => {
+        clearTimeout(t);
+        t = setTimeout(async () => {
+          const v = q.value.trim();
+          if (!v) { out.innerHTML = `<p class="hint">Escreve para procurar em todos os canais de texto.</p>`; return; }
+          let res = [];
+          try { res = await api.search_messages({ groupId: g.id, query: v }); } catch (e) { out.innerHTML = `<p class="hint">${esc(e.message || e)}</p>`; return; }
+          if (!res.length) { out.innerHTML = `<p class="hint">Nada encontrado para «${esc(v)}».</p>`; return; }
+          const re = new RegExp("(" + v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "ig");
+          out.innerHTML = res.map((m) => {
+            const c = findChannel(m.channelId) || { name: "?" }, p = who(m.from);
+            return `<button type="button" class="find-hit" data-hit="${esc(m.channelId)}|${esc(m.id)}">${avatar(p, "s")}<span><b>${esc(p.name)}</b> <small>#${esc(c.name)} · ${esc(m.day || "")} ${esc(m.at || "")}</small><span class="find-txt">${esc(m.text || (m.files || []).map((f) => f.name).join(", ")).replace(re, "<mark>$1</mark>")}</span></span></button>`;
+          }).join("");
+        }, 220);
+      };
+      out.onclick = async (e) => {
+        const b = e.target.closest("[data-hit]"); if (!b) return;
+        const [ch, id] = b.dataset.hit.split("|");
+        close();
+        if (ch !== S.channelId || S.view !== "chat") await openChannel(ch);
+        setTimeout(() => jumpTo(id), 80);
+      };
+    });
+  }
+  window.tascaFind = openSearch;
+  // O núcleo decide os avisos do sistema com isto (ver avisos.rs).
+  let lastNotify = "";
+  function syncNotify() {
+    if (api.isMock || !S.settings) return;
+    const st = {
+      focused: document.hasFocus() && !document.hidden,
+      channelId: S.view === "chat" ? S.channelId : null,
+      dnd: myStatus() === "dnd",
+      enabled: perm("notifications"),
+      preview: S.settings.notifPreview !== false,
+      groupModes: S.settings.groupNotify || {},
+      mutedChannels: [...mutedChans],
+      username: (S.me && S.me.username) || null,
+    };
+    const k = JSON.stringify(st);
+    if (k === lastNotify) return;
+    lastNotify = k;
+    api.set_notify_state({ state: st }).catch(() => {});
+  }
+  for (const ev of ["focus", "blur"]) window.addEventListener(ev, () => setTimeout(syncNotify, 50));
+  document.addEventListener("visibilitychange", syncNotify);
+  // Tocar e manter numa mensagem (telemóvel).
+  {
+    let lp = null;
+    document.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "mouse" || !e.target.closest) return;
+      const el = e.target.closest(".msg[data-mid]");
+      if (!el || e.target.closest("a, [data-person], .reaction, .att-img, .reply-ref, [data-save-file]")) return;
+      lp = { x: e.clientX, y: e.clientY, t: setTimeout(() => { const m = findMsg(el.dataset.mid); lp = null; if (m) { openMsgSheet(m); suppressCtx = Date.now(); } }, 480) };
+    }, { passive: true });
+    const cancel = (e) => { if (lp && (!e || e.type !== "pointermove" || Math.hypot(e.clientX - lp.x, e.clientY - lp.y) > 10)) { clearTimeout(lp.t); lp = null; } };
+    document.addEventListener("pointermove", cancel, { passive: true });
+    document.addEventListener("pointerup", cancel, { passive: true });
+    document.addEventListener("pointercancel", cancel, { passive: true });
+  }
+  var suppressCtx = 0;
+  // Colar ou largar ficheiros no campo de mensagem.
+  document.addEventListener("paste", (e) => {
+    if (e.target.id !== "msg-input" || !e.clipboardData) return;
+    const fs = [...e.clipboardData.files];
+    if (fs.length) { e.preventDefault(); addFiles(fs); }
+  });
+  document.addEventListener("dragover", (e) => { if (e.target.closest && e.target.closest("#main") && S.view === "chat" && !S.home) e.preventDefault(); });
+  document.addEventListener("drop", (e) => {
+    if (!(e.target.closest && e.target.closest("#main")) || S.view !== "chat" || S.home) return;
+    const fs = [...(e.dataTransfer ? e.dataTransfer.files : [])];
+    if (fs.length) { e.preventDefault(); addFiles(fs); }
+  });
   const minutes = (t) => { if (!t) return -999; const [h, m] = t.split(":").map(Number); return h * 60 + m; };
 
   function renderMembers() {
@@ -486,7 +820,15 @@
       <div class="cat"><span>Offline · ${off.length}</span></div>${off.map(row).join("")}`;
   }
 
+  // Grupo da chamada em curso (numa chamada privada não há grupo).
+  function voiceGroup() {
+    return (S.voice && S.groups.find((x) => x.id === S.voice.groupId)) || { id: null, name: "Chamada privada", owner: null, host: { online: true }, color: null };
+  }
   function findChannel(id) {
+    if (String(id).startsWith("dm-")) {
+      const p = who(id.slice(3));
+      return { id, kind: "voice", name: p.name, inVoice: S.voice && S.voice.channelId === id ? (S.dmInVoice || ["me"]) : [] };
+    }
     for (const g of S.groups) { const list = S.allChannels[g.id] || []; const c = list.find((x) => x.id === id); if (c) return c; }
     return S.channels.find((x) => x.id === id);
   }
@@ -523,7 +865,7 @@
 
   function renderVoice() {
     const c = findChannel(S.voice.channelId);
-    const g = S.groups.find((x) => x.id === S.voice.groupId);
+    const g = voiceGroup();
     const ppl = (c.inVoice || []).map((id) => S.people[id]);
     const items = [];
     if (c.inVoice.includes("rui") && c.id === "v-sala") items.push({ id: "rui:screen", who: "rui", kind: "screen", label: "Rui", meta: "1080p 60fps" });
@@ -547,7 +889,7 @@
       const speaking = x.kind !== "screen" && S.speaking.includes(x.who) && !muted;
       const inner = x.kind === "avatar" ? `<span class="tile-bg" style="--c:${p.color}"></span>${avatar(p)}` : fakeScreen(x.kind === "screen" ? "screen" : "cam", x.who);
       const badge = x.kind === "screen" ? `<span class="live">${x.meta ? `<b>${esc(x.meta)}</b>` : ""}AO VIVO</span>` : "";
-      const host = x.kind !== "screen" && g.owner === x.who ? '<span class="host-tag">ANFITRIÃO</span>' : "";
+      const host = x.kind !== "screen" && callHost(g) === x.who ? '<span class="host-tag" title="Aloja a chamada">ALOJA</span>' : "";
       return `<button ${x.kind !== "screen" ? `data-spk="${x.who}"` : `data-who="${x.who}"`} class="vtile ${speaking ? "speaking" : ""} ${x.kind !== "avatar" ? "has-video" : ""} ${extra}" ${items.length > 1 ? `data-focus="${x.id}" aria-label="${S.focus === x.id ? "Voltar à grelha" : "Pôr em destaque: " + esc(x.label)}"` : `aria-label="${esc(x.label)}"`} ${extra.includes("grid-cell") ? 'style="width:var(--tw);"' : ""}>${inner}${badge}${host}
         <span class="lbl">${x.kind === "screen" ? I.screen.replace("<svg", '<svg style="color:inherit"') : voiceIc(x.who)}${esc(x.label)}</span></button>`;
     };
@@ -562,7 +904,12 @@
     const up = (S.camera ? 1.2 : 0) + (S.sharing ? (S.sharing.quality.startsWith("1080p · 60") ? 6 : S.sharing.quality.startsWith("1080") ? 4 : 2.5) : 0) + 0.06;
     return `
       <div class="callview">
-        <div class="call-top">
+        ${narrow() ? `<div class="call-top m">
+          <button class="icon-btn" data-act="call-min" aria-label="Minimizar a chamada" title="Minimizar">${I.chevron}</button>
+          <span class="title">${I.speaker}<span><b>${esc(c.name)}</b><small>${esc(g.name)} · ${S.voice.connected === false ? "a ligar outra vez…" : S.voice.ping + " ms"}</small></span></span>
+          <button class="icon-btn" data-act="invite-call" aria-label="Convidar pessoas">${I.invite}</button>
+          <button class="icon-btn" data-act="voice-quick" aria-label="Definições de voz">${I.gear}</button>
+        </div>` : `<div class="call-top">
           <button class="icon-btn ${S.callSidebar ? "on" : ""}" data-act="call-sidebar" aria-label="${S.callSidebar ? "Esconder grupos e canais" : "Mostrar grupos e canais"}" title="${S.callSidebar ? "Esconder grupos e canais" : "Mostrar grupos e canais"}">${I.menu}</button>
           <span class="title">${I.speaker}${esc(c.name)}<small>${esc(g.name)}</small></span>
           <span class="call-chips">
@@ -571,7 +918,7 @@
           </span>
           <button class="icon-btn" data-chan-open="${esc(c.id)}" data-act="call-chat" aria-label="Abrir o chat do grupo" title="Abrir o chat (a chamada continua)">${I.hash}</button>
           ${fsBtn()}
-        </div>
+        </div>`}
         ${body}
         <div class="call-controls">
           <div class="ctl-group">
@@ -581,7 +928,7 @@
           </div>
           <div class="ctl-group">
             <button class="ctl ${S.sharing ? "on-media" : ""}" data-act="share" aria-pressed="${!!S.sharing}" title="${S.sharing ? "Parar partilha" : "Partilhar ecrã"}" aria-label="${S.sharing ? "Parar partilha" : "Partilhar ecrã"}">${S.sharing ? I.screenOff : I.screen}</button>
-            <button class="ctl" data-act="settings-voz" title="Definições de voz e vídeo" aria-label="Definições de voz e vídeo">${I.gear}</button>
+            ${narrow() ? `<button class="ctl" data-act="call-chat" title="Abrir o chat" aria-label="Abrir o chat do grupo">${I.hash}</button>` : `<button class="ctl" data-act="settings-voz" title="Definições de voz e vídeo" aria-label="Definições de voz e vídeo">${I.gear}</button>`}
           </div>
           <button class="ctl leave" data-act="leave-voice" title="Sair da chamada" aria-label="Sair da chamada">${I.phoneOff}</button>
         </div>
@@ -663,9 +1010,9 @@
     const nInst = S.plugins.filter((p) => p.installed).length;
     let body;
     if (S.pluginTab === "carregar") {
-      body = `<div class="box"><div class="row"><div class="txt"><b>Carregar um plugin a partir de ficheiro</b><small>Para testares plugins teus antes de os enviares para a loja. Aceita .tasca-plugin (WASM ou JS).</small></div>
-        <label class="btn" for="sideload">${I.upload}Escolher ficheiro</label><input type="file" id="sideload" accept=".tasca-plugin,.wasm,.js,.zip" hidden></div>
-        <div class="row" style="background:var(--mencao-bg)"><span style="color:var(--ocre);width:20px">${I.warn}</span><div class="txt"><b>Plugins carregados à mão não são verificados</b><small>Corre num ambiente isolado e só tem as permissões que aceitares, mas a equipa não reviu o código. Instala apenas o que confias.</small></div></div></div>`;
+      body = `<div class="box"><div class="row"><div class="txt"><b>Carregar um plugin a partir de ficheiro</b><small>Para testares plugins teus antes de os enviares para a loja. Um ficheiro .js com a API descrita em docs/plugins.md.</small></div>
+        <label class="btn" for="sideload">${I.upload}Escolher ficheiro</label><input type="file" id="sideload" accept=".js,text/javascript" hidden></div>
+        <div class="row" style="background:var(--mencao-bg)"><span style="color:var(--ocre);width:20px">${I.warn}</span><div class="txt"><b>Plugins carregados à mão não são verificados</b><small>Corre num ambiente isolado, sem acesso à rede nem aos teus ficheiros, mas a equipa não reviu o código e pode enviar mensagens por ti. Instala apenas o que confias.</small></div></div></div>`;
     } else {
       body = list.length ? `<div class="plugins">${list.map(pluginCard).join("")}</div>` : `<p class="lede">Nenhum plugin corresponde a «${esc(S.pluginQuery)}».</p>`;
     }
@@ -707,7 +1054,6 @@
       <details class="row adv"><summary class="txt"><b>Chave de segurança</b><small>Só para quem quer confirmar a identidade à mão. A privada fica cifrada neste PC.</small></summary><div class="mono" style="color:var(--texto-2);word-break:break-all;font-size:12px">${esc(me.key)}</div><button class="btn ghost" data-act="copy-pubkey">Copiar chave</button></details>
       <div class="row"><div class="txt"><b>Cópia no Google Drive</b><small>A tua conta cifrada fica numa pasta privada da Tasca no teu Drive, para a recuperares noutro PC só com a palavra-passe.</small></div><button class="btn" data-act="google-backup">Ligar Google</button></div>
       <div class="row"><div class="txt"><b>Bloquear a Tasca</b><small>Fecha a sessão neste PC. Para voltar a entrar precisas da palavra-passe.</small></div><button class="btn danger" data-act="lock">Bloquear</button></div>
-      <div class="row"><div class="txt"><b>Exportar identidade</b><small>Guarda a chave num ficheiro cifrado para usar a mesma conta noutro PC. Sem ela, perdes o acesso aos grupos.</small></div><button class="btn">Exportar…</button></div>
     </div></div>`;
   }
   // ---------------- privacidade e permissões ----------------
@@ -722,6 +1068,10 @@
     return `<p class="lede">O que a Tasca pode usar neste PC. Desligar aqui desliga mesmo: a funcionalidade deixa de funcionar até a voltares a ligar.</p>
       <div class="section"><h2>Permissões</h2><div class="box">${PERMS.map(([k, l, d]) => `<div class="row"><div class="txt"><b>${l}</b><small>${d}</small></div>${sw("perms." + k, perm(k), l)}</div>`).join("")}</div>
       <p class="lede" style="font-size:13px">O Windows também tem as suas permissões. Se o microfone ou a câmara não funcionarem com isto ligado, vê Definições do Windows > Privacidade e segurança.</p></div>
+      <div class="section"><h2>Avisos de mensagens</h2><div class="box">
+        <div class="row"><div class="txt"><b>Mostrar o texto da mensagem</b><small>Desligado, o aviso diz só quem escreveu e onde.</small></div>${sw("notifPreview", S.settings.notifPreview !== false, "Mostrar o texto da mensagem")}</div>
+        ${window.TascaServico ? `<div class="row"><div class="txt"><b>Receber com a app fechada</b><small>Deixa uma notificação discreta «Tasca ligada» para o Android não adormecer a app. Gasta um pouco mais de bateria.</small></div>${sw("bgService", (() => { try { return TascaServico.ligado(); } catch { return true; } })(), "Receber com a app fechada")}</div>` : ""}
+      </div><small class="hint" style="display:block;margin-top:6px">Cada grupo pode avisar de tudo, só de menções ou de nada: no menu do grupo. Um canal silencia-se com o botão direito (ou tocando e mantendo) no nome dele.</small></div>
       <div class="section"><h2>Termos e regras</h2><div class="box">
         <div class="row"><div class="txt"><b>${ok ? "Aceitaste os termos e regras da Tasca" : "Ainda não aceitaste os termos"}</b><small>Versão de ${esc(termsVersion())}.</small></div><button class="btn" data-act="read-terms">Ler</button></div>
       </div></div>`;
@@ -1183,48 +1533,23 @@
     </div><p class="lede" style="font-size:13px">Codec Opus. Vídeo em AV1 ou H.264, conforme a placa gráfica. O anfitrião reencaminha áudio e vídeo sem os descodificar.</p></div>`;
   }
   function setRede() {
-    const s = S.settings;
-    return `<div class="section"><h2>Ligação entre PCs</h2><div class="box">
-      <div class="row"><div class="txt"><b>Relay</b><small>Quando dois PCs não se conseguem ligar diretamente (CGNAT, firewall), o tráfego cifrado passa por um relay. O relay não consegue ler nada.</small></div></div>
-      <div class="row"><div class="seg" role="radiogroup" aria-label="Relay">${[["public", "Relays públicos do iroh"], ["own", "O meu servidor"]].map(([k, l]) => `<button role="radio" aria-checked="${s.relay === k}" class="${s.relay === k ? "on" : ""}" data-relay="${k}">${l}</button>`).join("")}</div></div>
-      ${s.relay === "own" ? `<div class="row"><div class="field" style="flex:1"><label for="relayUrl">Endereço do teu relay</label><input class="input mono" id="relayUrl" data-setting="relayUrl" value="${esc(s.relayUrl)}"></div><button class="btn" data-act="test-relay">Testar</button></div>` : ""}
-      <div class="row"><dl class="kv"><dt>Estado</dt><dd><span style="color:var(--oliva);font-weight:700">● Ligado</span></dd><dt>Ligações diretas</dt><dd>3 de 4 grupos</dd><dt>Via relay</dt><dd>Clube de Xadrez (64 ms)</dd></dl></div>
-    </div></div>`;
+    const rota = (g) => g.owner === "me" && g.host.route === "este PC" ? "Alojado aqui" : !g.host.online ? "Anfitrião offline" : `${esc(g.host.route || "")}${g.host.ping != null ? ` · ${g.host.ping} ms` : ""}`;
+    return `<p class="lede">Os dispositivos ligam-se diretamente sempre que dá. Quando não dá (CGNAT, firewall), o tráfego vai cifrado por um relay do iroh, que não o consegue ler.</p>
+      <div class="section"><h2>Ligação a cada grupo</h2><div class="box">${S.groups.map((g) => `<div class="row"><span class="rail-btn on" style="width:36px;height:36px;border-radius:10px;font-size:12px;--g:${g.color || "var(--vinho)"}">${esc(g.short)}</span><div class="txt"><b>${esc(g.name)}</b><small>${rota(g)}</small></div></div>`).join("") || `<div class="row"><div class="txt"><small>Ainda não estás em nenhum grupo.</small></div></div>`}</div></div>
+      ${S.voice ? `<div class="section"><h2>Chamada</h2><div class="box"><div class="row"><div class="txt"><b>${esc(S.voice.route || "")}</b><small>${S.voice.hosting ? "Estás a alojar a chamada: o áudio dos outros passa por este dispositivo." : `Ping ${S.voice.ping ?? "?"} ms até quem aloja a chamada.`}</small></div></div></div></div>` : ""}`;
   }
   function setBackups() {
-    const b = S.settings.backup;
-    const dests = [
-      ["gdrive", "Google Drive", "#1A73E8", "GD"],
-      ["onedrive", "OneDrive", "#0F6CBD", "OD"],
-      ["local", "Ficheiro local", "var(--vinho)", "PC"],
-    ];
     const hosted = S.groups.filter((g) => g.owner === "me");
-    const prog = S.backupPct != null ? `<div class="row"><div class="txt"><b>A fazer cópia… ${S.backupPct}%</b><small>Comprimir com zstd, cifrar, enviar.</small><div class="meter" style="margin-top:8px"><i style="width:${S.backupPct}%"></i></div></div></div>` : "";
-    return `
-      <p class="lede">Os grupos que alojas vivem no teu PC. Faz cópias para não os perderes se o disco falhar. Tudo é comprimido e cifrado aqui antes de sair: a Google ou a Microsoft só veem um ficheiro ilegível.</p>
-      <div class="section"><h2>Destino</h2>
-        <div class="dest" role="radiogroup" aria-label="Destino das cópias">${dests.map(([k, l, col, ab]) => `<button role="radio" aria-checked="${b.dest === k}" class="${b.dest === k ? "on" : ""}" data-dest="${k}"><span class="lg" style="background:${col}">${ab}</span><b>${l}</b><small>${b.connected[k] ? esc(b.connected[k]) : "Não ligado"}</small></button>`).join("")}</div>
-        ${!b.connected[b.dest] ? `<div class="box"><div class="row"><div class="txt"><b>Ligar ${dests.find((d) => d[0] === b.dest)[1]}</b><small>Abre o browser para autorizares. A Tasca só pede acesso a uma pasta própria.</small></div><button class="btn blue" data-act="connect-dest">Ligar conta</button></div></div>` : ""}
-      </div>
-      <div class="section"><h2>Agendamento</h2><div class="box">
-        <div class="row"><div class="txt"><b>Cópias automáticas</b><small>Só envia o que mudou desde a última cópia.</small></div>${sw("backup.auto", b.auto, "Cópias automáticas")}</div>
-        <div class="row"><div class="txt"><b>Frequência</b></div><div class="seg" role="radiogroup" aria-label="Frequência">${[["hora", "De hora a hora"], ["diario", "Diária, 04:00"], ["semanal", "Semanal"]].map(([k, l]) => `<button role="radio" aria-checked="${b.every === k}" class="${b.every === k ? "on" : ""}" data-every="${k}">${l}</button>`).join("")}</div></div>
-        <div class="row"><div class="txt"><b>Grupos incluídos</b><small>${hosted.map((g) => esc(g.name)).join(", ") || "Ainda não alojas nenhum grupo."}</small></div></div>
-      </div></div>
-      <div class="section"><h2>Compressão e cifra</h2><div class="box">
-        <div class="row"><div class="txt"><b>Nível de compressão zstd</b><small>Nível ${b.zstdLevel}. Mais alto ocupa menos espaço mas demora mais.</small></div><input class="range" style="max-width:200px" type="range" min="3" max="22" id="zstdLevel" data-setting="backup.zstdLevel" value="${b.zstdLevel}"></div>
-        <div class="row"><div class="txt"><b>Reduzir imagens para AVIF</b><small>As fotos ocupam cerca de metade, quase sem perda visível.</small></div>${sw("backup.avif", b.avif, "Reduzir imagens para AVIF")}</div>
-        <div class="row"><span style="color:var(--oliva);width:20px">${I.lock}</span><div class="txt"><b>Palavra-passe das cópias</b><small>Definida. Guarda-a bem: sem ela ninguém, nem tu, consegue abrir as cópias.</small></div><button class="btn">Alterar</button></div>
-      </div></div>
-      <div class="section"><h2>Histórico</h2><div class="box">${prog}
-        <ul class="history">${b.history.map((h) => `<li><span class="ok">✓</span><span>${esc(h.at)} · ${esc(h.note)}</span><span>${esc(h.size)}</span></li>`).join("")}</ul>
-        <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn ghost">Restaurar…</button><button class="btn primary" data-act="backup-now" ${S.backupPct != null ? "disabled" : ""}>Fazer cópia agora</button></div>
+    return `<p class="lede">Os grupos que alojas vivem neste PC. Uma cópia guarda todo o histórico, membros e canais num ficheiro, para não perderes nada se o disco falhar.</p>
+      <div class="section"><div class="box">
+        <div class="row"><div class="txt"><b>Guardar cópia agora</b><small>Vai para a pasta Transferências. Inclui ${hosted.length ? hosted.map((g) => esc(g.name)).join(", ") + " e a tua cópia dos outros grupos" : "a tua cópia de todos os grupos"}. Guarda-a num sítio seguro: o ficheiro não vai cifrado.</small></div><button class="btn primary" data-act="backup-now">Guardar cópia</button></div>
+        <div class="row"><div class="txt"><b>A tua conta</b><small>A conta (chave e amigos) já fica cifrada no servidor da Tasca e, se quiseres, no teu Google Drive: vê A minha conta.</small></div></div>
       </div></div>`;
   }
   function setGrupos() {
     const hosted = S.groups.filter((g) => g.owner === "me");
     return `<p class="lede">Grupos que estão alojados neste PC. Enquanto a Tasca estiver aberta, os membros conseguem falar contigo e entre si.</p>
-      <div class="section"><div class="box">${hosted.map((g) => `<div class="row"><span class="rail-btn on" style="width:40px;height:40px;border-radius:12px;font-size:13px">${esc(g.short)}</span><div class="txt"><b>${esc(g.name)}</b><small>${(S.allMembers[g.id] || []).length} membros · 48,2 MB no disco</small></div><button class="btn" data-act="transfer" data-group-id="${g.id}">Transferir propriedade…</button></div>`).join("") || `<div class="row"><div class="txt"><small>Ainda não alojas nenhum grupo.</small></div></div>`}</div></div>
+      <div class="section"><div class="box">${hosted.map((g) => `<div class="row"><span class="rail-btn on" style="width:40px;height:40px;border-radius:12px;font-size:13px">${esc(g.short)}</span><div class="txt"><b>${esc(g.name)}</b><small>${(S.allMembers[g.id] || []).length} membros</small></div></div>`).join("") || `<div class="row"><div class="txt"><small>Ainda não alojas nenhum grupo.</small></div></div>`}</div></div>
       <div class="section only-desktop"><h2>Arranque</h2><div class="box"><div class="row"><div class="txt"><b>Abrir a Tasca quando o Windows arranca</b><small>Minimizada na área de notificação, para os teus grupos estarem sempre disponíveis.</small></div>${sw("perms.autostart", perm("autostart"), "Abrir no arranque")}</div></div></div>`;
   }
   function setSobre() {
@@ -1234,15 +1559,50 @@
   }
 
   // ---------------- modais ----------------
+  // Fecha uma janela com a animação de saída (no telemóvel desce; no PC encolhe).
+  function closeScrim(scrim) {
+    if (!scrim || scrim.classList.contains("closing")) return;
+    scrim.classList.add("closing");
+    const m = scrim.querySelector(".modal"); if (m) m.style.transform = "";
+    setTimeout(() => scrim.remove(), 200);
+  }
+  // No telemóvel, puxar a janela para baixo fecha-a.
+  function sheetDrag(el, sheet, close, canStart = () => true) {
+    let y0 = null, dy = 0, t0 = 0;
+    el.addEventListener("touchstart", (e) => {
+      if (window.innerWidth > 720 || e.touches.length > 1) return;
+      const scroller = e.target.closest(".modal, .pcard, .pfull-body, .terms-box, .emoji-body");
+      if (scroller && scroller.scrollTop > 0) return;
+      if (!canStart(e)) return;
+      y0 = e.touches[0].clientY; dy = 0; t0 = Date.now();
+    }, { passive: true });
+    el.addEventListener("touchmove", (e) => {
+      if (y0 == null) return;
+      dy = Math.max(0, e.touches[0].clientY - y0);
+      if (dy > 4) { sheet.style.transition = "none"; sheet.style.transform = `translateY(${dy}px)`; }
+    }, { passive: true });
+    el.addEventListener("touchend", () => {
+      if (y0 == null) return;
+      const fast = dy > 40 && Date.now() - t0 < 250;
+      y0 = null;
+      sheet.style.transition = "transform .2s cubic-bezier(.2,.8,.2,1)";
+      if (dy > 120 || fast) { sheet.style.transform = `translateY(110%)`; haptic(); setTimeout(close, 160); }
+      else sheet.style.transform = "";
+      setTimeout(() => { sheet.style.transition = ""; }, 220);
+    });
+  }
   function modal(html, onMount) {
     const scrim = document.createElement("div");
     scrim.className = "scrim";
     scrim.innerHTML = `<div class="modal" role="dialog" aria-modal="true">${html}</div>`;
-    scrim.addEventListener("click", (e) => { if (e.target === scrim || e.target.closest("[data-close]")) scrim.remove(); });
+    const close = () => closeScrim(scrim);
+    scrim.addEventListener("click", (e) => { if (e.target === scrim || e.target.closest("[data-close]")) close(); });
     document.body.appendChild(scrim);
+    sheetDrag(scrim, scrim.querySelector(".modal"), () => scrim.remove(), (e) => !e.target.closest("input, textarea, select, .seg, input[type=range]"));
     const first = scrim.querySelector("input, textarea, button.primary, button");
-    if (first) first.focus();
-    if (onMount) onMount(scrim, () => scrim.remove());
+    // no telemóvel não abre o teclado sozinho
+    if (first && !(window.TASCA_MOBILE && /INPUT|TEXTAREA/.test(first.tagName))) first.focus({ preventScroll: true });
+    if (onMount) onMount(scrim, close);
   }
 
   function openNewGroup() {
@@ -1291,6 +1651,7 @@
     });
   }
 
+  const groupMode = (gid) => (S.settings.groupNotify || {})[gid] || "all";
   function openGroupMenu() {
     const g = group();
     const mine = g.owner === "me";
@@ -1298,30 +1659,35 @@
       <div class="box">
         <div class="row"><div class="txt"><b>Anfitrião</b><small>${mine ? "Este PC" : esc(who(g.owner).name)}</small></div></div>
         ${mine ? `<div class="row"><div class="txt"><b>Canais</b><small>Texto e voz podem estar na mesma categoria. Arrasta canais e categorias na lista para os ordenar.</small></div><span style="display:flex;gap:6px"><button class="btn ghost" data-act="new-category">Criar categoria</button><button class="btn" data-act="new-channel">Criar canal</button></span></div>` : ""}
-        <div class="row"><div class="txt"><b>Notificações</b><small>Só menções</small></div><button class="btn">Mudar</button></div>
-        ${mine ? `<div class="row"><div class="txt"><b>Transferir propriedade</b><small>Passa o grupo para o PC de outro membro. Ele tem de aceitar.</small></div><button class="btn" data-act="transfer" data-group-id="${g.id}">Transferir…</button></div>` : ""}
-        <div class="row"><div class="txt"><b>${mine ? "Apagar grupo" : "Sair do grupo"}</b><small>${mine ? "Apaga o grupo deste PC. Os membros ficam com a cópia deles." : "Apaga a tua cópia local."}</small></div><button class="btn danger">${mine ? "Apagar" : "Sair"}</button></div>
+        <div class="row"><div class="txt"><b>Avisos deste grupo</b><small>Quando a Tasca está em segundo plano.</small></div><div class="seg vs-seg" role="radiogroup" aria-label="Avisos deste grupo">${[["all", "Tudo"], ["mentions", "Menções"], ["none", "Nada"]].map(([k, l]) => `<button role="radio" aria-checked="${groupMode(g.id) === k}" class="${groupMode(g.id) === k ? "on" : ""}" data-gnotify="${g.id}|${k}">${l}</button>`).join("")}</div></div>
+        <div class="row"><div class="txt"><b>${mine ? "Apagar grupo" : "Sair do grupo"}</b><small>${mine ? "Apaga o grupo deste PC. Os membros ficam com a cópia deles." : "Apaga a tua cópia local."}</small></div><button class="btn danger" data-act="leave-group" data-group-id="${g.id}">${mine ? "Apagar" : "Sair"}</button></div>
       </div>
       <div class="actions"><button class="btn ghost" data-close>Fechar</button></div>`);
   }
 
-  function openTransfer(groupId) {
-    const g = S.groups.find((x) => x.id === groupId);
-    const others = (S.allMembers[groupId] || []).filter((m) => m.id !== "me" && !m.bot);
+  function confirmLeave(groupId) {
+    const g = S.groups.find((x) => x.id === groupId); if (!g) return;
+    const mine = g.owner === "me";
     document.querySelectorAll(".scrim").forEach((x) => x.remove());
-    modal(`<h2>Transferir ${esc(g.name)}</h2>
-      <p>O grupo passa a viver no PC da pessoa que escolheres. Assinas a transferência, ela aceita, os dados vão cifrados e só depois de confirmados é que deixas de ser anfitrião.</p>
-      <div class="field"><label for="to-who">Novo anfitrião</label><select class="input" id="to-who">${others.map((m) => `<option value="${m.id}">${esc(m.name)}${m.username ? " · @" + esc(m.username) : ""}</option>`).join("") || "<option disabled>Não há outros membros</option>"}</select></div>
-      <div class="actions"><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="do-transfer" ${others.length ? "" : "disabled"}>Pedir transferência</button></div>`,
+    modal(`<h2>${mine ? "Apagar" : "Sair de"} ${esc(g.name)}?</h2>
+      <p>${mine ? "O grupo deixa de estar alojado neste PC e o histórico é apagado daqui. Os membros ficam com a cópia deles, mas deixam de conseguir falar no grupo." : "A tua cópia do grupo é apagada deste dispositivo. Para voltar precisas de um convite novo."}</p>
+      <div class="actions"><button class="btn ghost" data-close>Cancelar</button><button class="btn danger" id="do-leave">${mine ? "Apagar grupo" : "Sair do grupo"}</button></div>`,
     (el, close) => {
-      $("#do-transfer", el).onclick = async () => {
-        const who = S.people[$("#to-who", el).value];
-        await api.transfer_ownership({ groupId, to: who.id });
-        close(); toast(`Pedido enviado a ${who.name}. A transferência termina quando ele aceitar.`);
+      $("#do-leave", el).onclick = async () => {
+        close();
+        try { await api.leave_group({ groupId }); }
+        catch (x) { return toast("Não consegui: " + (x.message || x)); }
+        if (S.voice && S.voice.groupId === groupId) { try { await leaveVoice(); } catch {} }
+        S.groups = S.groups.filter((x) => x.id !== groupId);
+        delete S.allChannels[groupId]; delete S.allMembers[groupId];
+        if (S.groupId === groupId) {
+          if (S.groups.length) await openGroup(S.groups[0].id);
+          else { S.home = true; S.groupId = null; S.view = window.tascaAmigos ? "friends" : "chat"; S.channelId = null; S.messages = []; render(); }
+        } else render();
+        toast(mine ? "Grupo apagado." : "Saíste do grupo.");
       };
     });
   }
-
   function copy(text, field, msg) {
     const done = () => toast(msg);
     try {
@@ -1353,30 +1719,117 @@
     store.set("group", id);
   }
   async function openChannel(id, keepNav) {
+    if (S.channelId !== id) { S.reply = null; S.editing = null; S.attach = []; }
     S.home = false; S.channelId = id; S.view = "chat";
-    const c = channel(); if (c) c.unread = 0;
+    const c = channel(); if (c) { c.unread = 0; c.mention = false; }
     S.messages = await api.list_messages({ channelId: id });
+    const lr = lastRead[id];
+    const nova = lr != null && S.messages.find((m) => m.ts && m.ts > lr && m.from !== "me");
+    S.newLine = nova ? { ch: id, id: String(nova.id) } : null;
+    markRead(id);
     if (!keepNav) S.navOpen = false;
     render();
     const inp = $("#msg-input"); if (inp && window.innerWidth > 720) inp.focus();
   }
-  async function joinVoice(id) {
+  // ---------------- telemóvel: painel antes de entrar na chamada ----------------
+  // Tocar num canal de voz abre uma folha com quem está lá, o estado do anfitrião e
+  // um botão grande para entrar. As definições de voz e o convite ficam à mão.
+  // Quem aloja a chamada em que estou (na demonstração, o dono do grupo).
+  function callHost(g) { return S.voice && S.voice.hostId !== undefined ? S.voice.hostId : g && g.owner; }
+  function hostOffline(g) { return g && !g.host.online && !(g.owner === "me" && g.host.route === "este PC"); }
+  function voicePeopleHtml(c) {
+    const ppl = (c.inVoice || []).map((id) => who(id));
+    if (!ppl.length) return `<div class="vs-empty"><span class="vs-empty-ic">${I.speaker}</span><b>Ainda não está ninguém aqui</b><small>Quando estiveres pronto para conversar, é só entrar.</small></div>`;
+    return `<div class="vs-people">${ppl.map((p) => `<div class="vs-person ${S.speaking.includes(p.id) ? "speaking" : ""}" data-spk="${esc(p.id)}">${avatar(p, "xl")}<span>${esc(p.name)}</span></div>`).join("")}</div>`;
+  }
+  // Página de antes de entrar (telemóvel): entra a deslizar da direita, como uma página.
+  function openVoiceSheet(id) {
+    if (!findChannel(id)) return;
+    S.prevView = S.view === "voicepre" ? S.prevView : S.view;
+    S.preVoice = id; S.preVoiceErr = null; S.view = "voicepre"; S.navOpen = false; render();
+  }
+  function renderVoicePre() {
+    const id = S.preVoice, c = findChannel(id);
+    if (!c) { S.view = "chat"; return renderChat(); }
+    const g = S.groups.find((x) => (S.allChannels[x.id] || []).some((y) => y.id === id)) || group();
+    const off = hostOffline(g);
+    const hostName = g.owner === "me" ? "O teu PC" : `O PC de ${esc(who(g.owner).name)}`;
+    const n = (c.inVoice || []).length;
+    return `<div class="vpre">
+      <div class="call-top m">
+        <button class="icon-btn" data-act="voicepre-back" aria-label="Voltar">${I.chevron}</button>
+        <span class="title">${I.speaker}<span><b>${esc(c.name)}</b><small>${esc(g.name)}${n ? " · " + n + (n === 1 ? " pessoa" : " pessoas") : ""}</small></span></span>
+        <button class="icon-btn" data-act="voicepre-invite" aria-label="Convidar pessoas">${I.invite}</button>
+        <button class="icon-btn" data-act="voice-quick" aria-label="Definições de voz">${I.gear}</button>
+      </div>
+      <div class="vpre-body">${voicePeopleHtml(c)}</div>
+      ${n && c.voiceHost ? `<p class="vs-host">${I.crown}<span>Alojada por <b>${esc(c.voiceHost === "me" ? "ti" : who(c.voiceHost).name)}</b></span></p>` : !n ? `<p class="vs-host">${I.info || I.speaker}<span>${off ? `${hostName} está desligado, mas não faz mal. ` : ""}Quem entra primeiro aloja a chamada no seu dispositivo.</span></p>` : ""}
+      ${S.preVoiceErr ? `<p class="vs-err">${esc(S.preVoiceErr)}</p>` : ""}
+      <div class="vs-bar">
+        <button class="vs-round ${S.muted ? "off" : ""}" data-act="vp-mic" aria-pressed="${S.muted}" aria-label="${S.muted ? "Ligar microfone" : "Desligar microfone"}">${S.muted ? I.micOff : I.mic}</button>
+        <button class="vs-join" data-act="vp-join" ${S.preVoiceBusy ? "disabled" : ""}>${S.preVoiceBusy ? "A ligar…" : S.preVoiceErr ? "Tentar outra vez" : "Entrar na chamada"}</button>
+        <button class="vs-round ${S.deaf ? "off" : ""}" data-act="vp-deaf" aria-pressed="${S.deaf}" aria-label="${S.deaf ? "Ligar som" : "Desligar som"}">${S.deaf ? I.headOff : I.head}</button>
+      </div>
+    </div>`;
+  }
+  // Definições de voz rápidas (da folha da chamada e do ecrã da chamada).
+  function openVoiceSettings() {
+    const s = S.settings;
+    const nm = noiseMode();
+    modal(`<h2>Voz e vídeo</h2>
+      <div class="field"><label>Supressão de ruído</label>
+        <div class="seg vs-seg" role="radiogroup" aria-label="Supressão de ruído">${[["deep", "Forte"], ["light", "Leve"], ["off", "Nenhuma"]].map(([k, l]) => `<button role="radio" aria-checked="${nm === k}" class="${nm === k ? "on" : ""}" data-vs-noise="${k}">${l}</button>`).join("")}</div>
+        <small class="hint" id="vs-noise-h">${nm === "deep" ? "Tira ventoinhas, teclado e barulho da rua. Gasta mais bateria." : nm === "light" ? "Gasta muito pouco. Tira o ruído mais constante." : "Sem filtro: usa só o do sistema."}</small></div>
+      <div class="field"><label for="vs-sens">Sensibilidade do microfone</label>
+        <input class="range" type="range" min="0" max="100" id="vs-sens" value="${s.sensitivity ?? 40}">
+        <small class="hint">Abaixo deste nível o microfone não transmite. Mais para a esquerda apanha mais som.</small></div>
+      <div class="box">
+        <div class="row"><div class="txt"><b>Mostrar quem está sem vídeo</b><small>Desligado, a grelha só mostra câmaras e ecrãs.</small></div>${sw("callShowNoVideo", s.callShowNoVideo !== false, "Mostrar quem está sem vídeo")}</div>
+        <div class="row"><div class="txt"><b>Cancelamento de eco</b><small>Ligado se usas o altifalante.</small></div>${sw("echoCancel", s.echoCancel !== false, "Cancelamento de eco")}</div>
+        <div class="row"><div class="txt"><b>Sons da chamada</b><small>Entrar, sair, micro e som.</small></div>${sw("callSounds", s.callSounds !== false, "Sons da chamada")}</div>
+      </div>
+      <div class="actions"><button class="btn ghost" data-act="settings-voz" data-close>Todas as definições</button><button class="btn primary" data-close>Feito</button></div>`,
+    (el) => {
+      el.addEventListener("click", async (e) => {
+        const b = e.target.closest("[data-vs-noise]"); if (!b) return;
+        const k = b.dataset.vsNoise;
+        await patch(k === "off" ? { noiseSuppression: false } : { noiseSuppression: true, noiseMode: k });
+        el.querySelectorAll("[data-vs-noise]").forEach((x) => { x.classList.toggle("on", x === b); x.setAttribute("aria-checked", x === b); });
+        $("#vs-noise-h", el).textContent = k === "deep" ? "Tira ventoinhas, teclado e barulho da rua. Gasta mais bateria." : k === "light" ? "Gasta muito pouco. Tira o ruído mais constante." : "Sem filtro: usa só o do sistema.";
+        haptic();
+      });
+      $("#vs-sens", el).onchange = (e) => patch({ sensitivity: +e.target.value });
+    });
+  }
+
+  async function joinVoice(id, opts = {}) {
     if (S.voice && S.voice.channelId === id) { S.view = "voice"; S.navOpen = false; render(); return; }
     if (S.voice) sfx.leave();
     let info;
     try { info = await api.join_voice({ channelId: id, noise: noiseMode(), sensitivity: S.settings.sensitivity ?? 40 }); }
-    catch (e) { return toast(String(e.message || e)); }
+    catch (e) {
+      const g = S.groups.find((x) => (S.allChannels[x.id] || []).some((y) => y.id === id));
+      let msg = String(e.message || e);
+      void g;
+      if (opts.quiet) return msg;
+      return toast(msg);
+    }
     sfx.join();
-    S.voice = { channelId: id, groupId: S.groupId, ...info };
+    const dmCall = String(id).startsWith("dm-");
+    S.voice = { channelId: id, groupId: dmCall ? null : S.groupId, ...info };
+    S.dmInVoice = ["me"];
     S.voiceStates = {};
     if (S.muted || S.deaf) api.set_voice_state({ muted: S.muted, deaf: S.deaf });
     applyUserVolumes();
     syncVideo();
     if (!micAllowed()) { S.muted = true; api.set_voice_state({ muted: true, deaf: S.deaf }); toast("Entraste só a ouvir: o microfone está desligado nas permissões."); }
     startVad();
-    S.channels = await api.list_channels({ groupId: S.groupId });
-    S.allChannels[S.groupId] = S.channels;
+    if (!dmCall) {
+      S.channels = await api.list_channels({ groupId: S.groupId });
+      S.allChannels[S.groupId] = S.channels;
+    }
     S.view = "voice"; S.navOpen = false; render();
+    return null;
   }
   async function leaveVoice() {
     sfx.leave();
@@ -1384,8 +1837,10 @@
     stopVad();
     stopCamera(); stopShare(true);
     const gid = S.voice.groupId; S.voice = null;
-    S.allChannels[gid] = await api.list_channels({ groupId: gid });
-    if (S.groupId === gid) S.channels = S.allChannels[gid];
+    if (gid) {
+      S.allChannels[gid] = await api.list_channels({ groupId: gid });
+      if (S.groupId === gid) S.channels = S.allChannels[gid];
+    }
     if (S.view === "voice") S.view = "chat";
     render(); toast("Saíste da chamada.");
   }
@@ -1445,18 +1900,27 @@
       if (c) openChannel(c.id);
       return;
     }
-    if (d.voice) return joinVoice(d.voice);
+    if (d.voice) {
+      // telemóvel: primeiro a folha da chamada (quem lá está, micro, entrar)
+      if (window.innerWidth <= 720 && !(S.voice && S.voice.channelId === d.voice)) return openVoiceSheet(d.voice);
+      return joinVoice(d.voice);
+    }
     if (d.focus) { S.focus = S.focus === d.focus ? null : d.focus; return render(); }
     if (d.pluginTab) { S.pluginTab = d.pluginTab; S.navOpen = false; return render(); }
     if (d.install) {
       t.disabled = true; t.textContent = "A verificar assinatura…";
-      const p = await api.install_plugin({ id: d.install });
+      let p;
+      try { p = await api.install_plugin({ id: d.install }); }
+      catch (x) { t.disabled = false; t.textContent = "Instalar"; return toast(String(x.message || x)); }
       Object.assign(S.plugins.find((x) => x.id === p.id), p);
+      if (window.tascaPlugins) window.tascaPlugins.carregar();
       render(); return toast(`${p.name} instalado e ativo.`);
     }
     if (d.uninstall) {
       const p = await api.uninstall_plugin({ id: d.uninstall });
-      Object.assign(S.plugins.find((x) => x.id === p.id), p);
+      if (String(p.id).startsWith("local-")) S.plugins = S.plugins.filter((x) => x.id !== p.id);
+      else Object.assign(S.plugins.find((x) => x.id === p.id), p);
+      if (window.tascaPlugins) window.tascaPlugins.carregar();
       render(); return toast(`${p.name} removido.`);
     }
     if (d.retry) {
@@ -1465,10 +1929,26 @@
       return;
     }
     if (d.react) {
-      const [mid, i] = d.react.split(":");
-      const m = S.messages.find((x) => String(x.id) === mid); const r = m.reactions[+i];
-      r.mine = !r.mine; r.n += r.mine ? 1 : -1; return render();
+      const k = d.react.lastIndexOf(":");
+      const m = findMsg(d.react.slice(0, k)); if (!m) return;
+      const r = m.reactions[+d.react.slice(k + 1)]; if (!r) return;
+      return react(m, r.e, !r.mine);
     }
+    if (d.mreact) { const [id, e] = d.mreact.split("|"); return react(findMsg(id), e, true); }
+    if (d.mpick) { const m = findMsg(d.mpick); return window.tascaEmoji.open(t, (e) => react(m, e, true)); }
+    if (d.mreply) { const m = findMsg(d.mreply); if (m) startReply(m); return; }
+    if (d.medit) { const m = findMsg(d.medit); if (m) startEdit(m); return; }
+    if (d.mmore) { const m = findMsg(d.mmore); if (!m) return; const r = t.getBoundingClientRect(); return tascaMenu.open(r.left, r.bottom + 4, msgItems(m)); }
+    if (d.jump) return jumpTo(d.jump);
+    if (d.gnotify) {
+      const [gid, k] = d.gnotify.split("|");
+      await patch({ groupNotify: { ...(S.settings.groupNotify || {}), [gid]: k } });
+      t.parentElement.querySelectorAll("button").forEach((b) => { const on = b === t; b.classList.toggle("on", on); b.setAttribute("aria-checked", on); });
+      syncNotify(); return toast(k === "all" ? "Avisos de todas as mensagens." : k === "mentions" ? "Só avisos quando te mencionam." : "Sem avisos deste grupo.");
+    }
+    if (d.viewFile) return viewImage(d.viewFile);
+    if (d.saveFile) return saveFile(d.saveFile);
+    if (d.unattach) { S.attach.splice(+d.unattach, 1); return rerenderKeepInput(); }
     if (d.editChan) return openChannelEditor({ id: d.editChan });
     if (d.editCat) return openCategoryEditor(d.editCat);
     if (d.setTab) { S.settingsTab = d.setTab; return render(); }
@@ -1483,7 +1963,13 @@
         // como no balcão: começa pelos amigos; as conversas ficam na barra ao lado
         S.home = true; S.view = window.tascaAmigos ? "friends" : "chat"; S.channelId = null; S.messages = []; S.navOpen = false; return render();
       }
-      case "dm-call": case "dm-video": return toast("Chamadas privadas: em breve. Vão diretamente entre os dois PCs.");
+      case "dm-call": case "dm-video": {
+        if (!S.channelId || !S.channelId.startsWith("dm-")) return;
+        if (api.isMock) return toast("Na app instalada, a chamada vai diretamente entre os dois dispositivos.");
+        const err = await joinVoice(S.channelId);
+        if (!err && d.act === "dm-video" && !S.camera) { const b = document.querySelector('[data-act="camera"]'); if (b) b.click(); }
+        return;
+      }
       case "new-dm": return toast("Escolhe alguém da lista de membros de um grupo para começar a conversar.");
       case "new-group": return openNewGroup();
       case "plugins":
@@ -1495,8 +1981,14 @@
       case "close-settings": S.view = S.prevView || "chat"; return render();
       case "mute":
         if (S.muted && !micAllowed()) return toast("O microfone está desligado em Definições > Privacidade e permissões.");
-        S.muted = !S.muted; (S.muted ? sfx.mute : sfx.unmute)(); if (!S.muted && S.deaf) S.deaf = false; api.set_voice_state({ muted: S.muted, deaf: S.deaf }); return render();
-      case "deaf": S.deaf = !S.deaf; (S.deaf ? sfx.deafen : sfx.undeafen)(); S.muted = S.deaf ? true : S.muted; api.set_voice_state({ muted: S.muted, deaf: S.deaf }); return render();
+        // ligar o micro com o som desligado liga também o som (como no Discord)
+        S.muted = !S.muted; (S.muted ? sfx.mute : sfx.unmute)(); if (!S.muted && S.deaf) { S.deaf = false; S.mutedBeforeDeaf = false; }
+        api.set_voice_state({ muted: S.muted, deaf: S.deaf }); store.set("voice-state", { muted: S.muted, deaf: S.deaf, before: !!S.mutedBeforeDeaf }); haptic(); return render();
+      case "deaf":
+        // tirar o som desliga o micro; voltar a ligar repõe o micro como estava antes
+        if (!S.deaf) { S.mutedBeforeDeaf = S.muted; S.deaf = true; S.muted = true; sfx.deafen(); }
+        else { S.deaf = false; S.muted = !!S.mutedBeforeDeaf || !micAllowed(); sfx.undeafen(); }
+        api.set_voice_state({ muted: S.muted, deaf: S.deaf }); store.set("voice-state", { muted: S.muted, deaf: S.deaf, before: !!S.mutedBeforeDeaf }); haptic(); return render();
       case "leave-voice": return leaveVoice();
       case "status": S.statusOpen = !S.statusOpen; return render();
       case "noise": await patch({ noiseSuppression: !S.settings.noiseSuppression }); render(); return toast(S.settings.noiseSuppression ? "Supressão de ruído ligada." : "Supressão de ruído desligada.");
@@ -1510,7 +2002,21 @@
         if (S.sharing) { stopShare(); return render(); }
         return openSharePicker();
       case "call-sidebar": S.callSidebar = !S.callSidebar; return render();
-      case "call-chat": { const gid = S.voice.groupId; if (S.groupId !== gid) await openGroup(gid); else await openChannel(S.channels.find((x) => x.kind === "text").id); return; }
+      case "call-min": { if (!S.voice.groupId) { S.view = "chat"; return openDm(S.voice.channelId); } S.view = "chat"; if (S.groupId !== S.voice.groupId) { await openGroup(S.voice.groupId); return; } if (!channel() || channel().kind !== "text") { const t = S.channels.find((x) => x.kind === "text"); if (t) return openChannel(t.id); } return render(); }
+      case "invite-call": { if (!S.voice.groupId) return toast("As chamadas privadas são só entre os dois."); if (S.groupId !== S.voice.groupId) await openGroup(S.voice.groupId); return openInvite(); }
+      case "voice-quick": return openVoiceSettings();
+      case "voicepre-back": S.view = S.prevView && S.prevView !== "voicepre" ? S.prevView : "chat"; return render();
+      case "voicepre-invite": { const c = findChannel(S.preVoice); const g = S.groups.find((x) => (S.allChannels[x.id] || []).some((y) => y.id === c.id)); if (g && S.groupId !== g.id) await openGroup(g.id); S.view = "voicepre"; render(); return openInvite(); }
+      case "vp-mic": haptic(); if (S.muted && !micAllowed()) return toast("O microfone está desligado em Definições > Privacidade e permissões."); S.muted = !S.muted; if (!S.muted && S.deaf) { S.deaf = false; S.mutedBeforeDeaf = false; } store.set("voice-state", { muted: S.muted, deaf: S.deaf, before: !!S.mutedBeforeDeaf }); return render();
+      case "vp-deaf": haptic(); if (!S.deaf) { S.mutedBeforeDeaf = S.muted; S.deaf = true; S.muted = true; } else { S.deaf = false; S.muted = !!S.mutedBeforeDeaf; } store.set("voice-state", { muted: S.muted, deaf: S.deaf, before: !!S.mutedBeforeDeaf }); return render();
+      case "vp-join": {
+        haptic(12); S.preVoiceBusy = true; S.preVoiceErr = null; render();
+        const fail = await joinVoice(S.preVoice, { quiet: true });
+        S.preVoiceBusy = false;
+        if (fail) { S.preVoiceErr = fail; if (S.view === "voicepre") render(); }
+        return;
+      }
+      case "call-chat": { const gid = S.voice.groupId; if (!gid) return openDm(S.voice.channelId); if (S.groupId !== gid) await openGroup(gid); else await openChannel(S.channels.find((x) => x.kind === "text").id); return; }
       case "fullscreen": {
         try {
           if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -1520,7 +2026,7 @@
       }
       case "invite": return openInvite();
       case "group-menu": return openGroupMenu();
-      case "transfer": return openTransfer(d.groupId);
+      case "leave-group": return confirmLeave(d.groupId);
       case "toggle-members":
         if (window.innerWidth <= 1100) S.membersOpen = !S.membersOpen;
         else { S.showMembers = !S.showMembers; store.set("members", S.showMembers); }
@@ -1530,23 +2036,19 @@
       case "my-card": S.statusOpen = false; render(); return window.tascaAmigos && window.tascaAmigos.openFullProfile("me");
       case "switch-account": S.statusOpen = false; if (S.voice) await leaveVoice(); await api.select_account({ id: null }); return location.reload();
       case "sign-out": S.statusOpen = false; if (S.voice) await leaveVoice(); await api.sign_out(); return location.reload();
-      case "attach": return toast("No Tauri abre o seletor de ficheiros. O ficheiro vai direto para os PCs dos membros.");
+      case "attach": return S.home ? toast("Para já, os ficheiros só se enviam nos grupos.") : pickFiles();
+      case "cancel-compose": { if (S.editing) { const i = $("#msg-input"); if (i) i.value = ""; } S.reply = null; S.editing = null; return rerenderKeepInput(); }
+      case "search": return openSearch();
       case "emoji": return window.tascaEmoji.open(t, $("#msg-input"));
-      case "connect-dest": {
-        const k = S.settings.backup.dest;
-        await patch({ backup: { connected: { [k]: k === "local" ? "D:\\Backups\\Tasca" : "conta ligada" } } });
-        render(); return toast("Conta ligada. A próxima cópia vai para lá.");
-      }
       case "backup-now": {
-        S.backupPct = 0; render();
-        await api.run_backup();
-        S.backupPct = null; S.settings = await api.get_settings(); render();
-        return toast("Cópia feita, cifrada e enviada.");
+        t.disabled = true; t.textContent = "A guardar…";
+        try { const p = await api.backup_groups(); toast("Cópia guardada em " + p); }
+        catch (e) { toast("Não deu para guardar a cópia: " + (e.message || e)); }
+        t.disabled = false; t.textContent = "Guardar cópia"; return;
       }
       case "test-sound": sfx.join(); return;
       case "lock": await api.lock(); location.reload(); return;
       case "google-backup": t.disabled = true; t.textContent = "A ligar…"; await api.google_backup(); t.textContent = "Ligado"; return toast("Cópia cifrada guardada no Google Drive.");
-      case "test-relay": return toast("Relay respondeu em 12 ms.");
       case "new-category": return openCategoryEditor(null);
       case "new-channel": document.querySelectorAll(".scrim:not(.locked)").forEach((x) => x.remove()); return openChannelEditor({ cat: d.cat });
       case "edit-profile": return openProfile();
@@ -1635,6 +2137,16 @@
   }
   document.addEventListener("contextmenu", (e) => {
     if (!e.target.closest) return;
+    const mm = e.target.closest(".msg[data-mid]");
+    if (mm && Date.now() - suppressCtx < 1500) { e.preventDefault(); return; }
+    if (mm && !e.target.closest("a, .mention, [data-person]") && !String(window.getSelection()).trim()) {
+      const m = findMsg(mm.dataset.mid);
+      if (m && !String(m.id).startsWith("tmp-")) {
+        e.preventDefault();
+        if (window.TASCA_MOBILE) return openMsgSheet(m);
+        return tascaMenu.open(e.clientX, e.clientY, msgItems(m));
+      }
+    }
     const b = e.target.closest("[data-chan], [data-voice], [data-drag-chan]");
     const h = e.target.closest(".cat");
     const g = group();
@@ -1660,11 +2172,28 @@
     e.preventDefault();
     const inp = $("#msg-input");
     const text = inp.value.trim();
-    if (!text) return;
+    // "/comando" de um plugin: vai para o plugin, não para o chat
+    if (!S.editing && text.startsWith("/") && window.tascaPlugins && window.tascaPlugins.correr(text, S.channelId)) { inp.value = ""; return; }
+    if (S.editing) {
+      const m = findMsg(S.editing.id); S.editing = null;
+      if (!text || !m) return rerenderKeepInput();
+      inp.value = "";
+      if (text === m.text) return rerenderKeepInput();
+      const antes = m.text; m.text = text; m.edited = true; rerenderKeepInput();
+      try { await api.edit_message({ channelId: S.channelId, id: m.id, text }); }
+      catch (x) { m.text = antes; toast("Não consegui editar: " + (x.message || x)); rerenderKeepInput(); }
+      return;
+    }
+    if (S.attach.some((a) => a.busy)) return toast("Espera que os anexos acabem de preparar.");
+    const files = S.attach.map((a) => ({ hash: a.hash, name: a.name, size: a.size, mime: a.mime, thumb: a.thumb }));
+    if (!text && !files.length) return;
     inp.value = "";
+    const replyTo = S.reply ? { id: S.reply.id, from: S.reply.from, text: S.reply.text } : null;
+    S.reply = null; S.attach = [];
     // aparece logo, mais escura, até o anfitrião confirmar
-    const m = { id: "tmp-" + Date.now(), day: "Hoje", at: new Date().toTimeString().slice(0, 5), from: "me", text, pending: true };
-    S.messages.push(m); render(); $("#msg-input").focus();
+    const m = { id: "tmp-" + Date.now(), day: "Hoje", at: new Date().toTimeString().slice(0, 5), ts: Date.now(), from: "me", text, pending: true, replyTo, files: files.length ? files : undefined };
+    S.messages.push(m); render(); if (!window.TASCA_MOBILE) $("#msg-input").focus();
+    markRead(S.channelId);
     trySend(S.channelId, m);
   });
   // Envia (ou volta a enviar) uma mensagem. Se falhar, ou se ninguém confirmar em 20 s,
@@ -1673,8 +2202,9 @@
     m.pending = true; m.failed = false;
     const localId = m.id;
     try {
-      const r = await api.send_message({ channelId, text: m.text });
+      const r = await api.send_message({ channelId, text: m.text, replyTo: m.replyTo ? m.replyTo.id : undefined, files: m.files });
       Object.assign(m, r, { failed: false });
+      seen.add(String(m.id));
       if (S.home) S.dms = await api.list_dms();
     } catch (x) {
       m.pending = false; m.failed = true;
@@ -1712,7 +2242,7 @@
     if (e.key === "Escape") {
       const sc = document.querySelector(".scrim:not(.locked)");
       if (document.querySelector(".scrim.locked") && !sc) return;
-      if (sc) sc.remove();
+      if (sc) closeScrim(sc);
       else if (S.view === "settings") { S.view = S.prevView || "chat"; render(); }
     }
   });
@@ -1743,7 +2273,9 @@
     const t = e.target;
     if (t.dataset.pluginToggle) {
       const p = await api.set_plugin_enabled({ id: t.dataset.pluginToggle, enabled: t.checked });
-      Object.assign(S.plugins.find((x) => x.id === p.id), p); render(); return;
+      Object.assign(S.plugins.find((x) => x.id === p.id), p);
+      if (window.tascaPlugins) window.tascaPlugins.carregar();
+      render(); return;
     }
     if (t.id === "custom-status") {
       if (window.tascaSugg) tascaSugg.remember("estado", t.value);
@@ -1751,11 +2283,22 @@
       api.set_presence({ status: myStatus(), text: t.value }).catch(() => {});
       return;
     }
-    if (t.id === "sideload" && t.files[0]) { toast(`«${t.files[0].name}» carregado. Revê as permissões antes de ativar.`); return; }
+    if (t.id === "sideload" && t.files[0]) {
+      const f = t.files[0];
+      if (f.size > 2 * 1048576) return toast("Esse ficheiro é grande demais para um plugin.");
+      try {
+        const p = await api.sideload_plugin({ name: f.name, code: await f.text() });
+        const i = S.plugins.findIndex((x) => x.id === p.id); if (i >= 0) S.plugins[i] = p; else S.plugins.push(p);
+        if (window.tascaPlugins) await window.tascaPlugins.carregar();
+        S.pluginTab = "instalados"; render(); toast(`«${p.name}» instalado e ativo.`);
+      } catch (x) { toast("Não consegui instalar: " + (x.message || x)); }
+      return;
+    }
     if (t.dataset.setting && t.type === "checkbox" && t.dataset.setting.startsWith("perms.")) {
       await patch(pathPatch(t.dataset.setting, t.checked)); return applyPerm(t.dataset.setting.slice(6), t.checked);
     }
-    if (t.dataset.setting && t.type === "checkbox") { await patch(pathPatch(t.dataset.setting, t.checked)); if (t.dataset.setting === "callSounds") applyTheme(); return; }
+    if (t.dataset.setting === "bgService") { try { TascaServico.definir(t.checked); } catch {} return toast(t.checked ? "A Tasca fica ligada em segundo plano." : "Com a app fechada, as mensagens só chegam quando a abrires."); }
+    if (t.dataset.setting && t.type === "checkbox") { await patch(pathPatch(t.dataset.setting, t.checked)); syncNotify(); if (t.dataset.setting === "callSounds") applyTheme(); return; }
     if (t.dataset.setting && t.tagName === "SELECT") {
       await patch(pathPatch(t.dataset.setting, t.value));
       if (t.dataset.setting === "inputDevice") startMicMeter();
@@ -1768,6 +2311,8 @@
   // tooltips da barra de grupos
   let tipEl;
   document.addEventListener("pointerover", (e) => {
+    // só com rato: no toque a dica ficava presa por cima de tudo
+    if (e.pointerType && e.pointerType !== "mouse") { if (tipEl) { tipEl.remove(); tipEl = null; } return; }
     const b = e.target.closest("[data-tip]");
     if (!b) { if (tipEl) { tipEl.remove(); tipEl = null; } return; }
     if (!tipEl) { tipEl = document.createElement("div"); tipEl.className = "tip"; document.body.appendChild(tipEl); }
@@ -1783,7 +2328,7 @@
       // a tua própria mensagem: se foi escrita aqui já está na lista
       const ja = S.messages.find((x) => x.id === message.id);
       if (ja) { if (ja.pending) { ja.pending = false; rerenderKeepInput(); } return; }
-      S.messages.push(message); render(); return;
+      S.messages.push(message); markRead(channelId); render(); return;
     }
     // as tuas (escritas noutro dispositivo) não contam como não lidas
     if (message && message.from === "me") return;
@@ -1794,6 +2339,30 @@
     const g = groupId && S.groups.find((x) => x.id === groupId);
     if (g && (S.home || S.groupId !== groupId)) g.unread = (g.unread || 0) + 1;
     if (c || g) rerenderKeepInput();
+  });
+  // Chamada privada a chegar: ecrã para atender ou recusar.
+  api.on("incoming_call", ({ userId }) => {
+    const p = who(userId);
+    if (S.voice && S.voice.channelId === "dm-" + userId) return;
+    haptic(30);
+    try { sfx.join(); } catch {}
+    document.querySelectorAll(".scrim.ring").forEach((x) => x.remove());
+    modal(`<div class="ring-card">${avatar(p).replace('class="av ', 'class="av big ')}<h2>${esc(p.name)}</h2><p>Está a ligar-te</p></div>
+      <div class="actions ring-actions"><button class="btn danger" data-close>Recusar</button><button class="btn primary" id="ring-ok">${I.phone}Atender</button></div>`,
+    (el, close) => {
+      el.classList.add("ring");
+      const t = setTimeout(close, 45000);
+      $("#ring-ok", el).onclick = async () => { clearTimeout(t); close(); if (S.voice) await leaveVoice(); const e = await joinVoice("dm-" + userId); if (e) toast(e); };
+    });
+  });
+  // editada, apagada ou com reações novas (por ti noutro dispositivo ou por outra pessoa)
+  api.on("message_update", ({ channelId, id, message }) => {
+    if (channelId !== S.channelId) return;
+    const i = S.messages.findIndex((x) => String(x.id) === String(id));
+    if (i < 0) return;
+    if (!message) S.messages.splice(i, 1);
+    else S.messages[i] = { ...S.messages[i], ...message, reactions: message.reactions || [], edited: !!message.edited };
+    if (S.view === "chat") rerenderKeepInput();
   });
   // o grupo mudou no núcleo (alguém entrou, canais novos, grupo acabado de chegar)
   api.on("group_changed", async ({ groupId }) => {
@@ -1825,7 +2394,12 @@
   }, 50));
   api.on("message_ack", ({ channelId, id }) => {
     const m = S.messages.find((x) => x.id === id);
-    if (m && channelId === S.channelId) { m.pending = false; if (S.view === "chat") rerenderKeepInput(); }
+    if (m && channelId === S.channelId) {
+      m.pending = false;
+      // só tira a classe: a mensagem passa de "a enviar" a enviada com uma transição
+      const el = document.querySelector(`.msg[data-mid="${CSS.escape(String(id))}"]`);
+      if (el) el.classList.remove("pending"); else if (S.view === "chat") rerenderKeepInput();
+    }
   });
   api.on("typing", ({ channelId, who }) => { S.typing = { channelId, who }; if (S.view === "chat") rerenderKeepInput(); });
   // Quem está a falar: os outros chegam por evento; tu és detetado aqui, pelo microfone.
@@ -1838,7 +2412,8 @@
   api.on("voice_status", (st) => {
     if (!S.voice) return;
     const antes = S.voice.connected;
-    Object.assign(S.voice, { ping: st.ping, route: st.route, connected: st.connected });
+    Object.assign(S.voice, { ping: st.ping, route: st.route, connected: st.connected, hosting: !!st.hosting });
+    if (st.hosting) S.voice.hostId = "me";
     if (antes !== undefined && antes !== st.connected) {
       toast(st.connected ? "Voltaste a ligar à chamada." : "Perdeste a ligação à chamada. A tentar outra vez…");
       rerenderKeepInput();
@@ -1846,6 +2421,11 @@
   });
   api.on("voice_members", ({ channelId, members }) => {
     if (!S.voice || S.voice.channelId !== channelId) return;
+    if (!S.voice.groupId) S.dmInVoice = members.map((m) => m.id);
+    const h = members.find((m) => m.host);
+    const antes = S.voice.hostId;
+    S.voice.hostId = h ? h.id : null;
+    if (antes && h && antes !== h.id) toast(h.id === "me" ? "Agora és tu a alojar a chamada." : who(h.id).name + " passou a alojar a chamada.");
     S.voiceStates = Object.fromEntries(members.filter((m) => m.id !== "me").map((m) => [m.id, m]));
     if (S.view !== "chat") rerenderKeepInput();
   });
@@ -1902,7 +2482,6 @@
       el.classList.toggle(el.dataset.spkCls || "speaking", S.speaking.includes(id) && !(id === "me" && S.muted));
     });
   }
-  api.on("backup_progress", ({ pct }) => { S.backupPct = pct; if (S.view === "settings" && S.settingsTab === "backups") rerenderKeepInput(); });
 
   function rerenderKeepInput() {
     const inp = $("#msg-input");
@@ -1914,7 +2493,7 @@
   }
 
   // Para os outros ficheiros da interface (amigos.js) e, mais tarde, para os plugins.
-  window.tascaApp = { bannerStyle, patch, S, I, FLOR, LOGO, $, esc, initials, avatar, toast, copy, modal, render, rerenderKeepInput, openDm, openGroup, openProfile, openTransfer, group, store, squarePhoto, myStatus, STATUS };
+  window.tascaApp = { bannerStyle, patch, S, I, FLOR, LOGO, $, esc, initials, avatar, toast, copy, modal, render, rerenderKeepInput, openDm, openGroup, openProfile, group, store, squarePhoto, myStatus, STATUS };
   window.tascaToast = toast;
 
   // ---------------- arranque ----------------
@@ -2007,13 +2586,18 @@
     let ultimoVoltar = 0;
     const voltar = () => {
       if (document.querySelector(".ctx-menu")) return window.tascaMenu.close();
-      const sc = document.querySelector(".scrim:not(.locked)");
-      if (sc) return sc.remove();
+      const sc = document.querySelector(".scrim:not(.locked):not(.closing)");
+      if (sc) return closeScrim(sc);
       if (document.querySelector(".scrim.locked")) return;
+      if (document.querySelector(".emoji-pop")) return window.tascaEmoji.close();
+      if (window.tascaAmigos && window.tascaAmigos.cardOpen && window.tascaAmigos.cardOpen()) return window.tascaAmigos.closeCard();
+      if (S.msgMenu) return closeMsgSheet();
+      if (S.reply || S.editing) { S.reply = null; S.editing = null; return rerenderKeepInput(); }
+      if (S.search) { S.search = null; return render(); }
       if (S.statusOpen) { S.statusOpen = false; return render(); }
       if (S.membersOpen) { S.membersOpen = false; return render(); }
       if (S.view === "settings") { S.view = S.prevView || "chat"; return render(); }
-      if (S.view === "voice") { S.view = "chat"; return render(); }
+      if (S.view === "voice" || S.view === "voicepre") { S.view = "chat"; return render(); }
       if (estreito() && !S.navOpen) { S.navOpen = true; return render(); }
       const agora = Date.now();
       if (agora - ultimoVoltar < 2000) { window.__TAURI__.core.invoke("sair_app").catch(() => {}); return; }
@@ -2021,23 +2605,107 @@
     };
     try { window.__TAURI__.app.onBackButtonPress(voltar); } catch (x) { console.warn("botão de voltar", x); }
 
-    // Deslizar o dedo: da esquerda para a direita abre os grupos e canais, ao contrário fecha.
+    // Deslizar o dedo: a gaveta de grupos e canais acompanha o dedo (abre para a direita,
+    // fecha para a esquerda); a lista de membros fecha a deslizar para a direita.
     let t0 = null;
+    const appEl = () => $("#app");
+    const navW = () => Math.min(372, window.innerWidth - 44) + 16;
     document.addEventListener("touchstart", (e) => {
       const t = e.touches[0];
       const alvo = e.target;
-      const ignora = e.touches.length > 1 || (alvo.closest && alvo.closest("input[type=range], .call-strip, .seg, .scrim, .ctx-menu, textarea"));
-      t0 = ignora ? null : { x: t.clientX, y: t.clientY, at: Date.now() };
+      const ignora = e.touches.length > 1 || S.view === "voice" || !estreito() ||
+        (alvo.closest && alvo.closest("input[type=range], .call-strip, .seg, .scrim, .ctx-menu, textarea, .emoji-pop, .pcard, .fr-tabs, .reactions, pre, code"));
+      t0 = ignora ? null : { x: t.clientX, y: t.clientY, at: Date.now(), drag: null, open: !!S.navOpen, members: !!S.membersOpen };
+    }, { passive: true });
+    document.addEventListener("touchmove", (e) => {
+      if (!t0) return;
+      const t = e.touches[0];
+      const dx = t.clientX - t0.x, dy = t.clientY - t0.y;
+      if (t0.drag == null) {
+        if (Math.abs(dx) < 12 && Math.abs(dy) < 12) return;
+        // só conta como gesto de lado se for mais horizontal do que vertical
+        if (Math.abs(dy) > Math.abs(dx) * 0.7) { t0 = null; return; }
+        if (t0.members) t0.drag = "members";
+        else if (t0.open ? dx < 0 : dx > 0) t0.drag = "nav";
+        else { t0 = null; return; }
+        appEl().classList.add("dragging");
+      }
+      const a = appEl();
+      if (t0.drag === "nav") {
+        const w = navW();
+        const x = t0.open ? Math.min(0, dx) : Math.min(0, -w + dx);
+        a.style.setProperty("--navx", x + "px");
+        a.style.setProperty("--scrim", String(Math.max(0, Math.min(1, 1 + x / w))));
+        if (!t0.open && !a.classList.contains("show-nav-drag")) a.classList.add("show-nav-drag");
+      } else if (t0.drag === "members") {
+        const m = $("#members"); if (m) { m.style.transition = "none"; m.style.transform = `translateX(${Math.max(0, dx)}px)`; }
+      }
     }, { passive: true });
     document.addEventListener("touchend", (e) => {
-      if (!t0 || !estreito() || S.view === "voice") { t0 = null; return; }
+      if (!t0) return;
       const t = e.changedTouches[0];
       const dx = t.clientX - t0.x, dy = t.clientY - t0.y, ms = Date.now() - t0.at;
+      const drag = t0.drag, was = t0;
       t0 = null;
-      if (ms > 600 || Math.abs(dx) < 70 || Math.abs(dy) > Math.abs(dx) * 0.6) return;
-      if (dx > 0 && !S.navOpen) { S.navOpen = true; render(); }
-      else if (dx < 0 && S.navOpen) { S.navOpen = false; render(); }
+      const a = appEl();
+      a.classList.remove("dragging", "show-nav-drag");
+      a.style.removeProperty("--navx"); a.style.removeProperty("--scrim");
+      const m = $("#members"); if (m) { m.style.transition = ""; m.style.transform = ""; }
+      if (!drag) return;
+      const fast = ms < 300 && Math.abs(dx) > 40;
+      if (drag === "nav") {
+        const far = Math.abs(dx) > navW() * 0.35;
+        if (!was.open && dx > 0 && (far || fast)) { S.navOpen = true; haptic(); render(); }
+        else if (was.open && dx < 0 && (far || fast)) { S.navOpen = false; render(); }
+      } else if (drag === "members" && dx > 0 && (dx > 90 || fast)) { S.membersOpen = false; render(); }
+      void dy;
     }, { passive: true });
+  }
+
+  // Tocar fora da gaveta ou da lista de membros (no fundo escuro) fecha-as.
+  document.addEventListener("click", (e) => {
+    if (e.target && e.target.id === "app") {
+      if (S.membersOpen) { S.membersOpen = false; render(); }
+      else if (S.navOpen && window.innerWidth <= 720) { S.navOpen = false; render(); }
+    }
+    const b = e.target.closest && e.target.closest("[data-banner-toggle]");
+    if (b) { S.bannerOpen = !S.bannerOpen; b.classList.toggle("open", S.bannerOpen); b.setAttribute("aria-expanded", S.bannerOpen); }
+  });
+
+  // Puxar a conversa para baixo (já no topo) volta a ler as mensagens e os grupos.
+  if (window.TASCA_MOBILE) {
+    let p0 = null, pull = 0, busy = false;
+    const ptr = () => { let el = $("#main .ptr"); if (!el) { el = document.createElement("div"); el.className = "ptr"; el.innerHTML = I.retry; $("#main").appendChild(el); } return el; };
+    document.addEventListener("touchstart", (e) => {
+      const list = e.target.closest && e.target.closest(".messages, .fr-page");
+      p0 = list && list.scrollTop <= 0 && !busy && e.touches.length === 1 ? { y: e.touches[0].clientY, x: e.touches[0].clientX } : null; pull = 0;
+    }, { passive: true });
+    document.addEventListener("touchmove", (e) => {
+      if (!p0) return;
+      const dy = e.touches[0].clientY - p0.y, dx = e.touches[0].clientX - p0.x;
+      if (Math.abs(dx) > Math.abs(dy)) { p0 = null; return; }
+      pull = Math.max(0, Math.min(110, dy * 0.5));
+      const el = ptr();
+      el.style.setProperty("--ptr", (pull - 40) + "px"); el.style.setProperty("--ptr-o", Math.min(1, pull / 60)); el.style.setProperty("--ptr-r", pull * 4 + "deg");
+    }, { passive: true });
+    document.addEventListener("touchend", async () => {
+      if (!p0) return; p0 = null;
+      const el = $("#main .ptr"); if (!el) return;
+      if (pull < 70) { el.remove(); return; }
+      busy = true; haptic(12); el.classList.add("spin"); el.style.setProperty("--ptr", "20px");
+      try { await refreshAll(); } catch (x) { console.warn(x); }
+      busy = false; const e2 = $("#main .ptr"); if (e2) e2.remove();
+    });
+  }
+  async function refreshAll() {
+    S.people = await api.list_people();
+    const fresh = await api.list_groups();
+    for (const g of fresh) { const old = S.groups.find((x) => x.id === g.id); if (old) Object.assign(old, g, { unread: old.unread }); else S.groups.push(g); }
+    S.dms = await api.list_dms();
+    if (S.home && S.view === "friends" && window.tascaAmigos && window.tascaAmigos.refresh) await window.tascaAmigos.refresh();
+    if (!S.home && S.groupId) { await refreshChannels(S.groupId); S.members = await api.list_members({ groupId: S.groupId }); S.allMembers[S.groupId] = S.members; }
+    if (S.channelId && S.view === "chat") S.messages = await api.list_messages({ channelId: S.channelId });
+    rerenderKeepInput();
   }
 
   (async function start() {
@@ -2056,6 +2724,7 @@
       S.allChannels[g.id] = await api.list_channels({ groupId: g.id });
       S.allMembers[g.id] = await api.list_members({ groupId: g.id });
     }
+    for (const g of S.groups) await refreshUnread(g.id);
     applyTheme();
     const saved = store.get("group", null);
     if (!S.groups.length) { S.home = true; S.view = "chat"; S.channelId = null; S.messages = []; render(); }

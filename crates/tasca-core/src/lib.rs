@@ -10,6 +10,7 @@ pub mod caixa;
 mod dns;
 pub mod dispositivo;
 pub mod event;
+pub mod ficheiros;
 #[cfg(feature = "google")]
 pub mod google;
 pub mod identity;
@@ -26,7 +27,7 @@ pub mod voz;
 /// Kotlin ligada à JVM, e sem ela o primeiro pedido falhava e o login ficava pendurado):
 /// usa-se a lista de autoridades de certificação da Mozilla, embutida na app.
 #[cfg(any(feature = "google", feature = "servidor"))]
-pub(crate) fn http_builder() -> reqwest::ClientBuilder {
+pub fn http_builder() -> reqwest::ClientBuilder {
     let b = reqwest::Client::builder();
     #[cfg(target_os = "android")]
     let b = b.tls_certs_only(
@@ -44,8 +45,8 @@ pub use identity::Identity;
 pub use invite::Invite;
 pub use node::{GroupHandle, Node, NodeOptions};
 pub use store::Store;
-pub use iroh::{PublicKey, SecretKey};
-pub use voz::{Chamada, Imagem, Participante, VOZ_ALPN};
+pub use iroh::{EndpointAddr, PublicKey, SecretKey, Signature};
+pub use voz::{Anuncio, Chamada, Imagem, NovoHost, Participante, VOZ_ALPN};
 
 /// Identificador do protocolo da Tasca na negociação QUIC (ALPN).
 pub const ALPN: &[u8] = b"tasca/0";

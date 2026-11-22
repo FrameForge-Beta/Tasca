@@ -154,7 +154,10 @@ impl ChaveCaixa {
     /// A assinatura do anfitrião num `Registo` é verificada por quem conhece o dono.
     pub fn open_item(&self, bloco: &[u8]) -> Result<ItemGrupo> {
         let item: ItemGrupo = postcard::from_bytes(&self.open_bytes(bloco)?)?;
-        item.event().verify()?;
+        match &item {
+            ItemGrupo::Voz(a) => a.verificar()?,
+            _ => item.event().expect("registo ou pedido").verify()?,
+        }
         Ok(item)
     }
 
@@ -198,12 +201,15 @@ pub enum ItemGrupo {
     /// Evento enviado por um membro enquanto o anfitrião estava desligado. O anfitrião
     /// valida-o e dá-lhe número quando voltar.
     Pedido { event: SignedEvent },
+    /// Quem está a alojar uma sala de voz (assinado por essa pessoa).
+    Voz(crate::voz::Anuncio),
 }
 
 impl ItemGrupo {
-    pub fn event(&self) -> &SignedEvent {
+    pub fn event(&self) -> Option<&SignedEvent> {
         match self {
-            Self::Registo { event, .. } | Self::Pedido { event } => event,
+            Self::Registo { event, .. } | Self::Pedido { event } => Some(event),
+            Self::Voz(_) => None,
         }
     }
 

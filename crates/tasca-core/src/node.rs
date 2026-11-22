@@ -38,6 +38,8 @@ pub struct NodeOptions {
     /// Chave própria deste dispositivo (telemóvel). Sem ela, o nó usa a chave da conta.
     /// Ver [`crate::dispositivo`].
     pub dispositivo: Option<iroh::SecretKey>,
+    /// Pasta dos anexos (ficheiros e imagens). Sem ela, não se enviam nem servem anexos.
+    pub ficheiros: Option<std::path::PathBuf>,
 }
 
 pub(crate) struct Inner {
@@ -55,6 +57,16 @@ pub(crate) struct Inner {
     amigos: Arc<crate::amigos::Amigos>,
     /// Certificado deste dispositivo, quando não usa a chave da conta.
     certificado: Option<crate::dispositivo::Certificado>,
+    /// Quem anda a alojar salas de voz noutros dispositivos (o último anúncio de cada sala).
+    anuncios: Mutex<HashMap<(GroupId, String), crate::voz::Anuncio>>,
+    /// Chave iroh deste dispositivo.
+    endpoint_id: [u8; 32],
+    endpoint: iroh::Endpoint,
+    /// Chamadas privadas a chegar.
+    pub(crate) toques: broadcast::Sender<crate::voz::Toque>,
+    /// Chamadas privadas conhecidas: grupo → (conta do amigo, onde a chamada pode estar).
+    privadas: Mutex<HashMap<GroupId, (iroh::PublicKey, Option<iroh::EndpointAddr>)>>,
+    pasta: Option<crate::ficheiros::Pasta>,
 }
 
 impl Inner {
@@ -101,6 +113,56 @@ impl Inner {
     pub(crate) fn conta_de(&self, remoto: &iroh::PublicKey) -> iroh::PublicKey {
         self.amigos.dispositivos.conta_de(remoto)
     }
+
+    /// Guarda um anúncio de voz de outro dispositivo, se for válido e mais recente.
+    /// Devolve `true` se entrou.
+    pub(crate) fn guardar_anuncio(&self, a: crate::voz::Anuncio) -> bool {
+        if a.endpoint == self.endpoint_id || a.verificar().is_err() {
+            return false;
+        }
+        let Ok(conta) = iroh::PublicKey::from_bytes(&a.conta) else { return false };
+        if !self.store().is_member(a.group, &conta).unwrap_or(false) {
+            return false;
+        }
+        let mut m = self.anuncios.lock().unwrap();
+        let chave = (a.group, a.room.clone());
+        if let Some(antigo) = m.get(&chave) {
+            // Um anúncio mais antigo do mesmo dispositivo não volta atrás.
+            if antigo.endpoint == a.endpoint && antigo.ts >= a.ts {
+                return false;
+            }
+            // Outro dispositivo com a sala ainda ativa: fica o que começou primeiro.
+            if antigo.endpoint != a.endpoint && antigo.ativo() && a.ativo() && (antigo.desde, antigo.endpoint) < (a.desde, a.endpoint) {
+                return false;
+            }
+        }
+        m.insert(chave, a);
+        true
+    }
+
+    pub(crate) fn identity(&self) -> &Identity {
+        &self.identity
+    }
+
+    pub(crate) fn meus_enderecos(&self) -> Vec<iroh::TransportAddr> {
+        self.endpoint.addr().addrs.into_iter().collect()
+    }
+
+    /// Anúncios conhecidos de um grupo (os nossos e os dos outros que ainda valem).
+    pub(crate) fn anuncios_de(&self, group: GroupId, hub: &crate::voz::Hub) -> Vec<crate::voz::Anuncio> {
+        let mut out: Vec<_> = hub
+            .anuncios(&self.identity, &self.meus_enderecos())
+            .into_iter()
+            .filter(|a| a.group == group)
+            .collect();
+        let m = self.anuncios.lock().unwrap();
+        for a in m.values() {
+            if a.group == group && a.ativo() && !out.iter().any(|o| o.room == a.room) {
+                out.push(a.clone());
+            }
+        }
+        out
+    }
 }
 
 #[derive(Clone)]
@@ -146,8 +208,14 @@ impl Node {
             conns: Default::default(),
             amigos: Default::default(),
             certificado,
+            anuncios: Default::default(),
+            endpoint_id: *endpoint.id().as_bytes(),
+            endpoint: endpoint.clone(),
+            toques: broadcast::channel(16).0,
+            privadas: Default::default(),
+            pasta: opts.ficheiros.clone().map(crate::ficheiros::Pasta),
         });
-        let voz = Arc::new(crate::voz::Hub::new(Arc::downgrade(&inner)));
+        let voz = Arc::new(crate::voz::Hub::new(Arc::downgrade(&inner), *endpoint.id().as_bytes()));
         let router = Router::builder(endpoint)
             .accept(
                 ALPN,
@@ -161,16 +229,99 @@ impl Node {
                 crate::dispositivo::Apresentacao(inner.amigos.dispositivos.clone()),
             )
             .accept(
+                crate::ficheiros::ALPN,
+                crate::ficheiros::Servir { inner: Arc::downgrade(&inner), pasta: opts.ficheiros.clone().map(crate::ficheiros::Pasta) },
+            )
+            .accept(
                 crate::voz::VOZ_ALPN,
                 crate::voz::HostVoz { inner: Arc::downgrade(&inner), hub: voz.clone() },
             )
             .spawn();
-        Ok(Self {
+        let node = Self {
             inner,
             router,
             local_only: opts.local_only,
             voz,
-        })
+        };
+        node.anunciar_voz();
+        Ok(node)
+    }
+
+    /// Enquanto este dispositivo alojar salas de voz, publica o anúncio na caixa de cada
+    /// grupo: quando muda e a cada dois minutos. Quando a sala esvazia, publica-a vazia.
+    fn anunciar_voz(&self) {
+        let inner = Arc::downgrade(&self.inner);
+        let hub = Arc::downgrade(&self.voz);
+        let mut mudou = self.voz.watch();
+        tokio::spawn(async move {
+            let mut publicados: HashMap<(GroupId, String), (Vec<[u8; 32]>, std::time::Instant, u64)> = HashMap::new();
+            loop {
+                tokio::select! {
+                    r = mudou.changed() => if r.is_err() { break },
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {}
+                }
+                // Junta alterações seguidas (várias pessoas a entrar ao mesmo tempo).
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                let (Some(inner), Some(hub)) = (inner.upgrade(), hub.upgrade()) else { break };
+                let agora: Vec<_> = hub.anuncios(&inner.identity, &inner.meus_enderecos());
+                let mut enviar = Vec::new();
+                for a in &agora {
+                    let k = (a.group, a.room.clone());
+                    let novo = match publicados.get(&k) {
+                        Some((p, t, d)) => *p != a.pessoas || *d != a.desde || t.elapsed() > std::time::Duration::from_secs(120),
+                        None => true,
+                    };
+                    if novo {
+                        publicados.insert(k, (a.pessoas.clone(), std::time::Instant::now(), a.desde));
+                        enviar.push(a.clone());
+                    }
+                }
+                let acabadas: Vec<_> = publicados
+                    .keys()
+                    .filter(|k| !agora.iter().any(|a| a.group == k.0 && a.room == k.1))
+                    .cloned()
+                    .collect();
+                for k in acabadas {
+                    let (_, _, desde) = publicados.remove(&k).unwrap();
+                    enviar.push(crate::voz::Anuncio::assinar(&inner.identity, k.0, &k.1, inner.endpoint_id, Vec::new(), Vec::new(), desde));
+                }
+                drop(hub);
+                for a in enviar {
+                    // Ao dono do grupo, diretamente (se estiver ligado responde logo a quem
+                    // perguntar), e na caixa do grupo.
+                    let dono = inner.store().group(a.group).ok().flatten().map(|g| g.owner);
+                    if let Some(dono) = dono.filter(|d| *d != inner.identity.public() && *d.as_bytes() != inner.endpoint_id) {
+                        let (ep, a2, cert) = (inner.endpoint.clone(), a.clone(), inner.certificado.clone());
+                        tokio::spawn(async move {
+                            let r: Result<()> = async {
+                                let addr = iroh::EndpointAddr::new(dono);
+                                if let Some(c) = &cert {
+                                    crate::dispositivo::apresentar(&ep, addr.clone(), c).await?;
+                                }
+                                let conn = tokio::time::timeout(
+                                    std::time::Duration::from_secs(8),
+                                    ep.connect(addr, crate::voz::VOZ_ALPN),
+                                )
+                                .await??;
+                                let (mut send, mut recv) = conn.open_bi().await?;
+                                write_frame(&mut send, &crate::voz::VozCliente::Anunciar(a2)).await?;
+                                send.finish()?;
+                                let _ = tokio::time::timeout(std::time::Duration::from_secs(3), recv.read_to_end(16)).await;
+                                conn.close(0u32.into(), b"ok");
+                                Ok(())
+                            }
+                            .await;
+                            if let Err(e) = r {
+                                debug!("anúncio de voz não chegou ao dono: {e:#}");
+                            }
+                        });
+                    }
+                    if let Err(e) = inner.publicar_anuncio(a).await {
+                        debug!("anúncio de voz não publicado: {e:#}");
+                    }
+                }
+            }
+        });
     }
 
     /// Amigos: lista, o meu estado e o que sei deles.
@@ -209,6 +360,11 @@ impl Node {
 
     pub fn identity(&self) -> &Identity {
         &self.inner.identity
+    }
+
+    /// Esquece um grupo neste dispositivo (sair do grupo, ou apagá-lo se fores o dono).
+    pub fn forget_group(&self, group: GroupId) -> Result<()> {
+        self.inner.store().forget_group(group)
     }
 
     /// Acesso à base de dados local (para ler histórico, nomes, etc.).
@@ -429,30 +585,274 @@ impl Node {
         })
     }
 
-    /// Entra numa sala de voz de um grupo. Como anfitrião fica neste PC; como membro liga-se
-    /// ao anfitrião, que reencaminha o áudio entre os participantes.
+    /// Entra numa sala de voz de um grupo. Se alguém já está a alojar a sala, liga-se a
+    /// essa pessoa; se não, passa a alojá-la este dispositivo (quem entra primeiro aloja).
     pub async fn entrar_voz(&self, group: GroupId, room: &str) -> Result<crate::voz::Chamada> {
-        let info = self
-            .inner
+        if self.voz.hospeda(group, room) {
+            return Ok(self.chamada_local(group, room));
+        }
+        let privada = self.inner.privadas.lock().unwrap().get(&group).cloned();
+        if let Some((amigo, onde)) = privada {
+            // Chamada privada: a chamada está no dispositivo de onde nos ligaram ou no PC
+            // do amigo; se não estiver em nenhum, fica aqui.
+            let alvos = onde
+                .into_iter()
+                .map(|a| (a, std::time::Duration::from_secs(3)))
+                .chain(std::iter::once((iroh::EndpointAddr::new(amigo), std::time::Duration::ZERO)));
+            for (alvo, espera) in alvos {
+                if let Ok(c) = self.entrar_voz_em(group, room, alvo, espera).await {
+                    return Ok(c);
+                }
+            }
+            return Ok(self.chamada_local(group, room));
+        }
+        self.inner
             .store()
             .group(group)?
             .ok_or_else(|| anyhow!("grupo desconhecido"))?;
-        if info.hosted {
-            let me = *self.inner.identity.public().as_bytes();
-            return Ok(crate::voz::Chamada::local(self.voz.clone(), group, room, me));
+        let mut tentados = Vec::new();
+        for perguntar in [false, true] {
+            if perguntar {
+                self.perguntar_salas(group).await;
+            }
+            let candidatos: Vec<_> = self
+                .salas_conhecidas(group)
+                .into_iter()
+                .filter(|a| a.room == room && a.endpoint != self.inner.endpoint_id && !tentados.contains(&a.endpoint))
+                .collect();
+            for a in candidatos {
+                tentados.push(a.endpoint);
+                let Ok(addr) = a.addr() else { continue };
+                match self.entrar_voz_em(group, room, addr, std::time::Duration::from_secs(4)).await {
+                    Ok(c) => return Ok(c),
+                    Err(e) => {
+                        debug!("voz: {} não respondeu: {e:#}", hex::encode(&a.endpoint[..4]));
+                        // Já não aloja: esquece o anúncio.
+                        self.inner.anuncios.lock().unwrap().retain(|_, x| x.endpoint != a.endpoint || x.room != room);
+                    }
+                }
+            }
         }
-        self.apresentar(&iroh::EndpointAddr::new(info.owner)).await?;
-        let conn = tokio::time::timeout(
-            std::time::Duration::from_secs(20),
-            self.router.endpoint().connect(iroh::EndpointAddr::new(info.owner), crate::voz::VOZ_ALPN),
-        )
-        .await
-        .map_err(|_| anyhow!("o anfitrião não respondeu"))?
-        .map_err(|e| anyhow!("não consegui ligar ao anfitrião: {e}"))?;
-        crate::voz::Chamada::remota(conn, group, room).await
+        Ok(self.chamada_local(group, room))
     }
 
-    /// Anfitrião: as salas de voz de um grupo e quem está em cada uma.
+    fn chamada_local(&self, group: GroupId, room: &str) -> crate::voz::Chamada {
+        let me = *self.inner.identity.public().as_bytes();
+        crate::voz::Chamada::local(self.voz.clone(), group, room, me)
+    }
+
+    /// Chamada privada com um amigo. `onde`: dispositivo de onde ele nos ligou (de um
+    /// [`crate::voz::Toque`]). Se a chamada ainda não existir, fica a ser alojada aqui e o
+    /// PC do amigo recebe um toque.
+    pub async fn ligar_privado(&self, amigo: iroh::PublicKey, onde: Option<iroh::EndpointAddr>) -> Result<crate::voz::Chamada> {
+        let eu = self.inner.identity.public();
+        let g = crate::voz::grupo_privado(&eu, &amigo);
+        self.inner.privadas.lock().unwrap().insert(g, (amigo, onde));
+        let c = self.entrar_voz(g, "privada").await?;
+        if c.e_anfitriao() {
+            let node = self.clone();
+            tokio::spawn(async move {
+                let r: Result<()> = async {
+                    let addr = iroh::EndpointAddr::new(amigo);
+                    let _ = node.apresentar(&addr).await;
+                    let conn = tokio::time::timeout(
+                        std::time::Duration::from_secs(10),
+                        node.router.endpoint().connect(addr, crate::voz::VOZ_ALPN),
+                    )
+                    .await??;
+                    let (mut send, mut recv) = conn.open_bi().await?;
+                    write_frame(&mut send, &crate::voz::VozCliente::Tocar { group: g }).await?;
+                    send.finish()?;
+                    let _ = tokio::time::timeout(std::time::Duration::from_secs(3), recv.read_to_end(16)).await;
+                    conn.close(0u32.into(), b"ok");
+                    Ok(())
+                }
+                .await;
+                if let Err(e) = r {
+                    debug!("toque não chegou: {e:#}");
+                }
+            });
+        }
+        Ok(c)
+    }
+
+    /// Chamadas privadas a chegar.
+    pub fn toques(&self) -> broadcast::Receiver<crate::voz::Toque> {
+        self.inner.toques.subscribe()
+    }
+
+    /// Liga-se à chamada alojada num dispositivo concreto (por exemplo depois de um
+    /// [`crate::voz::NovoHost`]). Se for este dispositivo, passa a alojá-la. Enquanto o
+    /// outro lado ainda não estiver pronto, tenta de novo até `espera`.
+    pub async fn entrar_voz_em(
+        &self,
+        group: GroupId,
+        room: &str,
+        alvo: iroh::EndpointAddr,
+        espera: std::time::Duration,
+    ) -> Result<crate::voz::Chamada> {
+        let limite = tokio::time::Instant::now() + espera;
+        let mut alvo = alvo;
+        let mut saltos = 0;
+        loop {
+            if *alvo.id.as_bytes() == self.inner.endpoint_id {
+                return Ok(self.chamada_local(group, room));
+            }
+            let r: Result<crate::voz::Chamada> = async {
+                let addr = alvo.clone();
+                self.apresentar(&addr).await?;
+                let conn = tokio::time::timeout(
+                    std::time::Duration::from_secs(8),
+                    self.router.endpoint().connect(addr, crate::voz::VOZ_ALPN),
+                )
+                .await
+                .map_err(|_| anyhow!("quem aloja a chamada não respondeu"))?
+                .map_err(|e| anyhow!("não consegui ligar a quem aloja a chamada: {e}"))?;
+                crate::voz::Chamada::remota(conn, group, room).await
+            }
+            .await;
+            match r {
+                Ok(c) => return Ok(c),
+                Err(e) => {
+                    if let Some(crate::voz::Redirecionar(n)) = e.downcast_ref::<crate::voz::Redirecionar>() {
+                        saltos += 1;
+                        if saltos > 4 {
+                            bail!("a chamada mudou de anfitrião demasiadas vezes");
+                        }
+                        alvo = n.addr()?;
+                        continue;
+                    }
+                    if tokio::time::Instant::now() >= limite {
+                        return Err(e);
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+                }
+            }
+        }
+    }
+
+    /// Pergunta ao dono do grupo e a alguns membros quem está a alojar salas de voz.
+    async fn perguntar_salas(&self, group: GroupId) {
+        let Ok(Some(info)) = self.inner.store().group(group) else { return };
+        let eu = self.inner.identity.public();
+        let mut alvos = vec![info.owner];
+        for (m, _) in self.inner.store().members(group).unwrap_or_default() {
+            if !alvos.contains(&m) {
+                alvos.push(m);
+            }
+        }
+        alvos.retain(|k| *k != eu && *k.as_bytes() != self.inner.endpoint_id);
+        alvos.truncate(16);
+        let mut tarefas = tokio::task::JoinSet::new();
+        for alvo in alvos {
+            let node = self.clone();
+            tarefas.spawn(async move {
+                let r: Result<Vec<crate::voz::Anuncio>> = async {
+                    let addr = iroh::EndpointAddr::new(alvo);
+                    let _ = node.apresentar(&addr).await;
+                    let conn = node.router.endpoint().connect(addr, crate::voz::VOZ_ALPN).await?;
+                    let (mut send, mut recv) = conn.open_bi().await?;
+                    write_frame(&mut send, &crate::voz::VozCliente::Quem { group }).await?;
+                    let r = read_frame::<crate::voz::VozAnfitriao>(&mut recv).await?;
+                    conn.close(0u32.into(), b"obrigado");
+                    match r {
+                        Some(crate::voz::VozAnfitriao::Conhecidos(l)) => Ok(l),
+                        _ => Ok(Vec::new()),
+                    }
+                }
+                .await;
+                r.unwrap_or_default()
+            });
+        }
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while let Some(r) = tarefas.join_next().await {
+                for a in r.unwrap_or_default() {
+                    if a.group == group {
+                        self.inner.guardar_anuncio(a);
+                    }
+                }
+            }
+        })
+        .await;
+    }
+
+    /// A pasta dos anexos deste dispositivo.
+    pub fn pasta(&self) -> Option<&crate::ficheiros::Pasta> {
+        self.inner.pasta.as_ref()
+    }
+
+    /// Caminho local de um anexo, pedindo-o a quem o tiver se ainda não está cá: primeiro
+    /// a quem o enviou, depois ao dono do grupo e a quem está online.
+    pub async fn obter_ficheiro(&self, group: GroupId, anexo: &crate::event::Anexo) -> Result<std::path::PathBuf> {
+        let pasta = self.inner.pasta.clone().ok_or_else(|| anyhow!("sem pasta de ficheiros"))?;
+        if pasta.tem(&anexo.hash) {
+            return Ok(pasta.caminho(&anexo.hash));
+        }
+        ensure!(anexo.size <= crate::ficheiros::MAX_FICHEIRO, "ficheiro demasiado grande");
+        let mut alvos: Vec<iroh::PublicKey> = Vec::new();
+        if let Ok(k) = iroh::PublicKey::from_bytes(&anexo.de) {
+            alvos.push(k);
+        }
+        if let Ok(Some(info)) = self.inner.store().group(group) {
+            alvos.push(info.owner);
+        }
+        for k in self.inner.presence(group).borrow().keys() {
+            if let Ok(k) = iroh::PublicKey::from_bytes(k) {
+                alvos.push(k);
+            }
+        }
+        let mut vistos = Vec::new();
+        let mut ultimo = anyhow!("ninguém online tem este ficheiro");
+        for k in alvos {
+            if vistos.contains(&k) || *k.as_bytes() == self.inner.endpoint_id || vistos.len() >= 8 {
+                continue;
+            }
+            vistos.push(k);
+            let addr = iroh::EndpointAddr::new(k);
+            let _ = self.apresentar(&addr).await;
+            match crate::ficheiros::pedir(self.router.endpoint(), addr, &pasta, group, anexo.hash).await {
+                Ok(p) => return Ok(p),
+                Err(e) => ultimo = e,
+            }
+        }
+        Err(ultimo)
+    }
+
+    /// Chave iroh deste dispositivo (vai nos anexos, para pedirem o ficheiro aqui).
+    pub fn endpoint_id(&self) -> [u8; 32] {
+        self.inner.endpoint_id
+    }
+
+    /// As salas de voz que se sabe estarem ativas num grupo, com quem aloja cada uma e
+    /// quem lá está (as deste dispositivo e as que outros anunciaram).
+    pub fn salas_conhecidas(&self, group: GroupId) -> Vec<crate::voz::Anuncio> {
+        self.inner.anuncios_de(group, &self.voz)
+    }
+
+    /// Passa a chamada que este dispositivo aloja para outro (o mesmo que
+    /// [`crate::voz::Chamada::passar_host`], mas para fundir chamadas partidas).
+    fn juntar_chamadas(&self, a: &crate::voz::Anuncio) {
+        if !a.ativo() || !self.voz.hospeda(a.group, &a.room) {
+            return;
+        }
+        let nossa = self
+            .voz
+            .anuncios(&self.inner.identity, &[])
+            .into_iter()
+            .find(|x| x.group == a.group && x.room == a.room);
+        if let Some(n) = nossa {
+            // Duas chamadas na mesma sala: fica a que começou primeiro.
+            if (a.desde, a.endpoint) < (n.desde, n.endpoint) {
+                self.voz.mudar_para(
+                    a.group,
+                    &a.room,
+                    crate::voz::NovoHost { endpoint: a.endpoint, conta: a.conta, enderecos: a.enderecos.clone() },
+                );
+            }
+        }
+    }
+
+    /// As salas de voz que este dispositivo aloja num grupo e quem está em cada uma.
     pub fn salas_voz(&self, group: GroupId) -> Vec<(String, Vec<crate::voz::Participante>)> {
         self.voz.salas(group)
     }
@@ -556,6 +956,35 @@ impl GroupHandle {
             text: text.into(),
         })
         .await
+    }
+
+    /// Envia uma mensagem com resposta e/ou anexos.
+    pub async fn post(
+        &self,
+        channel: &str,
+        text: &str,
+        reply_to: Option<[u8; 32]>,
+        files: Vec<crate::event::Anexo>,
+    ) -> Result<[u8; 32]> {
+        if reply_to.is_none() && files.is_empty() {
+            return self.send_message(channel, text).await;
+        }
+        self.publish(EventKind::Post { channel: channel.into(), text: text.into(), reply_to, files }).await
+    }
+
+    /// Muda o texto de uma mensagem tua.
+    pub async fn edit_message(&self, target: [u8; 32], text: &str) -> Result<[u8; 32]> {
+        self.publish(EventKind::Edit { target, text: text.into() }).await
+    }
+
+    /// Apaga uma mensagem (tua, ou de qualquer pessoa se fores o dono).
+    pub async fn delete_message(&self, target: [u8; 32]) -> Result<[u8; 32]> {
+        self.publish(EventKind::Delete { target }).await
+    }
+
+    /// Põe ou tira uma reação.
+    pub async fn react(&self, target: [u8; 32], emoji: &str, on: bool) -> Result<[u8; 32]> {
+        self.publish(EventKind::React { target, emoji: emoji.into(), on }).await
     }
 
     async fn publish(&self, kind: EventKind) -> Result<[u8; 32]> {
@@ -776,6 +1205,19 @@ impl Inner {
         false
     }
 
+    /// Põe um anúncio de voz na caixa do grupo (sem servidor, não faz nada).
+    async fn publicar_anuncio(&self, a: crate::voz::Anuncio) -> Result<()> {
+        #[cfg(feature = "servidor")]
+        if let Some(srv) = &self.servidor {
+            let Some((_, key, _, _)) = self.store().group_key(a.group)? else { return Ok(()) };
+            let bloco = key.seal_item(&crate::caixa::ItemGrupo::Voz(a))?;
+            srv.caixa_enviar_bloco(&key, bloco).await?;
+        }
+        #[cfg(not(feature = "servidor"))]
+        let _ = a;
+        Ok(())
+    }
+
     /// Membro com o anfitrião desligado: deixa o evento na caixa como pedido.
     async fn send_request(&self, group: GroupId, ev: SignedEvent) -> Result<()> {
         #[cfg(feature = "servidor")]
@@ -835,6 +1277,12 @@ impl Node {
                         }
                         Ok(None) => {}
                         Err(e) => warn!("pedido recusado: {e:#}"),
+                    }
+                }
+                (_, ItemGrupo::Voz(a)) => {
+                    if a.group == group && self.inner.guardar_anuncio(a.clone()) {
+                        self.juntar_chamadas(&a);
+                        self.voz.tocar();
                     }
                 }
                 (false, item @ ItemGrupo::Registo { .. }) => {

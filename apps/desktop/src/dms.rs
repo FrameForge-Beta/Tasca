@@ -199,6 +199,9 @@ impl Conversas {
                         // escritas aqui, `juntar` já as tinha e devolve `false`)
                         if self.juntar(&amigo, Some(seq), m) {
                             let _ = app.emit("message", json!({ "channelId": format!("dm-{amigo}"), "message": json }));
+                            if autor != meu {
+                                crate::avisos::mensagem(&app, &format!("dm-{amigo}"), None, "Mensagem privada", text);
+                            }
                         }
                         novas = true;
                     }

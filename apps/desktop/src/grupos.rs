@@ -72,6 +72,9 @@ struct Sinc {
     em_foto: u64,
     #[serde(default)]
     em_banner: u64,
+    /// Grupos de que saíste neste dispositivo (não voltam pela sincronia da conta).
+    #[serde(default)]
+    esquecidos: Vec<String>,
 }
 
 struct Ligacao {
@@ -134,13 +137,46 @@ impl Ativa {
         if self.eu(chave) { "me".into() } else { hex(chave) }
     }
 
-    fn handle(&self, g: GroupId) -> Res<GroupHandle> {
+    pub(crate) fn handle(&self, g: GroupId) -> Res<GroupHandle> {
         self.ligacoes
             .lock()
             .unwrap()
             .get(&g)
             .map(|l| l.handle.clone())
             .ok_or_else(|| "Grupo desconhecido.".into())
+    }
+
+    /// Notificação do sistema para uma mensagem nova de outra pessoa.
+    fn avisar(&self, app: &AppHandle, g: GroupId, canal: &str, channel_id: &str, ev: &SignedEvent) {
+        // só mensagens recentes (não o histórico que chega ao sincronizar)
+        if now_ms().saturating_sub(ev.body.timestamp_ms) > 10 * 60 * 1000 {
+            return;
+        }
+        let (texto, anexos) = match &ev.body.kind {
+            EventKind::Message { text, .. } => (text.clone(), 0),
+            EventKind::Post { text, files, .. } => (text.clone(), files.len()),
+            _ => return,
+        };
+        let texto = if texto.trim().is_empty() && anexos > 0 { format!("📎 {anexos} anexo(s)") } else { texto };
+        let (grupo, autor, nome_canal) = self.node.with_store(|s| {
+            let grupo = s.group(g).ok().flatten().map(|i| i.name).unwrap_or_default();
+            let autor = s
+                .members(g)
+                .ok()
+                .and_then(|l| l.into_iter().find(|(k, _)| *k.as_bytes() == ev.body.author).map(|(_, n)| n))
+                .unwrap_or_else(|| "Alguém".into());
+            let nome_canal = s
+                .layout(g)
+                .ok()
+                .and_then(|(cs, _)| cs.into_iter().find(|c| c.id == canal).map(|c| c.name))
+                .unwrap_or_else(|| canal.to_string());
+            (grupo, autor, nome_canal)
+        });
+        crate::avisos::mensagem(app, channel_id, Some(&hex(&g.0)), &format!("{autor} · #{nome_canal} ({grupo})"), &texto);
+    }
+
+    pub(crate) fn tem_servidor(&self) -> bool {
+        self.servidor
     }
 
     fn online(&self, g: GroupId) -> bool {
@@ -190,6 +226,17 @@ impl Ativa {
         let mut pres = self.node.presence(g);
         self.tarefa(async move {
             while pres.changed().await.is_ok() {
+                let _ = ap.emit("group_changed", json!({ "groupId": hex(&g.0) }));
+            }
+        });
+
+        // salas de voz alojadas neste dispositivo ou anunciadas por outros mudaram
+        let ap = app.clone();
+        let mut voz = self.node.watch_voz();
+        self.tarefa(async move {
+            while voz.changed().await.is_ok() {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                voz.borrow_and_update();
                 let _ = ap.emit("group_changed", json!({ "groupId": hex(&g.0) }));
             }
         });
@@ -256,8 +303,14 @@ impl Ativa {
 
     fn emitir(&self, app: &AppHandle, g: GroupId, ev: &SignedEvent) {
         match &ev.body.kind {
-            EventKind::Message { channel, .. } => {
+            EventKind::Message { channel, .. } | EventKind::Post { channel, .. } => {
+                if self.node.with_store(|s| s.group(g)).ok().flatten().is_some_and(|i| i.hosted) {
+                    crate::mensagens::guardar_copias(self, g, ev);
+                }
                 let channel_id = format!("{}/{channel}", hex(&g.0));
+                if !self.eu(&ev.body.author) {
+                    self.avisar(app, g, channel, &channel_id, ev);
+                }
                 if self.eu(&ev.body.author) {
                     // a minha mensagem voltou do anfitrião: está guardada no grupo
                     let _ = app.emit("message_ack", json!({ "channelId": channel_id, "id": hex(&ev.id()) }));
@@ -266,8 +319,17 @@ impl Ativa {
                 // dispositivo da conta (a interface ignora as que já tem)
                 let _ = app.emit(
                     "message",
-                    json!({ "channelId": channel_id, "groupId": hex(&g.0), "message": self.mensagem(ev) }),
+                    json!({ "channelId": channel_id, "groupId": hex(&g.0), "message": crate::mensagens::nova_json(self, g, ev) }),
                 );
+            }
+            EventKind::Edit { target, .. } | EventKind::Delete { target } | EventKind::React { target, .. } => {
+                if let Some((ch, m)) = crate::mensagens::uma(self, g, target) {
+                    let channel_id = format!("{}/{ch}", hex(&g.0));
+                    let _ = app.emit(
+                        "message_update",
+                        json!({ "channelId": channel_id, "groupId": hex(&g.0), "id": hex(target), "message": m }),
+                    );
+                }
             }
             _ => {
                 let _ = app.emit("group_changed", json!({ "groupId": hex(&g.0) }));
@@ -275,18 +337,6 @@ impl Ativa {
         }
     }
 
-    fn mensagem(&self, ev: &SignedEvent) -> Value {
-        let text = match &ev.body.kind {
-            EventKind::Message { text, .. } => text.as_str(),
-            _ => "",
-        };
-        json!({
-            "id": hex(&ev.id()),
-            "ts": ev.body.timestamp_ms,
-            "from": self.pessoa_id(&ev.body.author),
-            "text": text,
-        })
-    }
 
     /// Quem está online no grupo agora, e em que sala de voz.
     fn presenca(&self, g: GroupId) -> tasca_core::protocol::Presence {
@@ -448,7 +498,7 @@ impl Ativa {
             Item::Grupo { id, nome, dono, .. } => {
                 let (Some(g), Some(dono)) = (unhex32(&id).map(GroupId), unhex32(&dono)) else { return };
                 let Ok(dono_pk) = PublicKey::from_bytes(&dono) else { return };
-                if self.node.with_store(|s| s.group(g)).ok().flatten().is_some() {
+                if self.node.with_store(|s| s.group(g)).ok().flatten().is_some() || self.sinc.lock().unwrap().esquecidos.contains(&id) {
                     return;
                 }
                 // grupo meu que este PC não tem: só o PC que o criou o pode hospedar
@@ -588,7 +638,8 @@ pub(crate) async fn ativa(app: &AppHandle, rede: &Rede, contas: &Contas) -> Res<
     // o telemóvel tem chave própria e apresenta-se com certificado da conta: assim não
     // tira o lugar ao PC na rede quando os dois estão ligados
     let dispositivo = if cfg!(mobile) { Some(chave_dispositivo(&pasta)?) } else { None };
-    let node = Node::spawn(id.clone(), store, NodeOptions { servidor: servidor.clone(), dispositivo, ..Default::default() })
+    let ficheiros = Some(pasta.join("ficheiros"));
+    let node = Node::spawn(id.clone(), store, NodeOptions { servidor: servidor.clone(), dispositivo, ficheiros, ..Default::default() })
         .await
         .map_err(txt)?;
     let caminho_sinc = pasta.join("sincronia.json");
@@ -613,6 +664,18 @@ pub(crate) async fn ativa(app: &AppHandle, rede: &Rede, contas: &Contas) -> Res<
         let (a2, ap) = (a.clone(), app.clone());
         a.tarefa(async move { a2.ler_conta(ap).await });
     }
+    // chamadas privadas a chegar
+    let (mut toques, ap) = (a.node.toques(), app.clone());
+    a.tarefa(async move {
+        use tokio::sync::broadcast::error::RecvError;
+        loop {
+            match toques.recv().await {
+                Ok(t) => crate::voz::tocou(&ap, t),
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => break,
+            }
+        }
+    });
     *g = Some(a.clone());
     Ok(a)
 }
@@ -690,16 +753,27 @@ pub async fn list_channels(app: AppHandle, rede: State<'_, Rede>, c: State<'_, C
     let g = grupo(&group_id)?;
     let (canais, _) = a.layout(g)?;
     let pres = a.presenca(g);
+    let salas = a.node.salas_conhecidas(g);
     Ok(canais
         .iter()
         .map(|ch| {
             let mut v = a.canal_json(g, ch);
             if ch.kind == ChannelKind::Voice {
-                let quem: Vec<String> = pres
+                let mut quem: Vec<String> = pres
                     .iter()
                     .filter(|(_, sala)| sala.as_deref() == Some(ch.id.as_str()))
                     .map(|(k, _)| a.pessoa_id(k))
                     .collect();
+                // Chamadas alojadas por outros (o dono do grupo pode estar desligado).
+                for s in salas.iter().filter(|s| s.room == ch.id) {
+                    for k in &s.pessoas {
+                        let id = a.pessoa_id(k);
+                        if !quem.contains(&id) {
+                            quem.push(id);
+                        }
+                    }
+                    v["voiceHost"] = json!(a.pessoa_id(&s.conta));
+                }
                 v["inVoice"] = json!(quem);
             }
             v
@@ -717,48 +791,11 @@ pub async fn list_categories(app: AppHandle, rede: State<'_, Rede>, c: State<'_,
 #[tauri::command]
 pub async fn list_messages(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>, channel_id: String) -> Res<Vec<Value>> {
     if channel_id.starts_with("dm-") {
-        return Ok(vec![]); // conversas privadas ainda não estão ligadas
+        return Ok(vec![]); // conversas privadas: ver dms.rs
     }
     let a = ativa(&app, &rede, &c).await?;
     let (g, ch) = canal(&channel_id)?;
-    let eventos = a.node.with_store(|s| s.events_since(g, 0)).map_err(txt)?;
-    let msgs: Vec<Value> = eventos
-        .iter()
-        .filter(|(_, ev)| matches!(&ev.body.kind, EventKind::Message { channel, .. } if *channel == ch))
-        .map(|(_, ev)| a.mensagem(ev))
-        .collect();
-    let de = msgs.len().saturating_sub(500);
-    Ok(msgs[de..].to_vec())
-}
-
-#[tauri::command]
-pub async fn send_message(
-    app: AppHandle,
-    rede: State<'_, Rede>,
-    c: State<'_, Contas>,
-    channel_id: String,
-    text: String,
-) -> Res<Value> {
-    let a = ativa(&app, &rede, &c).await?;
-    let (g, ch) = canal(&channel_id)?;
-    let h = a.handle(g)?;
-    let ligado = h.is_connected();
-    let hosted = h.is_hosted();
-    if !ligado && !a.servidor {
-        return Err("O anfitrião está offline. Tenta quando ele voltar.".into());
-    }
-    let id = tokio::time::timeout(Duration::from_secs(20), h.send_message(&ch, &text))
-        .await
-        .map_err(|_| "O envio demorou demasiado.".to_string())?
-        .map_err(txt)?;
-    Ok(json!({
-        "id": hex(&id),
-        "ts": tasca_core::event::now_ms(),
-        "from": "me",
-        "text": text,
-        // ligado a outro PC: fica pendente até o anfitrião a devolver (message_ack)
-        "pending": ligado && !hosted,
-    }))
+    crate::mensagens::listar(&a, g, &ch)
 }
 
 #[tauri::command]
@@ -1226,4 +1263,62 @@ pub async fn publish_profile(
         }
     }
     Ok(true)
+}
+
+/// Sai de um grupo (ou apaga-o, se fores o dono) neste dispositivo. Os outros membros ficam
+/// com a cópia deles. A rede reinicia para parar tudo o que estava ligado a este grupo.
+#[tauri::command]
+pub async fn leave_group(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>, group_id: String) -> Res<bool> {
+    let a = ativa(&app, &rede, &c).await?;
+    let g = grupo(&group_id)?;
+    a.node.forget_group(g).map_err(txt)?;
+    a.sinc.lock().unwrap().esquecidos.push(group_id);
+    a.guardar_sinc();
+    if let Some(velha) = rede.ativa.lock().await.take() {
+        velha.parar().await;
+    }
+    ativa(&app, &rede, &c).await?;
+    Ok(true)
+}
+
+/// Guarda uma cópia de todos os grupos deste dispositivo na pasta Transferências.
+#[tauri::command]
+pub async fn backup_groups(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>) -> Res<String> {
+    use tauri::Manager;
+    let a = ativa(&app, &rede, &c).await?;
+    let pasta = app.path().download_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&pasta).map_err(|e| e.to_string())?;
+    let dia = {
+        let s = now_ms() / 1000;
+        let (d, m, y) = civil(s / 86400);
+        format!("{y:04}-{m:02}-{d:02}")
+    };
+    let mut destino = pasta.join(format!("Tasca-grupos-{dia}.db"));
+    let mut n = 1;
+    while destino.exists() {
+        destino = pasta.join(format!("Tasca-grupos-{dia} ({n}).db"));
+        n += 1;
+    }
+    let d2 = destino.clone();
+    a.node.with_store(|s| s.copy_to(&d2)).map_err(txt)?;
+    #[cfg(desktop)]
+    {
+        use tauri_plugin_opener::OpenerExt;
+        let _ = app.opener().reveal_item_in_dir(&destino);
+    }
+    Ok(destino.to_string_lossy().into_owned())
+}
+
+/// Dias desde 1970 → (dia, mês, ano).
+fn civil(z: u64) -> (u64, u64, i64) {
+    let z = z as i64 + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
+    (d as u64, m as u64, y)
 }

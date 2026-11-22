@@ -1,4 +1,9 @@
-//! Chamadas de voz: o anfitrião do grupo reencaminha o áudio entre quem está na mesma sala.
+//! Chamadas de voz: quem entra primeiro numa sala aloja a chamada e reencaminha o áudio
+//! entre quem lá está. O papel pode passar para outra pessoa da chamada (ver
+//! [`Chamada::passar_host`]) e passa sozinho quando quem aloja sai.
+//!
+//! Para os outros saberem quem aloja cada sala, quem aloja publica um [`Anuncio`]
+//! assinado (na caixa do grupo e a quem perguntar com [`VozCliente::Quem`]).
 //!
 //! O áudio já vem codificado (Opus) e o anfitrião não o descodifica: só o copia para os
 //! outros participantes. Cada membro abre uma ligação iroh com o ALPN [`VOZ_ALPN`] ao
@@ -37,7 +42,10 @@ use crate::{
 };
 
 /// Identificador do protocolo de voz na negociação QUIC (ALPN).
-pub const VOZ_ALPN: &[u8] = b"tasca/voz/0";
+pub const VOZ_ALPN: &[u8] = b"tasca/voz/1";
+
+/// Um anúncio deixa de valer se não for renovado durante este tempo (ms).
+pub const ANUNCIO_VALIDADE_MS: u64 = 5 * 60 * 1000;
 
 /// Tamanho máximo do nome de uma sala.
 const MAX_SALA: usize = 64;
@@ -55,7 +63,156 @@ pub struct Participante {
     pub camera: bool,
     /// A partilhar o ecrã.
     pub screen: bool,
+    /// Chave iroh do dispositivo (no telemóvel é diferente da conta).
+    pub endpoint: [u8; 32],
+    /// É quem aloja a chamada.
+    pub anfitriao: bool,
+    /// Por onde o anfitrião o vê (para os outros lhe ligarem se ficar com a chamada).
+    pub enderecos: Vec<iroh::TransportAddr>,
 }
+
+/// Para onde a chamada mudou.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NovoHost {
+    /// Dispositivo que passa a alojar a chamada.
+    pub endpoint: [u8; 32],
+    /// A conta dessa pessoa.
+    pub conta: [u8; 32],
+    /// Endereços conhecidos desse dispositivo.
+    pub enderecos: Vec<iroh::TransportAddr>,
+}
+
+impl NovoHost {
+    pub fn addr(&self) -> Result<iroh::EndpointAddr> {
+        addr_de(&self.endpoint, &self.enderecos)
+    }
+}
+
+fn addr_de(endpoint: &[u8; 32], enderecos: &[iroh::TransportAddr]) -> Result<iroh::EndpointAddr> {
+    let id = iroh::PublicKey::from_bytes(endpoint).map_err(|e| anyhow!("chave inválida: {e}"))?;
+    Ok(iroh::EndpointAddr::from_parts(id, enderecos.iter().cloned()))
+}
+
+fn enderecos_de(c: &Connection) -> Vec<iroh::TransportAddr> {
+    c.paths().iter().map(|p| p.remote_addr().clone()).collect()
+}
+
+/// "Estou a alojar esta sala de voz": quem aloja assina e publica, para os outros
+/// saberem onde ligar quando o anfitrião do grupo está desligado.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Anuncio {
+    pub group: GroupId,
+    pub room: String,
+    pub endpoint: [u8; 32],
+    pub enderecos: Vec<iroh::TransportAddr>,
+    pub conta: [u8; 32],
+    /// Contas que estão na sala (vazio = a chamada acabou).
+    pub pessoas: Vec<[u8; 32]>,
+    /// Quando esta pessoa começou a alojar (ms desde 1970).
+    pub desde: u64,
+    /// Quando o anúncio foi feito (ms desde 1970).
+    pub ts: u64,
+    pub sig: Vec<u8>,
+}
+
+pub(crate) fn agora_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+impl Anuncio {
+    fn msg(&self) -> Vec<u8> {
+        let corpo = (&self.group, &self.room, &self.endpoint, &self.enderecos, &self.conta, &self.pessoas, self.desde, self.ts);
+        let mut h = blake3::Hasher::new_derive_key("tasca 2026 anuncio voz v1");
+        h.update(&postcard::to_stdvec(&corpo).unwrap_or_default());
+        h.finalize().as_bytes().to_vec()
+    }
+
+    pub(crate) fn assinar(
+        eu: &crate::identity::Identity,
+        group: GroupId,
+        room: &str,
+        endpoint: [u8; 32],
+        enderecos: Vec<iroh::TransportAddr>,
+        pessoas: Vec<[u8; 32]>,
+        desde: u64,
+    ) -> Self {
+        let mut a = Anuncio {
+            group,
+            room: room.to_string(),
+            endpoint,
+            enderecos,
+            conta: *eu.public().as_bytes(),
+            pessoas,
+            desde,
+            ts: agora_ms(),
+            sig: Vec::new(),
+        };
+        a.sig = eu.secret().sign(&a.msg()).to_bytes().to_vec();
+        a
+    }
+
+    /// Confirma a assinatura da conta.
+    pub fn verificar(&self) -> Result<()> {
+        let sig: [u8; 64] = self.sig.as_slice().try_into().map_err(|_| anyhow!("assinatura inválida"))?;
+        let conta = iroh::PublicKey::from_bytes(&self.conta).map_err(|e| anyhow!("conta inválida: {e}"))?;
+        conta
+            .verify(&self.msg(), &iroh::Signature::from_bytes(&sig))
+            .map_err(|_| anyhow!("anúncio de voz com assinatura inválida"))
+    }
+
+    pub fn addr(&self) -> Result<iroh::EndpointAddr> {
+        addr_de(&self.endpoint, &self.enderecos)
+    }
+
+    /// Ainda vale e tem gente.
+    pub fn ativo(&self) -> bool {
+        !self.pessoas.is_empty() && agora_ms().saturating_sub(self.ts) < ANUNCIO_VALIDADE_MS
+    }
+}
+
+/// "Grupo" de uma chamada privada entre duas contas: o mesmo para os dois lados e
+/// impossível de adivinhar por quem não é nenhuma delas.
+pub fn grupo_privado(a: &iroh::PublicKey, b: &iroh::PublicKey) -> GroupId {
+    let (x, y) = if a.as_bytes() <= b.as_bytes() { (a, b) } else { (b, a) };
+    let mut h = blake3::Hasher::new_derive_key("tasca 2026 chamada privada v1");
+    h.update(x.as_bytes());
+    h.update(y.as_bytes());
+    GroupId(*h.finalize().as_bytes())
+}
+
+/// Alguém está a ligar-te (chamada privada).
+#[derive(Debug, Clone)]
+pub struct Toque {
+    /// Conta de quem liga.
+    pub de: [u8; 32],
+    /// Dispositivo de onde liga (é lá que a chamada está).
+    pub endpoint: iroh::EndpointAddr,
+}
+
+/// O anfitrião mandou ligar a outra pessoa (ver [`NovoHost`]).
+#[derive(Debug)]
+pub struct Redirecionar(pub NovoHost);
+
+impl std::fmt::Display for Redirecionar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a chamada mudou de anfitrião")
+    }
+}
+impl std::error::Error for Redirecionar {}
+
+/// Esse dispositivo não está a alojar a sala (ainda, ou já não).
+#[derive(Debug)]
+pub struct NaoAloja;
+
+impl std::fmt::Display for NaoAloja {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("esse dispositivo não está a alojar esta chamada")
+    }
+}
+impl std::error::Error for NaoAloja {}
 
 /// Tamanho máximo de uma imagem de vídeo (8 MiB).
 const MAX_IMAGEM: usize = 8 * 1024 * 1024;
@@ -80,22 +237,38 @@ pub struct Pacote {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-enum VozCliente {
+pub(crate) enum VozCliente {
     Entrar { group: GroupId, room: String },
     Estado { muted: bool, deaf: bool },
     Video { camera: bool, screen: bool },
+    /// Quem está a alojar salas deste grupo? (só para membros)
+    Quem { group: GroupId },
+    /// Passa a chamada a outra pessoa da sala (só o anfitrião do grupo, por rede).
+    PassarHost { para: u16 },
+    /// Para o dono do grupo saber quem aloja (e dizer a quem perguntar).
+    Anunciar(Anuncio),
+    /// Chamada privada: "estou a ligar-te" (o grupo é [`grupo_privado`] dos dois).
+    Tocar { group: GroupId },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-enum VozAnfitriao {
+pub(crate) enum VozAnfitriao {
     Aceite { id: u16 },
     Recusado(String),
     Sala(Vec<Participante>),
+    /// Liga-te a outra pessoa: é ela que aloja agora.
+    NovoHost(NovoHost),
+    /// Não estou a alojar essa sala.
+    NaoAloja,
+    /// Resposta a `Quem`.
+    Conhecidos(Vec<Anuncio>),
 }
 
 /// As salas de voz que este PC hospeda.
 pub(crate) struct Hub {
     inner: Weak<Inner>,
+    /// Chave iroh deste dispositivo.
+    eu: [u8; 32],
     estado: Mutex<HubEstado>,
     /// Muda sempre que alguém entra, sai ou muda o estado numa sala.
     mudou: watch::Sender<u64>,
@@ -104,11 +277,17 @@ pub(crate) struct Hub {
 #[derive(Default)]
 struct HubEstado {
     salas: HashMap<(GroupId, String), HashMap<u16, Membro>>,
+    /// Desde quando alojamos cada sala (ms).
+    desde: HashMap<(GroupId, String), u64>,
+    /// Salas que passámos a outra pessoa há pouco: quem chegar vai para lá.
+    passadas: HashMap<(GroupId, String), (NovoHost, std::time::Instant)>,
     proximo: u16,
 }
 
 struct Membro {
     key: [u8; 32],
+    endpoint: [u8; 32],
+    novo: watch::Sender<Option<NovoHost>>,
     muted: bool,
     deaf: bool,
     camera: bool,
@@ -133,6 +312,12 @@ impl Membro {
             deaf: self.deaf,
             camera: self.camera,
             screen: self.screen,
+            endpoint: self.endpoint,
+            anfitriao: matches!(self.saida, Saida::Local(..)),
+            enderecos: match &self.saida {
+                Saida::Rede(c) => enderecos_de(c),
+                Saida::Local(..) => Vec::new(),
+            },
         }
     }
 }
@@ -143,8 +328,83 @@ fn e_chave(data: &[u8]) -> bool {
 }
 
 impl Hub {
-    pub(crate) fn new(inner: Weak<Inner>) -> Self {
-        Hub { inner, estado: Default::default(), mudou: watch::channel(0).0 }
+    pub(crate) fn new(inner: Weak<Inner>, eu: [u8; 32]) -> Self {
+        Hub { inner, eu, estado: Default::default(), mudou: watch::channel(0).0 }
+    }
+
+    /// Este dispositivo está a alojar a sala (está nela localmente).
+    pub(crate) fn hospeda(&self, group: GroupId, room: &str) -> bool {
+        let e = self.estado.lock().unwrap();
+        e.salas
+            .get(&(group, room.to_string()))
+            .is_some_and(|m| m.values().any(|m| matches!(m.saida, Saida::Local(..))))
+    }
+
+    /// Para onde passámos a sala há pouco (até um minuto).
+    fn passada(&self, group: GroupId, room: &str) -> Option<NovoHost> {
+        let e = self.estado.lock().unwrap();
+        e.passadas
+            .get(&(group, room.to_string()))
+            .filter(|(_, t)| t.elapsed() < Duration::from_secs(60))
+            .map(|(n, _)| n.clone())
+    }
+
+    /// Passa a sala a outra pessoa que lá está (por número).
+    pub(crate) fn passar(&self, group: GroupId, room: &str, para: u16) -> Result<()> {
+        let mut e = self.estado.lock().unwrap();
+        let chave = (group, room.to_string());
+        let membros = e.salas.get(&chave).ok_or_else(|| anyhow!("a sala está vazia"))?;
+        let alvo = membros.get(&para).ok_or_else(|| anyhow!("essa pessoa não está na chamada"))?;
+        let Saida::Rede(c) = &alvo.saida else { bail!("essa pessoa já aloja a chamada") };
+        let novo = NovoHost { endpoint: *c.remote_id().as_bytes(), conta: alvo.key, enderecos: enderecos_de(c) };
+        Self::redirecionar(&mut e, chave, novo);
+        Ok(())
+    }
+
+    /// Manda toda a gente da sala (incluindo quem está neste dispositivo) para outro
+    /// anfitrião. Ligações que não saiam sozinhas fecham-se passado um bocado.
+    pub(crate) fn mudar_para(&self, group: GroupId, room: &str, novo: NovoHost) {
+        let mut e = self.estado.lock().unwrap();
+        Self::redirecionar(&mut e, (group, room.to_string()), novo);
+    }
+
+    fn redirecionar(e: &mut HubEstado, chave: (GroupId, String), novo: NovoHost) {
+        e.passadas.retain(|_, (_, t)| t.elapsed() < Duration::from_secs(60));
+        let mut conns = Vec::new();
+        if let Some(membros) = e.salas.get(&chave) {
+            for m in membros.values() {
+                m.novo.send_replace(Some(novo.clone()));
+                if let Saida::Rede(c) = &m.saida {
+                    conns.push(c.clone());
+                }
+            }
+        }
+        e.passadas.insert(chave, (novo, std::time::Instant::now()));
+        if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            rt.spawn(async move {
+                tokio::time::sleep(Duration::from_secs(15)).await;
+                for c in conns {
+                    c.close(2u32.into(), b"mudou de anfitriao");
+                }
+            });
+        }
+    }
+
+    /// Anúncios das salas que este dispositivo aloja.
+    pub(crate) fn anuncios(&self, eu: &crate::identity::Identity, enderecos: &[iroh::TransportAddr]) -> Vec<Anuncio> {
+        let e = self.estado.lock().unwrap();
+        let mut out = Vec::new();
+        for ((g, r), membros) in &e.salas {
+            if !membros.values().any(|m| matches!(m.saida, Saida::Local(..))) {
+                continue;
+            }
+            let mut ids: Vec<_> = membros.iter().collect();
+            ids.sort_by_key(|(id, _)| **id);
+            let pessoas = ids.into_iter().map(|(_, m)| m.key).collect();
+            let desde = e.desde.get(&(*g, r.clone())).copied().unwrap_or_else(agora_ms);
+            out.push(Anuncio::assinar(eu, *g, r, self.eu, enderecos.to_vec(), pessoas, desde));
+        }
+        out
     }
 
     /// Põe a sala de voz na presença do grupo, que o anfitrião manda a todos os membros.
@@ -154,8 +414,19 @@ impl Hub {
         }
     }
 
-    fn entrar(&self, group: GroupId, room: &str, key: [u8; 32], saida: Saida) -> (u16, watch::Receiver<Vec<Participante>>) {
+    fn entrar(
+        &self,
+        group: GroupId,
+        room: &str,
+        key: [u8; 32],
+        endpoint: [u8; 32],
+        saida: Saida,
+    ) -> (u16, watch::Receiver<Vec<Participante>>, watch::Receiver<Option<NovoHost>>) {
         let mut e = self.estado.lock().unwrap();
+        if matches!(saida, Saida::Local(..)) {
+            // Voltámos a alojar: esquece para onde a tínhamos passado.
+            e.passadas.remove(&(group, room.to_string()));
+        }
         let sala_chave = (group, room.to_string());
         // A mesma pessoa só fica uma vez em cada grupo (por exemplo, se voltar a ligar).
         let mut antigas = Vec::new();
@@ -174,6 +445,9 @@ impl Hub {
             }
         }
         e.salas.retain(|_, m| !m.is_empty());
+        let vivas: Vec<_> = e.salas.keys().cloned().collect();
+        e.desde.retain(|k, _| vivas.contains(k));
+        e.desde.entry(sala_chave.clone()).or_insert_with(agora_ms);
         let id = loop {
             e.proximo = e.proximo.wrapping_add(1);
             let id = e.proximo;
@@ -182,10 +456,13 @@ impl Hub {
             }
         };
         let (tx, rx) = watch::channel(Vec::new());
+        let (novo_tx, novo_rx) = watch::channel(None);
         e.salas.entry(sala_chave).or_default().insert(
             id,
             Membro {
                 key,
+                endpoint,
+                novo: novo_tx,
                 muted: false,
                 deaf: false,
                 camera: false,
@@ -202,7 +479,7 @@ impl Hub {
         drop(e);
         self.presenca(group, key, Some(room.to_string()));
         self.mudou.send_modify(|v| *v += 1);
-        (id, rx)
+        (id, rx, novo_rx)
     }
 
     fn sair(&self, group: GroupId, room: &str, id: u16) {
@@ -210,10 +487,31 @@ impl Hub {
         let chave = (group, room.to_string());
         let Some(membros) = e.salas.get_mut(&chave) else { return };
         let Some(saiu) = membros.remove(&id) else { return };
+        // Quem aloja saiu e ficou gente: a chamada passa para quem está há mais tempo.
+        let sucessor = if matches!(saiu.saida, Saida::Local(..)) {
+            membros
+                .iter()
+                .filter_map(|(id, m)| match &m.saida {
+                    Saida::Rede(c) => Some((*id, NovoHost { endpoint: *c.remote_id().as_bytes(), conta: m.key, enderecos: enderecos_de(c) })),
+                    Saida::Local(..) => None,
+                })
+                .min_by_key(|(id, _)| *id)
+                .map(|(_, n)| n)
+        } else {
+            None
+        };
         if membros.is_empty() {
             e.salas.remove(&chave);
+            e.desde.remove(&chave);
         } else {
             Self::anunciar(&mut e, group, room);
+        }
+        let ja_passada = e
+            .passadas
+            .get(&chave)
+            .is_some_and(|(_, t)| t.elapsed() < Duration::from_secs(60));
+        if let (Some(n), false) = (sucessor, ja_passada) {
+            Self::redirecionar(&mut e, chave, n);
         }
         drop(e);
         self.presenca(group, saiu.key, None);
@@ -352,6 +650,11 @@ impl Hub {
         out
     }
 
+    /// Avisa quem vigia as salas (por exemplo, chegou um anúncio de outro dispositivo).
+    pub(crate) fn tocar(&self) {
+        self.mudou.send_modify(|v| *v += 1);
+    }
+
     pub(crate) fn watch(&self) -> watch::Receiver<u64> {
         self.mudou.subscribe()
     }
@@ -383,24 +686,71 @@ impl HostVoz {
         drop(inner_);
         let key = *remote.as_bytes();
         let (mut send, mut recv) = conn.accept_bi().await?;
-        let Some(VozCliente::Entrar { group, room }) = read_frame(&mut recv).await? else {
-            bail!("esperava Entrar");
+        let (group, room) = match read_frame(&mut recv).await? {
+            Some(VozCliente::Entrar { group, room }) => (group, room),
+            Some(VozCliente::Tocar { group }) => {
+                if let Some(inner) = self.inner.upgrade() {
+                    if group == grupo_privado(&inner.identity().public(), &remote) {
+                        let endpoint = iroh::EndpointAddr::from_parts(conn.remote_id(), enderecos_de(&conn));
+                        let _ = inner.toques.send(Toque { de: key, endpoint });
+                    }
+                }
+                send.finish()?;
+                return Ok(());
+            }
+            Some(VozCliente::Anunciar(a)) => {
+                if let Some(inner) = self.inner.upgrade() {
+                    if inner.guardar_anuncio(a) {
+                        self.hub.tocar();
+                    }
+                }
+                send.finish()?;
+                return Ok(());
+            }
+            Some(VozCliente::Quem { group }) => {
+                let lista = {
+                    let inner = self.inner.upgrade().ok_or_else(|| anyhow!("nó desligado"))?;
+                    if inner.store().is_member(group, &remote)? {
+                        inner.anuncios_de(group, &self.hub)
+                    } else {
+                        Vec::new()
+                    }
+                };
+                write_frame(&mut send, &VozAnfitriao::Conhecidos(lista)).await?;
+                send.finish()?;
+                let _ = tokio::time::timeout(Duration::from_secs(5), conn.closed()).await;
+                return Ok(());
+            }
+            _ => bail!("esperava Entrar"),
         };
-        let admitido = (|| -> Result<bool> {
+        let (admitido, dono) = (|| -> Result<(bool, bool)> {
             let inner = self.inner.upgrade().ok_or_else(|| anyhow!("nó desligado"))?;
             let store = inner.store();
-            Ok(room.len() <= MAX_SALA
-                && store.group(group)?.is_some_and(|g| g.hosted)
-                && store.is_member(group, &remote)?)
+            let info = store.group(group)?;
+            let privada = group == grupo_privado(&inner.identity().public(), &remote);
+            Ok((
+                room.len() <= MAX_SALA && (privada || (info.is_some() && store.is_member(group, &remote)?)),
+                info.is_some_and(|g| g.owner == remote),
+            ))
         })()?;
-        if !admitido {
-            write_frame(&mut send, &VozAnfitriao::Recusado("não és membro deste grupo".into())).await?;
+        let resposta = if !admitido {
+            Some(VozAnfitriao::Recusado("não és membro deste grupo".into()))
+        } else if let Some(n) = self.hub.passada(group, &room) {
+            Some(VozAnfitriao::NovoHost(n))
+        } else if !self.hub.hospeda(group, &room) {
+            Some(VozAnfitriao::NaoAloja)
+        } else {
+            None
+        };
+        if let Some(r) = resposta {
+            write_frame(&mut send, &r).await?;
             send.finish()?;
-            conn.closed().await;
+            let _ = tokio::time::timeout(Duration::from_secs(5), conn.closed()).await;
             return Ok(());
         }
 
-        let (id, mut sala) = self.hub.entrar(group, &room, key, Saida::Rede(conn.clone()));
+        let endpoint = *conn.remote_id().as_bytes();
+        let (id, mut sala, mut novo) = self.hub.entrar(group, &room, key, endpoint, Saida::Rede(conn.clone()));
         let _sai = SaiAoAcabar { hub: self.hub.clone(), group, room: room.clone(), id };
         write_frame(&mut send, &VozAnfitriao::Aceite { id }).await?;
 
@@ -436,15 +786,28 @@ impl HostVoz {
         }));
 
         // Lista da sala para este membro, sempre que muda.
+        // e para onde ir quando a chamada mudar de anfitrião.
         let lista = AbortOnDrop(tokio::spawn(async move {
+            let (mut manda_sala, mut manda_novo) = (true, false);
             loop {
-                let l = sala.borrow_and_update().clone();
-                if write_frame(&mut send, &VozAnfitriao::Sala(l)).await.is_err() {
-                    break;
+                if manda_sala {
+                    let l = sala.borrow_and_update().clone();
+                    if write_frame(&mut send, &VozAnfitriao::Sala(l)).await.is_err() {
+                        break;
+                    }
                 }
-                if sala.changed().await.is_err() {
-                    break;
+                if manda_novo {
+                    let n = novo.borrow_and_update().clone();
+                    if let Some(n) = n {
+                        if write_frame(&mut send, &VozAnfitriao::NovoHost(n)).await.is_err() {
+                            break;
+                        }
+                    }
                 }
+                (manda_sala, manda_novo) = tokio::select! {
+                    r = sala.changed() => { if r.is_err() { break } (true, false) }
+                    r = novo.changed() => { if r.is_err() { break } (false, true) }
+                };
             }
         }));
 
@@ -452,7 +815,16 @@ impl HostVoz {
             match read_frame::<VozCliente>(&mut recv).await {
                 Ok(Some(VozCliente::Estado { muted, deaf })) => self.hub.set_estado(group, &room, id, muted, deaf),
                 Ok(Some(VozCliente::Video { camera, screen })) => self.hub.set_video(group, &room, id, camera, screen),
-                Ok(Some(VozCliente::Entrar { .. })) => bail!("Entrar repetido"),
+                Ok(Some(VozCliente::PassarHost { para })) => {
+                    if dono {
+                        if let Err(e) = self.hub.passar(group, &room, para) {
+                            debug!("voz: não passei a chamada: {e:#}");
+                        }
+                    }
+                }
+                Ok(Some(VozCliente::Entrar { .. } | VozCliente::Quem { .. } | VozCliente::Anunciar(_) | VozCliente::Tocar { .. })) => {
+                    bail!("Entrar repetido")
+                }
                 Ok(None) => break,
                 Err(e) => {
                     debug!("voz: ligação de {remote} caiu: {e:#}");
@@ -495,6 +867,9 @@ pub struct Chamada {
     pub id: u16,
     modo: Modo,
     sala: watch::Receiver<Vec<Participante>>,
+    novo: watch::Receiver<Option<NovoHost>>,
+    /// Dispositivo que aloja a chamada.
+    pub host: [u8; 32],
     pacotes: Option<mpsc::Receiver<Pacote>>,
     imagens: Option<mpsc::Receiver<Imagem>>,
     seq: std::sync::atomic::AtomicU16,
@@ -513,7 +888,8 @@ impl Chamada {
     pub(crate) fn local(hub: Arc<Hub>, group: GroupId, room: &str, key: [u8; 32]) -> Self {
         let (tx, rx) = mpsc::channel(256);
         let (vtx, vrx) = mpsc::channel(64);
-        let (id, sala) = hub.entrar(group, room, key, Saida::Local(tx, vtx));
+        let eu = hub.eu;
+        let (id, sala, novo) = hub.entrar(group, room, key, eu, Saida::Local(tx, vtx));
         let (alive_tx, alive) = watch::channel(true);
         Chamada {
             group,
@@ -525,6 +901,8 @@ impl Chamada {
                 _alive: alive_tx,
             },
             sala,
+            novo,
+            host: eu,
             pacotes: Some(rx),
             imagens: Some(vrx),
             seq: Default::default(),
@@ -540,10 +918,14 @@ impl Chamada {
         write_frame(&mut send, &VozCliente::Entrar { group, room: room.to_string() }).await?;
         let id = match read_frame::<VozAnfitriao>(&mut recv).await? {
             Some(VozAnfitriao::Aceite { id }) => id,
+            Some(VozAnfitriao::NovoHost(n)) => return Err(Redirecionar(n).into()),
+            Some(VozAnfitriao::NaoAloja) => return Err(NaoAloja.into()),
             Some(VozAnfitriao::Recusado(why)) => bail!("o anfitrião recusou: {why}"),
             other => bail!("resposta inesperada do anfitrião: {other:?}"),
         };
         let (sala_tx, sala) = watch::channel(Vec::<Participante>::new());
+        let (novo_tx, novo) = watch::channel(None);
+        let host = *conn.remote_id().as_bytes();
         let (alive_tx, alive) = watch::channel(true);
         let alive_tx = Arc::new(alive_tx);
         let (tx, rx) = mpsc::channel(256);
@@ -554,6 +936,9 @@ impl Chamada {
                 match read_frame::<VozAnfitriao>(&mut recv).await {
                     Ok(Some(VozAnfitriao::Sala(l))) => {
                         sala_tx.send_replace(l);
+                    }
+                    Ok(Some(VozAnfitriao::NovoHost(n))) => {
+                        novo_tx.send_replace(Some(n));
                     }
                     Ok(Some(other)) => debug!("voz: mensagem ignorada: {other:?}"),
                     Ok(None) => break,
@@ -611,6 +996,8 @@ impl Chamada {
             id,
             modo: Modo::Rede { conn, controlo: Arc::new(tokio::sync::Mutex::new(send)) },
             sala,
+            novo,
+            host,
             pacotes: Some(rx),
             imagens: Some(vrx),
             seq: Default::default(),
@@ -709,6 +1096,39 @@ impl Chamada {
                 write_frame(&mut *controlo.lock().await, &VozCliente::Estado { muted, deaf }).await
             }
         }
+    }
+
+    /// Muda para `Some` quando a chamada passa para outro dispositivo: é preciso sair e
+    /// ligar a esse (ver [`crate::node::Node::entrar_voz_em`]).
+    pub fn novo_host(&self) -> watch::Receiver<Option<NovoHost>> {
+        self.novo.clone()
+    }
+
+    /// Este dispositivo aloja a chamada.
+    pub fn e_anfitriao(&self) -> bool {
+        matches!(self.modo, Modo::Local { .. })
+    }
+
+    /// Passa a chamada a outra pessoa da sala. Quem aloja pode sempre; por rede, só o
+    /// dono do grupo (o anfitrião ignora os outros).
+    pub async fn passar_host(&self, para: u16) -> Result<()> {
+        match &self.modo {
+            Modo::Local { hub, .. } => hub.passar(self.group, &self.room, para),
+            Modo::Rede { controlo, .. } => {
+                write_frame(&mut *controlo.lock().await, &VozCliente::PassarHost { para }).await
+            }
+        }
+    }
+
+    /// Para quem a chamada passaria se quem a aloja desaparecesse sem avisar: quem tem o
+    /// número mais baixo, tirando o anfitrião. Todos chegam à mesma resposta.
+    pub fn sucessor(&self) -> Option<NovoHost> {
+        self.sala
+            .borrow()
+            .iter()
+            .filter(|p| !p.anfitriao)
+            .min_by_key(|p| p.id)
+            .map(|p| NovoHost { endpoint: p.endpoint, conta: p.key, enderecos: p.enderecos.clone() })
     }
 
     /// A ligação ao anfitrião continua viva (como anfitrião, sempre).

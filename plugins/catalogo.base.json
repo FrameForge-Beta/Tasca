@@ -1,0 +1,27 @@
+{
+  "versao": 1,
+  "plugins": [
+    {
+      "id": "lembretes",
+      "name": "Lembretes",
+      "author": "equipa Tasca",
+      "version": "1.0.0",
+      "color": "#2A5CAA",
+      "icon": "bell",
+      "desc": "Cria lembretes no chat com /lembrar 10m texto. Avisa o canal à hora marcada.",
+      "perms": ["comandos", "enviar mensagens", "guardar dados"],
+      "file": "lembretes/plugin.js"
+    },
+    {
+      "id": "dados",
+      "name": "Dados e sorteios",
+      "author": "equipa Tasca",
+      "version": "1.0.0",
+      "color": "#9B2C3F",
+      "icon": "grid",
+      "desc": "Rola dados (/dados 2d6), atira a moeda (/moeda) e escolhe por ti (/escolher a, b, c).",
+      "perms": ["comandos", "enviar mensagens"],
+      "file": "dados/plugin.js"
+    }
+  ]
+}

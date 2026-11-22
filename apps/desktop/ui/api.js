@@ -533,6 +533,26 @@
       return true;
     },
     async set_voice_state() { return true; },
+    // mensagens: na demonstração tudo fica só nesta janela
+    async edit_message({ channelId, id, text }) { const m = (messages[channelId] || []).find((x) => String(x.id) === String(id)); if (m) { m.text = text; m.edited = true; } return true; },
+    async delete_message({ channelId, id }) { const l = messages[channelId] || []; const i = l.findIndex((x) => String(x.id) === String(id)); if (i >= 0) l.splice(i, 1); return true; },
+    async react_message({ channelId, id, emoji, on }) {
+      const m = (messages[channelId] || []).find((x) => String(x.id) === String(id)); if (!m) return true;
+      m.reactions = m.reactions || []; let r = m.reactions.find((x) => x.e === emoji);
+      if (!r && on) m.reactions.push({ e: emoji, n: 1, mine: true });
+      else if (r && r.mine !== on) { r.mine = on; r.n += on ? 1 : -1; m.reactions = m.reactions.filter((x) => x.n > 0); }
+      return true;
+    },
+    async search_messages({ groupId, query }) {
+      const q = String(query).toLowerCase(); const out = [];
+      for (const c of channels[groupId] || []) for (const m of messages[c.id] || []) if (String(m.text || "").toLowerCase().includes(q)) out.push({ ...clone(m), channelId: c.id });
+      return out.reverse().slice(0, 60);
+    },
+    async unread_counts() { return {}; },
+    async upload_file({ data }) { const b = new Uint8Array(data); let h = 0; for (let i = 0; i < b.length; i += 97) h = (h * 31 + b[i]) >>> 0; return { hash: "mock" + h.toString(16) + b.length, size: b.length }; },
+    async get_file() { return null; },
+    async save_file() { return "Transferências"; },
+    async pass_voice_host() { return true; },
     async set_camera() { return true; },
     async list_capture_sources() { return []; },
     async start_screen_share() { await wait(300); return true; },
@@ -550,13 +570,8 @@
       try { localStorage.setItem("tasca:settings", JSON.stringify(settings)); } catch {}
       return clone(settings);
     },
-    async run_backup() {
-      for (let i = 1; i <= 10; i++) { await wait(180); emit("backup_progress", { pct: i * 10 }); }
-      const entry = { at: "20 nov, " + nowHHMM(), size: "0,4 MB", note: "incremental", ok: true };
-      settings.backup.history.unshift(entry);
-      return clone(entry);
-    },
-    async transfer_ownership() { await wait(500); return true; },
+    async backup_groups() { await wait(400); return "Transferências/Tasca-grupos-teste.db"; },
+    async leave_group({ groupId }) { await wait(300); return true; },
     // ---- amigos (teste) ----
     async list_friends() { return clone(friends.map((f) => ({ ...people[f.id], ...f, statusText: people[f.id].statusText || "" }))); },
     async send_friend_request({ username, userId, name }) {
@@ -627,6 +642,10 @@
       if (String(a.channelId).startsWith("dm-")) return fmt(await inv("send_dm", { userId: a.channelId.slice(3), text: a.text }));
       return fmt(await inv("send_message", a));
     },
+    async search_messages(a) { return (await inv("search_messages", a)).map(fmt); },
+    // o ficheiro vai cru (sem JSON) para não pesar
+    async upload_file({ data }) { return inv("upload_file", new Uint8Array(data)); },
+    async get_file(a) { return inv("get_file", a); },
     async create_group(a) { return inv("create_group", a); },
     async join_group(a) { const g = await inv("join_group", a); publishProfile(); return g; },
     async set_profile(a) { const r = await mock.set_profile(a); publishProfile(true); return r; },
@@ -636,6 +655,7 @@
     async join_voice(a) { return inv("join_voice", a); },
     async leave_voice() { return inv("leave_voice"); },
     async set_voice_state(a) { return inv("set_voice_state", a); },
+    async pass_voice_host(a) { return inv("pass_voice_host", a); },
   };
 
   // nome de canal: texto em minúsculas com hífens; voz fica como está

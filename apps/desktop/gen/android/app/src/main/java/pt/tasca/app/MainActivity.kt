@@ -12,11 +12,14 @@ class MainActivity : TauriActivity() {
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
     webView.addJavascriptInterface(Atualizador(this, webView), "TascaAndroid")
+    webView.addJavascriptInterface(ServicoJs(applicationContext), "TascaServico")
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    // Mensagens com a app em segundo plano (ver Ligado.kt).
+    Ligado.arrancar(applicationContext)
     // A interface não fica por baixo da barra de estado, da barra de navegação nem do
     // teclado: o conteúdo encolhe para caber, e a caixa de escrever fica sempre à vista.
     val raiz = findViewById<View>(android.R.id.content)
