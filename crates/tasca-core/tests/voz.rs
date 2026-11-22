@@ -255,3 +255,14 @@ async fn chamada_privada_entre_dois() {
     let g = tasca_core::voz::grupo_privado(&ana.identity().public(), &zk);
     assert!(estranho.entrar_voz_em(g, "privada", ana.addr(), Duration::from_millis(500)).await.is_err());
 }
+
+#[tokio::test]
+async fn sala_vazia_entra_logo() {
+    let (_host, ze, ana, group) = grupo_de_tres().await;
+    // Membros desligados não atrasam: o dono responde que a sala está vazia.
+    drop(ana);
+    let t = std::time::Instant::now();
+    let z = ze.entrar_voz(group, "vazia").await.unwrap();
+    assert!(z.e_anfitriao());
+    assert!(t.elapsed() < Duration::from_millis(1000), "demorou {:?}", t.elapsed());
+}
