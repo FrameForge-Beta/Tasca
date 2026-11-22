@@ -72,6 +72,9 @@ pub(crate) struct Inner {
     pub(crate) moderados: Arc<Mutex<HashMap<(GroupId, [u8; 32]), Moderado>>>,
     /// Eventos que o anfitrião recusou (por exemplo, o AutoMod): (grupo, motivo).
     recusas: broadcast::Sender<(GroupId, String)>,
+    /// Última vez que a caixa de cada grupo foi lida do servidor. Com a leitura em dia,
+    /// os anúncios das chamadas (que também vão para a caixa) estão todos cá.
+    caixa_lida: Mutex<HashMap<GroupId, std::time::Instant>>,
 }
 
 /// O que um moderador fez a alguém nas chamadas.
@@ -318,6 +321,7 @@ impl Node {
             pasta: opts.ficheiros.clone().map(crate::ficheiros::Pasta),
             moderados: Default::default(),
             recusas: broadcast::channel(16).0,
+            caixa_lida: Default::default(),
         });
         {
             // quem já estava silenciado por um moderador continua
@@ -724,15 +728,23 @@ impl Node {
             .store()
             .group(group)?
             .ok_or_else(|| anyhow!("grupo desconhecido"))?;
-        // 1. Quem já se sabe que aloja a sala. 2. Pergunta só ao dono do grupo, que recebe
-        // o anúncio de todas as chamadas: se ele responde e a sala não está lá, está vazia
-        // e quem entra fica logo a alojá-la. 3. Dono desligado: pergunta aos membros.
+        // 1. Quem já se sabe que aloja a sala: os anúncios das chamadas chegam pelo servidor
+        // (caixa do grupo), por isso com a caixa em dia não há nada a perguntar a ninguém.
+        // 2. Sem servidor em dia: pergunta só ao dono do grupo, que recebe o anúncio de todas
+        // as chamadas. 3. Dono desligado: pergunta aos membros.
         let eu_dono = self.inner.store().group(group)?.is_some_and(|g| g.owner == self.inner.identity.public());
+        let em_dia = self
+            .inner
+            .caixa_lida
+            .lock()
+            .unwrap()
+            .get(&group)
+            .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(45));
         let mut tentados = Vec::new();
         for passo in 0..3 {
             match passo {
                 0 => {}
-                1 if eu_dono => break,
+                1 if eu_dono || em_dia => break,
                 1 => {
                     if self.perguntar_dono(group).await {
                         let ha = self.salas_conhecidas(group).iter().any(|a| a.room == room && a.endpoint != self.inner.endpoint_id && !tentados.contains(&a.endpoint));
@@ -1521,7 +1533,9 @@ impl Node {
         let hosted = info.as_ref().is_some_and(|g| g.hosted);
         let mut novos = 0;
 
-        for (pos, bloco) in srv.caixa_ler_blocos(&key, read, if hosted { 0 } else { espera }).await? {
+        let blocos = srv.caixa_ler_blocos(&key, read, if hosted { 0 } else { espera }).await?;
+        self.inner.caixa_lida.lock().unwrap().insert(group, std::time::Instant::now());
+        for (pos, bloco) in blocos {
             read = pos;
             let item = match key.open_item(&bloco) {
                 Ok(i) => i,
