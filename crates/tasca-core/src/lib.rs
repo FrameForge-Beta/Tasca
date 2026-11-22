@@ -6,6 +6,7 @@
 pub mod account;
 pub mod amigos;
 pub mod caixa;
+pub mod cargos;
 #[cfg(feature = "servidor")]
 mod dns;
 pub mod dispositivo;

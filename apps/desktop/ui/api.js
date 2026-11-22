@@ -280,6 +280,31 @@
   const WORDS = "abandon ability able about above absent absorb abstract absurd abuse access accident acoustic acquire across action actor actress actual adapt address adjust admit adult advance advice aerobic afford afraid again agent agree ahead aim air airport aisle alarm album alcohol alert alien".split(" ");
   const phrase = () => Array.from(crypto.getRandomValues(new Uint8Array(12))).map((b) => WORDS[b % WORDS.length]).join(" ");
 
+  // ---- cargos e moderação simulados (por grupo) ----
+  const PERM_NAMES = [
+    ["Gerais", "Ver canais"], ["Gerais", "Gerir canais"], ["Gerais", "Gerir cargos"], ["Gerais", "Gerir expressões"], ["Gerais", "Ver o registo de auditoria"],
+    ["Gerais", "Gerir o grupo"], ["Gerais", "Gerir integrações"], ["Membros", "Criar convites"], ["Membros", "Mudar o próprio apelido"], ["Membros", "Gerir apelidos"],
+    ["Membros", "Expulsar"], ["Membros", "Banir"], ["Membros", "Pôr de castigo"], ["Texto", "Enviar mensagens"], ["Texto", "Anexar ficheiros"], ["Texto", "Pré-visualizar links"],
+    ["Texto", "Reagir"], ["Texto", "Emojis de fora"], ["Texto", "Mencionar @todos"], ["Texto", "Gerir mensagens"], ["Texto", "Ler o histórico"], ["Texto", "Criar tópicos"],
+    ["Voz", "Ligar"], ["Voz", "Falar"], ["Voz", "Vídeo"], ["Voz", "Silenciar membros"], ["Voz", "Cortar o som a membros"], ["Voz", "Mover membros"], ["Voz", "Prioridade"],
+    ["Voz", "Alojar chamadas"], ["Apps", "Usar comandos"], ["Avançadas", "Administrador"],
+  ];
+  const PERM_CATALOG = PERM_NAMES.map(([cat, name], i) => ({ cat, bit: 2 ** i, name, desc: "" }));
+  const PERM_BASE = [0, 7, 8, 13, 14, 15, 16, 17, 20, 21, 22, 23, 24, 29, 30].reduce((a, i) => a + 2 ** i, 0);
+  const modState = {};
+  function mod(gid) {
+    return (modState[gid] = modState[gid] || {
+      roles: [
+        { id: "mods", name: "Moderadores", color: "#2E7D7A", icon: "🛡️", hoist: true, mentionable: true, perms: PERM_BASE + 2 ** 4 + 2 ** 10 + 2 ** 12 + 2 ** 19 + 2 ** 25 },
+        { id: "todos", name: "@todos", color: "", icon: null, hoist: false, mentionable: false, perms: PERM_BASE },
+      ],
+      memberRoles: { ines: ["mods"] }, chanPerms: {}, bans: [], timeouts: {}, nicks: {}, voice: {}, invites: [], audit: [],
+      settings: { name: (groups.find((x) => x.id === gid) || {}).name || "", description: "", icon: null, banner: null, color: "", tag: "", system_channel: null, welcome: true, leave_notices: true,
+        afk_channel: null, afk_secs: 300, default_notify: 1, rules: "", min_member_secs: 0, need_username: false, invites_paused: false, raid_limit: 0, automod: [], extra: {} },
+    });
+  }
+  function log(g, action, target, detail) { g.audit.push({ action, by: "me", target: target || null, detail: detail || {}, ts: Date.now() }); }
+
   const mock = {
     async account_status() {
       const a = noneSel ? null : acct.get();
@@ -368,7 +393,14 @@
     async list_channels({ groupId }) { return clone(channels[groupId] || []); },
     async list_members({ groupId }) {
       const g = groups.find((x) => x.id === groupId);
-      return (members[groupId] || []).map((id) => ({ ...clone(people[id]), owner: g && g.owner === id }));
+      const m = mod(groupId);
+      return (members[groupId] || []).map((id) => {
+        const rs = m.roles.filter((r) => (m.memberRoles[id] || []).includes(r.id));
+        const top = rs[0]; const hoist = rs.find((r) => r.hoist);
+        return { ...clone(people[id]), owner: g && g.owner === id, roles: rs.map((r) => r.id), roleColor: rs.find((r) => r.color)?.color || null, roleIcon: rs.find((r) => r.icon)?.icon || null,
+          hoistRole: hoist ? hoist.id : null, rank: g && g.owner === id ? -1 : top ? m.roles.indexOf(top) : m.roles.length, nick: m.nicks[id] || null,
+          timeoutUntil: m.timeouts[id] > Date.now() ? m.timeouts[id] : null, serverMuted: m.voice[id] === "mute", serverDeaf: m.voice[id] === "deafen" };
+      });
     },
     async list_dms() {
       return dms.map((d) => {
@@ -515,10 +547,38 @@
       await wait(900);
       throw new Error("Não foi possível chegar ao anfitrião. Ele pode estar offline; tenta mais tarde.");
     },
-    async create_invite({ groupId }) {
+    async create_invite({ groupId, maxUses, expiresSecs }) {
       const rnd = Array.from(crypto.getRandomValues(new Uint8Array(24))).map((b) => "0123456789abcdefghjkmnpqrstvwxyz"[b % 32]).join("");
-      return { code: "tasca1" + rnd, expires: "7 dias", uses: "ilimitado" };
+      const g = mod(groupId); g.invites.push({ hash: rnd.slice(0, 16), by: "me", maxUses: maxUses || 0, uses: 0, expires: expiresSecs ? Date.now() + expiresSecs * 1000 : null, ts: Date.now() });
+      return { code: "tasca1" + rnd, expires: expiresSecs ? Math.round(expiresSecs / 3600) + " h" : "nunca", uses: maxUses ? String(maxUses) : "ilimitado" };
     },
+    // ---- cargos e moderação (simulado; no Tauri: moderacao.rs) ----
+    async list_roles({ groupId }) {
+      const g = mod(groupId); const n = (members[groupId] || []).length;
+      return { roles: g.roles.map((r) => ({ ...clone(r), members: r.id === "todos" ? n : Object.values(g.memberRoles).filter((l) => l.includes(r.id)).length })), catalog: PERM_CATALOG, all: 2 ** 32 - 1, base: PERM_BASE };
+    },
+    async save_roles({ groupId, roles }) { const g = mod(groupId); g.roles = roles.map((r) => ({ ...r, id: r.id || "r" + Math.random().toString(36).slice(2, 8) })); log(g, "roles"); return true; },
+    async set_member_roles({ groupId, userId, roles }) { const g = mod(groupId); g.memberRoles[userId] = roles; log(g, "member_roles", userId, { roles }); return true; },
+    async get_channel_perms({ groupId, channel }) { return clone(mod(groupId).chanPerms[channel] || []); },
+    async set_channel_perms({ groupId, channel, overrides }) { const g = mod(groupId); g.chanPerms[channel] = overrides; log(g, "channel_perms", null, { channel, n: overrides.length }); return true; },
+    async kick_member({ groupId, userId, reason }) { const g = mod(groupId); members[groupId] = (members[groupId] || []).filter((x) => x !== userId); log(g, "kick", userId, { reason }); return true; },
+    async ban_member({ groupId, userId, reason }) { const g = mod(groupId); members[groupId] = (members[groupId] || []).filter((x) => x !== userId); g.bans.push({ id: userId, name: (people[userId] || {}).name || "Alguém", reason: reason || "", by: "me", ts: Date.now() }); log(g, "ban", userId, { reason }); return true; },
+    async unban_member({ groupId, userId }) { const g = mod(groupId); g.bans = g.bans.filter((b) => b.id !== userId); log(g, "unban", userId); return true; },
+    async timeout_member({ groupId, userId, secs, reason }) { const g = mod(groupId); g.timeouts[userId] = secs ? Date.now() + secs * 1000 : 0; log(g, "timeout", userId, { until: g.timeouts[userId], reason }); return true; },
+    async set_nick({ groupId, userId, nick }) { const g = mod(groupId); g.nicks[userId] = nick || null; log(g, "nick", userId, { nick }); return true; },
+    async pin_message({ channelId, id, on }) {
+      const m = (messages[channelId] || []).find((x) => String(x.id) === String(id)); if (m) m.pinned = on;
+      emit("pins_changed", { channelId }); return true;
+    },
+    async list_pins({ channelId }) { return clone((messages[channelId] || []).filter((m) => m.pinned).reverse()); },
+    async report_message({ groupId, id, reason }) { const g = mod(groupId); log(g, "report", null, { target: id, reason }); return true; },
+    async get_group_settings({ groupId }) { return clone(mod(groupId).settings); },
+    async save_group_settings({ groupId, settings }) { const g = mod(groupId); g.settings = clone(settings); const gr = groups.find((x) => x.id === groupId); if (gr && settings.name) gr.name = settings.name; log(g, "settings", null, { name: settings.name }); return true; },
+    async voice_mod({ groupId, userId, action }) { const g = mod(groupId); g.voice[userId] = action; log(g, "voice", userId, { action }); return true; },
+    async list_invites({ groupId }) { return clone(mod(groupId).invites); },
+    async revoke_invite({ groupId, hash }) { const g = mod(groupId); g.invites = g.invites.filter((i) => i.hash !== hash); return true; },
+    async list_bans({ groupId }) { return clone(mod(groupId).bans); },
+    async audit_log({ groupId }) { return clone(mod(groupId).audit).reverse(); },
     async join_voice({ channelId }) {
       for (const list of Object.values(channels)) {
         for (const c of list) {

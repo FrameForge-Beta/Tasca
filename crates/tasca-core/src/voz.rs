@@ -267,6 +267,8 @@ pub(crate) enum VozAnfitriao {
 /// As salas de voz que este PC hospeda.
 pub(crate) struct Hub {
     inner: Weak<Inner>,
+    /// Quem um moderador silenciou, ensurdeceu ou tirou da chamada.
+    moderados: Arc<std::sync::Mutex<HashMap<(GroupId, [u8; 32]), crate::node::Moderado>>>,
     /// Chave iroh deste dispositivo.
     eu: [u8; 32],
     estado: Mutex<HubEstado>,
@@ -328,8 +330,12 @@ fn e_chave(data: &[u8]) -> bool {
 }
 
 impl Hub {
-    pub(crate) fn new(inner: Weak<Inner>, eu: [u8; 32]) -> Self {
-        Hub { inner, eu, estado: Default::default(), mudou: watch::channel(0).0 }
+    pub(crate) fn new(
+        inner: Weak<Inner>,
+        eu: [u8; 32],
+        moderados: Arc<std::sync::Mutex<HashMap<(GroupId, [u8; 32]), crate::node::Moderado>>>,
+    ) -> Self {
+        Hub { inner, moderados, eu, estado: Default::default(), mudou: watch::channel(0).0 }
     }
 
     /// Este dispositivo está a alojar a sala (está nela localmente).
@@ -422,6 +428,9 @@ impl Hub {
         endpoint: [u8; 32],
         saida: Saida,
     ) -> (u16, watch::Receiver<Vec<Participante>>, watch::Receiver<Option<NovoHost>>) {
+        if let Some(m) = self.moderados.lock().unwrap().get_mut(&(group, key)) {
+            m.fora = false; // voltou a entrar por vontade própria
+        }
         let mut e = self.estado.lock().unwrap();
         if matches!(saida, Saida::Local(..)) {
             // Voltámos a alojar: esquece para onde a tínhamos passado.
@@ -563,7 +572,10 @@ impl Hub {
         let e = self.estado.lock().unwrap();
         let Some(membros) = e.salas.get(&(group, room.to_string())) else { return };
         let Some(autor) = membros.get(&from) else { return };
-        if autor.muted {
+        let moderados = self.moderados.lock().unwrap();
+        let md = |k: &[u8; 32]| moderados.get(&(group, *k)).copied().unwrap_or_default();
+        let a = md(&autor.key);
+        if autor.muted || a.muted || a.fora {
             return;
         }
         let mut dg = BytesMut::with_capacity(4 + data.len());
@@ -572,7 +584,8 @@ impl Hub {
         dg.put_slice(data);
         let dg = dg.freeze();
         for (id, m) in membros {
-            if *id == from || m.deaf {
+            let d = md(&m.key);
+            if *id == from || m.deaf || d.deaf || d.fora {
                 continue;
             }
             match &m.saida {
@@ -595,6 +608,9 @@ impl Hub {
         let e = self.estado.lock().unwrap();
         let Some(membros) = e.salas.get(&(group, room.to_string())) else { return };
         let Some(autor) = membros.get(&from) else { return };
+        if self.moderados.lock().unwrap().get(&(group, autor.key)).is_some_and(|m| m.fora) {
+            return;
+        }
         for (id, m) in membros {
             if *id == from {
                 continue;

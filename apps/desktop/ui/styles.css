@@ -1779,3 +1779,105 @@ details.row.adv .btn { justify-self: start; }
 .ring-card p { margin: 0; color: var(--texto-3); }
 .ring-actions { justify-content: center; }
 .ring-actions .btn svg { width: 16px; height: 16px; margin-right: 6px; vertical-align: -3px; }
+
+/* ---------- definições do grupo, cargos e moderação (grupo.js) ---------- */
+.gset { position: fixed; inset: 0; z-index: 60; background: var(--fundo); opacity: 0; transform: scale(1.02); transition: opacity .18s ease, transform .18s ease; padding-top: env(safe-area-inset-top, 0px); }
+.gset.in { opacity: 1; transform: none; }
+.gset .settings { height: 100%; }
+.gset .page { height: 100%; padding-bottom: 80px; }
+.gs-name { padding: 4px 10px 12px; font-weight: 800; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--texto-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings nav .danger-t { color: var(--perigo); }
+.danger-t { color: var(--perigo); }
+.save-bar { position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: min(720px, calc(100% - 32px)); display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 16px; border-radius: var(--r-l); background: var(--rail); box-shadow: var(--sombra); z-index: 61; animation: sobe .2s ease; }
+.save-bar span { flex: 1; font-weight: 600; }
+@keyframes sobe { from { transform: translate(-50%, 20px); opacity: 0; } }
+.gs-ov { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+.gs-icon { width: 96px; height: 96px; border-radius: 28px; background: var(--caixa); display: grid; place-items: center; position: relative; overflow: hidden; font-size: 32px; font-weight: 800; flex: none; }
+.gs-icon img { width: 100%; height: 100%; object-fit: cover; }
+.gs-icon small { position: absolute; inset: auto 0 0; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; padding: 3px 0; opacity: 0; transition: opacity .15s; }
+.gs-icon:hover small, .gs-icon:focus-visible small { opacity: 1; }
+.swatches { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.sw { width: 30px; height: 30px; border-radius: 8px; background: var(--c); border: 2px solid transparent; color: var(--texto-3); display: grid; place-items: center; }
+.sw.on { border-color: var(--texto); }
+.swatches input[type="color"] { width: 34px; height: 30px; padding: 0; border: 0; background: none; cursor: pointer; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips .chip, .tpl .chip { font-family: inherit; font-size: 13px; border: 1px solid var(--linha); background: none; color: var(--texto-2); }
+.chips .chip.on { border-color: var(--c, var(--texto-3)); color: var(--texto); background: color-mix(in srgb, var(--c, var(--texto-3)) 18%, transparent); }
+.row.col { flex-direction: column; align-items: stretch; gap: 8px; }
+.muted { color: var(--texto-3); }
+.btn.sm { padding: 5px 10px; font-size: 13px; }
+.rule .row .input[type="number"] { width: 90px; }
+.rule-add { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.kind-card { text-align: left; display: grid; gap: 4px; padding: 14px; border-radius: var(--r-l); background: var(--painel); border: 1px solid var(--linha); }
+.kind-card:hover { background: var(--caixa); }
+.kind-card small { color: var(--texto-3); font-size: 13px; }
+.roles-wrap { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px; align-items: start; }
+.role-list { display: grid; gap: 2px; position: sticky; top: 0; }
+.role-list > .btn { margin-bottom: 8px; }
+.tpl { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+.role-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: var(--r-s); color: var(--texto-2); text-align: left; }
+.role-item:hover { background: var(--hover); }
+.role-item.on { background: var(--ativo); color: var(--texto); }
+.role-item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.role-item small { color: var(--texto-3); font-size: 12px; }
+.role-item.drop { box-shadow: inset 0 2px 0 var(--azulejo); }
+.dot { width: 12px; height: 12px; border-radius: 50%; flex: none; display: inline-block; }
+.role-edit { display: grid; gap: 14px; min-width: 0; }
+.role-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.role-title b { font-size: 17px; }
+.role-tabs { justify-self: start; }
+.cp-wrap { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 14px; max-height: 60vh; min-height: 300px; }
+.cp-targets { display: grid; align-content: start; gap: 2px; overflow-y: auto; }
+.cp-targets button { text-align: left; padding: 7px 10px; border-radius: var(--r-s); color: var(--texto-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-targets button.on { background: var(--ativo); color: var(--texto); }
+.cp-targets select { margin-top: 6px; }
+.cp-perms { overflow-y: auto; padding-right: 4px; }
+.cp-head { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--linha); }
+.cp-head b { flex: 1; }
+.cp-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--linha); }
+.cp-row .txt { flex: 1; min-width: 0; }
+.cp-row .txt b { display: block; font-weight: 600; font-size: 14px; }
+.cp-row .txt small { color: var(--texto-3); font-size: 12.5px; }
+.tri { display: inline-flex; border-radius: var(--r-s); overflow: hidden; border: 1px solid var(--linha); flex: none; }
+.tri button { width: 32px; height: 28px; color: var(--texto-3); font-weight: 700; }
+.tri button + button { border-left: 1px solid var(--linha); }
+.tri button.on { background: var(--caixa-2); color: var(--texto); }
+.tri button.on.deny { background: var(--perigo); color: #fff; }
+.tri button.on.allow { background: var(--oliva); color: #fff; }
+.pins { display: grid; gap: 8px; max-height: 60vh; overflow-y: auto; }
+.pin-row { padding: 10px 12px; border-radius: var(--r-m); background: var(--caixa); display: grid; gap: 6px; }
+.pin-head { display: flex; align-items: center; gap: 8px; }
+.pin-head small { color: var(--texto-3); font-size: 12px; }
+.pin-body { white-space: pre-wrap; word-break: break-word; color: var(--texto-2); }
+.msg .tag.pin { display: inline-grid; place-items: center; color: var(--ocre); background: none; padding: 0; }
+.msg .tag.pin svg, .icon-btn svg.pin { width: 13px; height: 13px; }
+.tag.warn { background: var(--ocre); color: var(--tinta); font-size: 11px; padding: 1px 6px; border-radius: 6px; font-weight: 700; }
+.role-ic { font-size: 13px; margin-left: 2px; }
+.g-icon { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.host-card.soft { opacity: .85; }
+.msg.queued .time::after { content: " · à espera"; color: var(--ocre); }
+.audit-filter { display: flex; gap: 8px; flex-wrap: wrap; }
+.audit-filter .input { flex: 1; min-width: 160px; }
+.row.audit .txt small { display: block; }
+.member-row .chips { margin-top: 4px; }
+.inv-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.composer-block { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-radius: var(--r-l); background: var(--caixa); color: var(--texto-2); }
+.composer-block svg { width: 18px; height: 18px; flex: none; color: var(--texto-3); }
+.srv-ic { color: var(--perigo); display: inline-grid; }
+.srv-ic svg { width: 14px; height: 14px; }
+.chan svg + .label { min-width: 0; }
+@media (max-width: 720px) {
+  .roles-wrap { grid-template-columns: minmax(0, 1fr); }
+  .role-list { position: static; }
+  .cp-wrap { grid-template-columns: minmax(0, 1fr); max-height: none; }
+  .cp-targets { display: flex; overflow-x: auto; gap: 4px; }
+  .cp-targets button { flex: none; }
+  .inv-opts { grid-template-columns: minmax(0, 1fr); }
+  .save-bar { flex-wrap: wrap; }
+  .save-bar span { flex-basis: 100%; }
+  .gset .settings nav { padding-top: 8px; }
+  .gs-name { display: none; }
+}
+body.has-titlebar .gset { top: var(--tb-h); }
+.modal:has(.cp-wrap) { width: min(780px, calc(100vw - 32px)); max-width: none; }
+.kind-card { align-content: start; }

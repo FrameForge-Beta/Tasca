@@ -176,6 +176,10 @@ fn print_event(node: &Node, group: GroupId, ev: &tasca_core::SignedEvent) {
         EventKind::Delete { .. } => println!("* {who} apagou uma mensagem"),
         EventKind::React { emoji, on: true, .. } => println!("* {who} reagiu {emoji}"),
         EventKind::React { .. } => {}
+        EventKind::Kick { .. } => println!("* {who} expulsou alguém"),
+        EventKind::Ban { .. } => println!("* {who} baniu alguém"),
+        EventKind::Leave => println!("* {who} saiu do grupo"),
+        _ => println!("* {who} mudou as definições do grupo"),
     }
 }
 

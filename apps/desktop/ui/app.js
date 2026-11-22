@@ -117,6 +117,16 @@
   // pessoa por id, mesmo que ainda não se saiba nada dela
   const who = (id) => S.people[id] || { id, name: "Alguém", color: "#4A4542", status: "offline" };
   const channel = () => S.channels.find((c) => c.id === S.channelId);
+  // cargos e permissões (grupo.js): o dono pode tudo; sem grupo.js, só o dono
+  const GP = () => window.tascaGrupo;
+  const LOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
+  const PIN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l-1 6 4 4v2H6v-2l4-4z"/></svg>';
+  const canG = (k, chan) => { const g = group(); if (!g || S.home) return false; if (g.owner === "me") return true; return !!(GP() && GP().can(GP().P[k], chan)); };
+  // nome e cor de alguém no grupo aberto (apelido e cor do cargo)
+  const gm = (id) => (!S.home && S.members ? S.members.find((m) => m.id === id) : null);
+  const gname = (id) => { const m = gm(id); return (m && m.nick) || who(id).name; };
+  const gcolor = (id) => { const m = gm(id); return (m && m.roleColor) || who(id).color; };
+  const gicon = (id) => { const m = gm(id); return m && m.roleIcon && !String(m.roleIcon).startsWith("data:") ? `<span class="role-ic">${esc(m.roleIcon)}</span>` : ""; };
 
   // ---------------- permissões ----------------
   // Escolhidas ao criar a conta e em Definições > Privacidade e permissões.
@@ -172,7 +182,13 @@
   }
   // Estado de voz de alguém na chamada onde estou (micro, som, câmara, ecrã).
   const vs = (id) => (id === "me" ? { muted: S.muted, deaf: S.deaf, camera: S.camera, screen: !!S.sharing } : (S.voiceStates && S.voiceStates[id]) || {});
-  const voiceIc = (id) => { const v = vs(id); return v.deaf ? I.headOff : v.muted ? I.micOff : ""; };
+  // ícone de micro/som: a vermelho quando foi um moderador
+  const voiceIc = (id) => {
+    const m = gm(id) || {}; const sd = id === "me" ? S.serverDeaf || m.serverDeaf : m.serverDeaf; const sm = id === "me" ? S.serverMuted || m.serverMuted : m.serverMuted;
+    if (sd) return `<span class="srv-ic" title="Som cortado por um moderador">${I.headOff}</span>`;
+    if (sm) return `<span class="srv-ic" title="Silenciado por um moderador">${I.micOff}</span>`;
+    const v = vs(id); return v.deaf ? I.headOff : v.muted ? I.micOff : "";
+  };
   function mediaError(x, what) {
     const n = x && x.name;
     if (n === "NotAllowedError") return `O ${window.TASCA_MOBILE ? "Android" : "Windows"} não deixou a Tasca usar ${what}. ${window.TASCA_MOBILE ? "Vê Definições > Apps > Tasca > Permissões." : "Vê Definições do Windows > Privacidade e segurança."}`;
@@ -289,7 +305,7 @@
       const on = !S.home && S.groupId === g.id && (S.view === "chat" || S.view === "voice");
       const dot = `<i class="host-dot ${g.host.online ? "online" : ""}"></i>`;
       const badge = g.unread && !on ? `<span class="badge">${g.unread}</span>` : "";
-      return `<button class="rail-btn ${on ? "on" : ""} ${g.unread ? "unread" : ""}" data-group="${g.id}" data-tip="${esc(g.name)}${g.host.online ? "" : " (anfitrião offline)"}" aria-label="${esc(g.name)}" style="--g:${g.color || "var(--vinho)"}">${esc(g.short)}${badge || (g.owner === "me" ? "" : dot)}</button>`;
+      return `<button class="rail-btn ${on ? "on" : ""} ${g.unread ? "unread" : ""}" data-group="${g.id}" data-tip="${esc(g.name)}" aria-label="${esc(g.name)}" style="--g:${g.color || "var(--vinho)"}">${g.icon ? `<img class="g-icon" src="${esc(g.icon)}" alt="">` : esc(g.short)}${badge || (g.owner === "me" || g.server ? "" : dot)}</button>`;
     }).join("");
     return `
       <button class="rail-btn logo ${S.home && (S.view === "chat" || S.view === "friends") ? "on" : ""}" data-act="home" data-tip="Amigos e mensagens privadas" aria-label="Amigos e mensagens privadas">${LOGO}${dmUnread && !(S.home && !pend) ? `<span class="badge">${dmUnread}</span>` : ""}</button>
@@ -305,6 +321,7 @@
       ? `<div class="host-card online"><i class="led"></i><b>Alojado no teu PC</b><span>Ligação ${esc(g.host.route)}</span></div>`
       : `<div class="host-card offline"><i class="led"></i><b>O teu PC está desligado</b><span>A ver cópia local. Abre a Tasca no PC.</span></div>`;
     if (g.owner === "me") return `<div class="host-card online"><i class="led"></i><b>Alojado neste PC</b><span>És o anfitrião. Mantém a Tasca aberta.</span></div>`;
+    if (!g.host.online && g.server) return `<div class="host-card offline soft"><i class="led"></i><b>Anfitrião offline</b><span>As mensagens chegam a todos pelo servidor.</span></div>`;
     if (!g.host.online) return `<div class="host-card offline"><i class="led"></i><b>${esc(owner.name)} está offline</b><span>Visto ${esc(g.host.lastSeen)}. A ver cópia local.</span></div>`;
     return `<div class="host-card online"><i class="led"></i><b>Alojado no PC de ${esc(owner.name)}</b><span>Ligação ${esc(g.host.route)}${g.host.ping != null ? ` · ${g.host.ping} ms` : ""}</span></div>`;
   }
@@ -315,7 +332,7 @@
     if (!g) return "";
     const cats = [...(S.cats[g.id] || [])];
     for (const c of S.channels) { if (!cats.includes(c.cat)) cats.push(c.cat); }
-    const own = g.owner === "me";
+    const own = canG("GERIR_CANAIS");
     const editBtn = (c) => own ? `<button class="chan-edit" data-edit-chan="${c.id}" aria-label="Editar ${esc(c.name)}" title="Editar canal">${I.gear}</button>` : "";
     const drag = (attr) => (own && !window.TASCA_MOBILE ? `draggable="true" ${attr}` : "");
     const body = cats.map((cat) => `
@@ -323,19 +340,19 @@
       ${S.channels.filter((c) => c.cat === cat).map((c) => {
         if (c.kind === "text") {
           const on = c.id === S.channelId && S.view === "chat";
-          return `<div class="chan-wrap ${isMuted(c.id) ? "muted" : ""}" ${drag(`data-drag-chan="${c.id}"`)}><button class="chan ${on ? "on" : ""} ${c.unread && !on && !isMuted(c.id) ? "unread" : ""}" data-chan="${c.id}">${I.hash}<span class="label">${esc(c.name)}</span>${c.unread && !on && !isMuted(c.id) ? `<span class="pill">${c.unread}</span>` : ""}</button>${editBtn(c)}</div>`;
+          return `<div class="chan-wrap ${isMuted(c.id) ? "muted" : ""}" ${drag(`data-drag-chan="${c.id}"`)}><button class="chan ${on ? "on" : ""} ${c.unread && !on && !isMuted(c.id) ? "unread" : ""}" data-chan="${c.id}">${c.private ? LOCK : I.hash}<span class="label">${esc(c.name)}</span>${c.unread && !on && !isMuted(c.id) ? `<span class="pill">${c.unread}</span>` : ""}</button>${editBtn(c)}</div>`;
         }
         const on = S.voice && S.voice.channelId === c.id;
         const ppl = (c.inVoice || []).map((id) => S.people[id]);
-        return `<div class="chan-wrap ${isMuted(c.id) ? "muted" : ""}" ${drag(`data-drag-chan="${c.id}"`)}><button class="chan ${on && S.view === "voice" ? "on" : ""}" data-voice="${c.id}">${I.speaker}<span class="label">${esc(c.name)}</span>${ppl.length ? `<span class="pill" style="background:var(--caixa);color:var(--texto-2)">${ppl.length}</span>` : ""}</button>${editBtn(c)}</div>
+        return `<div class="chan-wrap ${isMuted(c.id) ? "muted" : ""}" ${drag(`data-drag-chan="${c.id}"`)}><button class="chan ${on && S.view === "voice" ? "on" : ""}" data-voice="${c.id}">${c.private ? LOCK : I.speaker}<span class="label">${esc(c.name)}</span>${ppl.length ? `<span class="pill" style="background:var(--caixa);color:var(--texto-2)">${ppl.length}</span>` : ""}</button>${editBtn(c)}</div>
           ${ppl.length ? `<ul class="voice-people">${ppl.map((p) => `<li data-spk="${p.id}" class="${S.speaking.includes(p.id) && !(p.id === "me" && S.muted) ? "speaking" : ""}">${avatar(p, "")}${esc(p.name)}${(p.id === "me" || (S.voice && S.voice.channelId === c.id)) && voiceIc(p.id) ? `<span class="muted-ic">${voiceIc(p.id)}</span>` : ""}</li>`).join("")}</ul>` : ""}`;
       }).join("")}`).join("");
     return `
       <div class="group-head"><span class="name">${esc(g.name)}</span>
-        <button class="icon-btn" data-act="invite" aria-label="Convidar pessoas" title="Convidar pessoas">${I.invite}</button>
+        ${canG("CRIAR_CONVITES") ? `<button class="icon-btn" data-act="invite" aria-label="Convidar pessoas" title="Convidar pessoas">${I.invite}</button>` : ""}
         <button class="icon-btn" data-act="group-menu" aria-label="Opções do grupo" title="Opções do grupo">${I.chevron}</button></div>
       ${hostCard(g)}
-      <div class="channels">${body || (g.owner === "me" ? `<button class="btn ghost" style="margin:8px" data-act="new-channel">${I.plus}Criar canal</button>` : "")}</div>
+      <div class="channels">${body || (own ? `<button class="btn ghost" style="margin:8px" data-act="new-channel">${I.plus}Criar canal</button>` : "")}</div>
       ${renderMe()}`;
   }
 
@@ -509,16 +526,18 @@
       const file = (m.file ? `<div class="attach"><span class="ext">${esc(m.file.ext)}</span><div><b>${esc(m.file.name)}</b><small>${esc(m.file.size)} · enviado diretamente por ${esc(p.name)}</small></div></div>` : "") + (m.files || []).map(fileHtml).join("");
       const reply = m.replyTo ? `<button type="button" class="reply-ref" data-jump="${esc(m.replyTo.id)}">${I.reply}${m.replyTo.deleted ? "<span>Mensagem apagada</span>" : `<b>${esc(who(m.replyTo.from).name)}</b><span>${esc(m.replyTo.text || "")}</span>`}</button>` : "";
       const edited = m.edited ? ` <span class="edited" title="Editada">(editada)</span>` : "";
-      const real = !m.pending && !m.failed && !String(m.id).startsWith("tmp-") && !dm;
+      const real = !m.pending && !m.queued && !m.failed && !String(m.id).startsWith("tmp-") && !dm;
       const acts = real ? `<div class="msg-acts" role="toolbar" aria-label="Ações da mensagem">${["👍", "😂", "❤️"].map((e) => `<button type="button" data-mreact="${esc(m.id)}|${e}" aria-label="Reagir com ${e}">${e}</button>`).join("")}<button type="button" data-mpick="${esc(m.id)}" aria-label="Escolher reação" title="Reagir">${I.smile}</button><button type="button" data-mreply="${esc(m.id)}" aria-label="Responder" title="Responder">${I.reply}</button>${mineMsg(m) ? `<button type="button" data-medit="${esc(m.id)}" aria-label="Editar" title="Editar">${I.edit}</button>` : ""}<button type="button" data-mmore="${esc(m.id)}" aria-label="Mais" title="Mais">${I.more}</button></div>` : "";
       const state = ""; // a enviar: a mensagem só fica mais escura (classe "pending")
       const mine = m.from === "me";
       const fresh = seenCh === S.channelId && !seen.has(String(m.id));
-      const cls = `msg ${mine ? "mine" : ""} ${first ? "first" : ""} ${m.mentionsMe ? "mentioned" : ""} ${m.pending ? "pending" : ""} ${m.failed ? "failed" : ""} ${fresh ? "new" : ""}`;
+      const cls = `msg ${mine ? "mine" : ""} ${first ? "first" : ""} ${m.mentionsMe ? "mentioned" : ""} ${m.pending || m.queued ? "pending" : ""} ${m.queued ? "queued" : ""} ${m.failed ? "failed" : ""} ${fresh ? "new" : ""}`;
+        const qTitle = m.queued ? ` title="À espera do anfitrião: os outros já a veem, fica guardada quando ele voltar"` : "";
       const fail = m.failed ? `<div class="msg-fail"><small>Não foi enviada. Volta a tentar.</small><button class="retry" data-retry="${esc(m.id)}" aria-label="Tentar enviar outra vez" title="Tentar enviar outra vez">${I.retry}</button></div>` : "";
       if (first) {
         const tag = p.bot ? '<span class="tag bot">plugin</span>' : g.owner === p.id ? '<span class="tag">anfitrião</span>' : "";
-        out += `<div class="${cls}" data-mid="${esc(m.id)}">${acts}<button type="button" class="msg-av" data-person="${esc(p.id)}" aria-label="Perfil de ${esc(p.name)}">${avatar(p)}</button><div>${reply}<div class="bubble"><div class="meta"><button type="button" class="author" data-person="${esc(p.id)}" style="--a:${p.color}">${esc(p.name)}</button>${tag}<span class="time">${esc(m.at)}</span></div>${m.text ? `<div class="body">${fmt(m.text)}${edited}${state}</div>` : ""}${file}</div>${reacts}${fail}</div></div>`;
+        const nm = dm ? p.name : gname(p.id), col = dm ? p.color : gcolor(p.id);
+        out += `<div class="${cls}" data-mid="${esc(m.id)}"${qTitle}>${acts}<button type="button" class="msg-av" data-person="${esc(p.id)}" aria-label="Perfil de ${esc(nm)}">${avatar(p)}</button><div>${reply}<div class="bubble"><div class="meta"><button type="button" class="author" data-person="${esc(p.id)}" style="--a:${col}">${esc(nm)}</button>${dm ? "" : gicon(p.id)}${tag}${m.pinned ? `<span class="tag pin" title="Fixada">${PIN}</span>` : ""}<span class="time">${esc(m.at)}</span></div>${m.text ? `<div class="body">${fmt(m.text)}${edited}${state}</div>` : ""}${file}</div>${reacts}${fail}</div></div>`;
       } else {
         out += `<div class="${cls}" data-mid="${esc(m.id)}">${acts}<span class="gutter">${esc(m.at)}</span><div>${reply}<div class="bubble">${m.text ? `<div class="body">${fmt(m.text)}${edited}${state}</div>` : ""}${file}</div>${reacts}${fail}</div></div>`;
       }
@@ -552,12 +571,13 @@
         <div class="typing">${S.typing && S.typing.channelId === c.id ? `<b>${esc(S.typing.who)}</b> está a escrever…` : ""}</div>
       </div>`;
     }
-    const offline = !g.host.online ? `<div class="banner ${S.bannerOpen ? "open" : ""}" data-banner-toggle role="button" tabindex="0" aria-expanded="${!!S.bannerOpen}">${I.warn}<span class="banner-short"><b>Anfitrião offline</b> · a ver a tua cópia local</span><div class="banner-long"><b>${g.owner === "me" ? "O teu PC" : esc(who(g.owner).name)}</b>, o anfitrião, está offline. Estás a ver a tua cópia local. O que escreveres fica guardado e é enviado quando ele voltar, ou quando outro membro assumir o grupo.</div></div>` : "";
+    const offline = !g.host.online && !g.server ? `<div class="banner ${S.bannerOpen ? "open" : ""}" data-banner-toggle role="button" tabindex="0" aria-expanded="${!!S.bannerOpen}">${I.warn}<span class="banner-short"><b>Anfitrião offline</b> · a ver a tua cópia local</span><div class="banner-long"><b>${g.owner === "me" ? "O teu PC" : esc(who(g.owner).name)}</b>, o anfitrião, está offline. Estás a ver a tua cópia local. O que escreveres é enviado quando ele voltar.</div></div>` : "";
     const typing = S.typing && S.typing.channelId === c.id ? `<b>${esc(S.typing.who)}</b> está a escrever…` : "";
     return `
       <div class="main-head">${menuBtn()}
         <span class="title">${I.hash}${esc(c.name)}</span>
         <span class="topic">${esc(c.topic || "")}</span>
+        <button class="icon-btn" data-act="pins" aria-label="Mensagens fixadas" title="Mensagens fixadas">${PIN}</button>
         <button class="icon-btn" data-act="search" aria-label="Procurar mensagens" title="Procurar (Ctrl+F)">${I.search}</button>
         <button class="icon-btn ${S.showMembers ? "on" : ""}" data-act="toggle-members" aria-label="Mostrar membros" title="Membros">${I.users}</button>
       </div>
@@ -567,21 +587,21 @@
         <div class="welcome"><div class="tile"><span>#</span></div><h2>Bem-vindo a #${esc(c.name)}</h2><p>Este é o início do canal #${esc(c.name)} em ${esc(g.name)}. As mensagens ficam guardadas no PC do anfitrião e numa cópia em cada membro.</p></div>
         ${rows}
       </div>
-      <div class="composer">${callPill()}${composerExtras()}
+      <div class="composer">${callPill()}${composerBlock(c) || `${composerExtras()}
         <form id="composer">
-          <button type="button" class="icon-btn" data-act="attach" aria-label="Anexar ficheiro" title="Anexar ficheiro">${I.clip}</button>
+          ${canG("ANEXAR", c) ? `<button type="button" class="icon-btn" data-act="attach" aria-label="Anexar ficheiro" title="Anexar ficheiro">${I.clip}</button>` : ""}
           <label class="sr" for="msg-input">Mensagem</label>
           <textarea id="msg-input" rows="1" placeholder="Escreve para #${esc(c.name)}"></textarea>
           <button type="button" class="icon-btn" data-act="emoji" aria-label="Emoji" title="Emoji">${I.smile}</button>
           <button type="submit" class="icon-btn send" aria-label="Enviar">${I.send}</button>
-        </form>
+        </form>`}
         <div class="typing">${typing}</div>
       </div>`;
   }
 
   // ---------------- mensagens: responder, editar, apagar, reações, anexos ----------------
   const mineMsg = (m) => m.from === "me";
-  const canDelete = (m) => mineMsg(m) || (!S.home && (group() || {}).owner === "me");
+  const canDelete = (m) => mineMsg(m) || (!S.home && canG("GERIR_MENSAGENS", S.channelId));
   const findMsg = (id) => S.messages.find((x) => String(x.id) === String(id));
   const human = (n) => n < 1024 ? n + " B" : n < 1048576 ? Math.round(n / 1024) + " KB" : (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + " MB";
   const fileUrls = new Map();
@@ -728,6 +748,8 @@
       { label: "Responder", icon: I.reply, onClick: () => startReply(m) });
     if (m.text) items.push({ label: "Copiar texto", icon: I.copy, onClick: () => copyText(m.text) });
     if (!S.home && mineMsg(m) && m.text !== undefined) items.push({ label: "Editar", icon: I.edit, onClick: () => startEdit(m) });
+    if (!S.home && canG("GERIR_MENSAGENS", S.channelId) && GP()) items.push({ label: m.pinned ? "Desafixar" : "Fixar mensagem", icon: PIN, onClick: () => GP().pin(m, !m.pinned) });
+    if (!S.home && !mineMsg(m) && GP()) items.push({ label: "Denunciar", icon: I.warn, onClick: () => GP().report(m) });
     if (!S.home && canDelete(m)) items.push("-", { label: "Apagar mensagem", danger: true, icon: I.trash, onClick: () => confirmDeleteMsg(m) });
     return items;
   }
@@ -871,10 +893,19 @@
   function renderMembers() {
     if (!S.showMembers && !S.membersOpen) return "";
     const g = group();
-    const on = S.members.filter((m) => m.status !== "offline");
+    const roles = (GP() && GP().roles[g.id]) || [];
+    const hoisted = roles.filter((r) => r.hoist && r.id !== "todos");
+    const groups = [];
+    const used = new Set();
+    for (const r of hoisted) {
+      const l = S.members.filter((m) => m.status !== "offline" && m.hoistRole === r.id && !used.has(m.id));
+      l.forEach((m) => used.add(m.id));
+      if (l.length) groups.push([r.name, l]);
+    }
+    const on = S.members.filter((m) => m.status !== "offline" && !used.has(m.id));
     const off = S.members.filter((m) => m.status === "offline");
-    const row = (m) => `<button class="member ${m.status === "offline" ? "off" : ""}" data-member="${m.id}">${avatar(m, "s", true)}<span class="nm"><b>${esc(m.name)}${m.owner ? `<span title="Anfitrião">${I.crown.replace("<svg", '<svg class="crown"')}</span>` : ""}</b><small>${m.bot ? "plugin" : m.owner ? "anfitrião" : m.status === "away" ? "ausente" : ""}</small></span></button>`;
-    return `<div class="cat"><span>Online · ${on.length}</span></div>${on.map(row).join("")}
+    const row = (m) => `<button class="member ${m.status === "offline" ? "off" : ""}" data-member="${m.id}">${avatar(m, "s", true)}<span class="nm"><b style="${m.roleColor ? `color:${esc(m.roleColor)}` : ""}">${esc(m.nick || m.name)}${gicon(m.id)}${m.owner ? `<span title="Anfitrião">${I.crown.replace("<svg", '<svg class="crown"')}</span>` : ""}</b><small>${m.bot ? "plugin" : m.timeoutUntil && m.timeoutUntil > Date.now() ? "de castigo" : m.owner ? "anfitrião" : m.status === "away" ? "ausente" : ""}</small></span></button>`;
+    return `${groups.map(([n, l]) => `<div class="cat"><span>${esc(n)} · ${l.length}</span></div>${l.map(row).join("")}`).join("")}<div class="cat"><span>Online · ${on.length}</span></div>${on.map(row).join("")}
       <div class="cat"><span>Offline · ${off.length}</span></div>${off.map(row).join("")}`;
   }
 
@@ -1394,7 +1425,7 @@
 
   // ---------------- canais ----------------
   function openChannelEditor(opts) {
-    const g = group(); if (!g || g.owner !== "me") return;
+    const g = group(); if (!g || !canG("GERIR_CANAIS")) return;
     const c = opts.id ? S.channels.find((x) => x.id === opts.id) : null;
     let kind = c ? c.kind : opts.kind || "text";
     // o canal novo fica na categoria do + em que carregaste
@@ -1407,6 +1438,7 @@
       <div class="field" id="ch-topic-f" ${kind === "voice" ? "hidden" : ""}><label for="ch-topic">Tema</label><input class="input" id="ch-topic" maxlength="120" value="${c ? esc(c.topic || "") : ""}" placeholder="Sobre o que se fala aqui"></div>
       ${c ? `<small style="color:var(--texto-3)">Para mudar a ordem ou a categoria, arrasta o canal na lista.</small>` : ""}
       <p id="ch-err" style="color:var(--perigo)" hidden></p>
+      ${c && GP() ? `<button class="btn ghost" id="ch-perms" style="margin-bottom:8px">${LOCK}Permissões do canal</button>` : ""}
       <div class="actions">${c ? `<button class="btn danger" id="ch-del" style="margin-right:auto">Apagar canal</button>` : ""}<button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="ch-save">${c ? "Guardar" : "Criar canal"}</button></div>`,
     (el, close) => {
       const err = (m) => { const p = $("#ch-err", el); p.textContent = m; p.hidden = !m; };
@@ -1437,6 +1469,7 @@
           }
         } catch (x) { err(String(x.message || x)); }
       };
+      const cp = $("#ch-perms", el); if (cp) cp.onclick = () => { close(); GP().channelPerms(c.id); };
       const del = $("#ch-del", el);
       if (del) del.onclick = async () => {
         if (del.dataset.sure !== "1") { del.dataset.sure = "1"; del.textContent = "Carrega outra vez para apagar"; err(c.kind === "text" ? "As mensagens deste canal são apagadas para toda a gente." : ""); return; }
@@ -1763,6 +1796,7 @@
   }
 
   async function openInvite() {
+    if (GP()) return GP().openInvite();
     const g = group();
     const inv = await api.create_invite({ groupId: g.id });
     modal(`<h2>Convidar para ${esc(g.name)}</h2>
@@ -1781,7 +1815,9 @@
     modal(`<h2>${esc(g.name)}</h2>
       <div class="box">
         <div class="row"><div class="txt"><b>Anfitrião</b><small>${mine ? "Este PC" : esc(who(g.owner).name)}</small></div></div>
-        ${mine ? `<div class="row"><div class="txt"><b>Canais</b><small>Texto e voz podem estar na mesma categoria. Arrasta canais e categorias na lista para os ordenar.</small></div><span style="display:flex;gap:6px"><button class="btn ghost" data-act="new-category">Criar categoria</button><button class="btn" data-act="new-channel">Criar canal</button></span></div>` : ""}
+        ${GP() ? `<div class="row"><div class="txt"><b>Definições do grupo</b><small>${canG("GERIR_GRUPO") || canG("GERIR_CARGOS") ? "Visão geral, cargos, membros, convites, AutoMod e moderação." : "Membros e convites."}</small></div><button class="btn" data-act="group-settings">Abrir</button></div>` : ""}
+        ${canG("MUDAR_APELIDO") && GP() ? `<div class="row"><div class="txt"><b>O meu apelido neste grupo</b><small>${esc((gm("me") || {}).nick || "Sem apelido")}</small></div><button class="btn ghost" data-act="my-nick">Mudar</button></div>` : ""}
+        ${canG("GERIR_CANAIS") ? `<div class="row"><div class="txt"><b>Canais</b><small>Texto e voz podem estar na mesma categoria. Arrasta canais e categorias na lista para os ordenar.</small></div><span style="display:flex;gap:6px"><button class="btn ghost" data-act="new-category">Criar categoria</button><button class="btn" data-act="new-channel">Criar canal</button></span></div>` : ""}
         <div class="row"><div class="txt"><b>Avisos deste grupo</b><small>Quando a Tasca está em segundo plano.</small></div><div class="seg vs-seg" role="radiogroup" aria-label="Avisos deste grupo">${[["all", "Tudo"], ["mentions", "Menções"], ["none", "Nada"]].map(([k, l]) => `<button role="radio" aria-checked="${groupMode(g.id) === k}" class="${groupMode(g.id) === k ? "on" : ""}" data-gnotify="${g.id}|${k}">${l}</button>`).join("")}</div></div>
         <div class="row"><div class="txt"><b>${mine ? "Apagar grupo" : "Sair do grupo"}</b><small>${mine ? "Apaga o grupo deste PC. Os membros ficam com a cópia deles." : "Apaga a tua cópia local."}</small></div><button class="btn danger" data-act="leave-group" data-group-id="${g.id}">${mine ? "Apagar" : "Sair"}</button></div>
       </div>
@@ -1835,10 +1871,12 @@
     S.channels = await api.list_channels({ groupId: id });
     S.allChannels[id] = S.channels;
     S.cats[id] = await api.list_categories({ groupId: id });
+    if (GP()) await GP().loadRoles(id).catch(() => {});
     S.members = await api.list_members({ groupId: id });
     S.allMembers[id] = S.members;
     const firstText = S.channels.find((c) => c.kind === "text");
-    await openChannel(firstText.id, true);
+    if (firstText) await openChannel(firstText.id, true);
+    else { S.channelId = null; S.messages = []; render(); }
     store.set("group", id);
   }
   async function openChannel(id, keepNav) {
@@ -1927,6 +1965,7 @@
 
   async function joinVoice(id, opts = {}) {
     if (S.voice && S.voice.channelId === id) { S.view = "voice"; S.navOpen = false; render(); return; }
+    if (!String(id).startsWith("dm-") && !canG("LIGAR", id)) { const m = "Não tens permissão para entrar nesta sala."; if (opts.quiet) return m; return toast(m); }
     if (S.voice) sfx.leave();
     let info;
     try { info = await api.join_voice({ channelId: id, noise: noiseMode(), sensitivity: S.settings.sensitivity ?? 40 }); }
@@ -1946,6 +1985,7 @@
     applyUserVolumes();
     syncVideo();
     if (!micAllowed()) { S.muted = true; api.set_voice_state({ muted: true, deaf: S.deaf }); toast("Entraste só a ouvir: o microfone está desligado nas permissões."); }
+    else if (!dmCall && (!canG("FALAR", id) || (gm("me") || {}).serverMuted)) { S.muted = true; S.serverMuted = !!(gm("me") || {}).serverMuted; api.set_voice_state({ muted: true, deaf: S.deaf }); toast(S.serverMuted ? "Um moderador silenciou-te: entraste só a ouvir." : "Nesta sala só podes ouvir."); }
     startVad();
     // telemóvel: volta à saída de som que escolheste da última vez (por defeito o altifalante)
     if (window.TascaAudio) setTimeout(() => { if (S.voice) setAudioOut(store.get("audio-out", "altifalante"), true); }, 1200);
@@ -1980,12 +2020,38 @@
       });
     });
   }
+  // aviso no lugar da caixa de escrever quando não se pode escrever no canal
+  function composerBlock(c) {
+    if (S.home || !c || !group()) return "";
+    const me = gm("me") || {};
+    if (me.timeoutUntil && me.timeoutUntil > Date.now()) {
+      const d = new Date(me.timeoutUntil);
+      const quando = d.toDateString() === new Date().toDateString() ? d.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) : d.toLocaleString("pt-PT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+      return `<div class="composer-block">${I.lock}<span>Estás de castigo até ${esc(quando)}. Podes ler, mas não escrever.</span></div>`;
+    }
+    if (!canG("ENVIAR_MENSAGENS", c.id)) return `<div class="composer-block">${I.lock}<span>Não tens permissão para escrever neste canal.</span></div>`;
+    return "";
+  }
+  // um moderador mexeu em mim na chamada
+  async function voiceMod(e) {
+    const by = e.by ? " por " + e.by : "";
+    switch (e.action) {
+      case "mute": S.serverMuted = true; S.muted = true; api.set_voice_state({ muted: true, deaf: S.deaf }); toast("Foste silenciado" + by + "."); break;
+      case "unmute": S.serverMuted = false; toast("Já podes falar outra vez. Liga o micro quando quiseres."); break;
+      case "deafen": S.serverDeaf = true; if (!S.deaf) { S.mutedBeforeDeaf = S.muted; S.deaf = true; S.muted = true; api.set_voice_state({ muted: true, deaf: true }); } toast("Cortaram-te o som da chamada" + by + "."); break;
+      case "undeafen": S.serverDeaf = false; if (S.deaf) { S.deaf = false; S.muted = !!S.mutedBeforeDeaf || !micAllowed() || !!S.serverMuted; api.set_voice_state({ muted: S.muted, deaf: false }); } toast("Já ouves a chamada outra vez."); break;
+      case "disconnect": if (S.voice) { await leaveVoice(); toast("Foste desligado da chamada" + by + "."); } return;
+      case "move": if (e.room) { const r = await joinVoice(e.room, { quiet: true }); toast(r || "Foste movido de sala" + by + "."); } return;
+      case "stopvideo": stopCamera(); stopShare(true); toast("Desligaram-te a câmara e a partilha de ecrã" + by + "."); break;
+    }
+    render();
+  }
   async function leaveVoice() {
     sfx.leave();
     await api.leave_voice();
     stopVad();
     stopCamera(); stopShare(true);
-    const gid = S.voice.groupId; S.voice = null;
+    const gid = S.voice.groupId; S.voice = null; S.serverMuted = false; S.serverDeaf = false;
     if (gid) {
       S.allChannels[gid] = await api.list_channels({ groupId: gid });
       if (S.groupId === gid) S.channels = S.allChannels[gid];
@@ -2130,13 +2196,15 @@
       case "close-settings": S.view = S.prevView || "chat"; return render();
       case "mute":
         if (S.muted && !micAllowed()) return toast("O microfone está desligado em Definições > Privacidade e permissões.");
+        if (S.muted && S.serverMuted) return toast("Um moderador silenciou-te nesta chamada.");
+        if (S.muted && S.voice && S.voice.groupId && !canG("FALAR", S.voice.channelId)) return toast("Não tens permissão para falar nesta sala.");
         // ligar o micro com o som desligado liga também o som (como no Discord)
         S.muted = !S.muted; (S.muted ? sfx.mute : sfx.unmute)(); if (!S.muted && S.deaf) { S.deaf = false; S.mutedBeforeDeaf = false; }
         api.set_voice_state({ muted: S.muted, deaf: S.deaf }); store.set("voice-state", { muted: S.muted, deaf: S.deaf, before: !!S.mutedBeforeDeaf }); haptic(); return render();
       case "deaf":
         // tirar o som desliga o micro; voltar a ligar repõe o micro como estava antes
         if (!S.deaf) { S.mutedBeforeDeaf = S.muted; S.deaf = true; S.muted = true; sfx.deafen(); }
-        else { S.deaf = false; S.muted = !!S.mutedBeforeDeaf || !micAllowed(); sfx.undeafen(); }
+        else { if (S.serverDeaf) return toast("Um moderador cortou-te o som nesta chamada."); S.deaf = false; S.muted = !!S.mutedBeforeDeaf || !micAllowed() || !!S.serverMuted; sfx.undeafen(); }
         api.set_voice_state({ muted: S.muted, deaf: S.deaf }); store.set("voice-state", { muted: S.muted, deaf: S.deaf, before: !!S.mutedBeforeDeaf }); haptic(); return render();
       case "leave-voice": return leaveVoice();
       case "status": S.statusOpen = !S.statusOpen; return render();
@@ -2175,6 +2243,9 @@
         return;
       }
       case "invite": return openInvite();
+      case "pins": return GP() && GP().openPins();
+      case "group-settings": document.querySelectorAll(".scrim").forEach((x) => x.remove()); return GP() && GP().openSettings();
+      case "my-nick": { document.querySelectorAll(".scrim").forEach((x) => x.remove()); return GP() && GP().nick("me"); }
       case "group-menu": return openGroupMenu();
       case "leave-group": return confirmLeave(d.groupId);
       case "toggle-members":
@@ -2247,12 +2318,12 @@
   }
   function channelMenu(x, y, c) {
     const g = group(); if (!g) return;
-    const own = g.owner === "me";
+    const own = canG("GERIR_CANAIS");
     const cats = [...new Set([...(S.cats[g.id] || []), ...S.channels.map((z) => z.cat)])];
     const items = [
       { label: "Marcar como lida", disabled: !c.unread, onClick: () => { c.unread = 0; render(); } },
       "-",
-      { label: "Convidar para o grupo", onClick: () => openInvite() },
+      { label: "Convidar para o grupo", disabled: !canG("CRIAR_CONVITES"), onClick: () => openInvite() },
       { label: "Copiar link", onClick: () => copy(`tasca://grupo/${g.id}/canal/${c.id}`, null, "Link do canal copiado.") },
       "-",
       { label: isMuted(c.id) ? "Deixar de silenciar" : "Silenciar canal", hint: isMuted(c.id) ? "Sem avisos deste canal" : "", onClick: () => { toggleMute(c.id); toast(isMuted(c.id) ? "Canal silenciado." : "Canal com avisos outra vez."); } },
@@ -2261,6 +2332,7 @@
       { label: "Mover para…", items: cats.map((k) => ({ label: k, checked: k === c.cat, disabled: k === c.cat, onClick: () => moveChannelTo(g, c, k) })) },
       "-",
       { label: "Editar canal", onClick: () => openChannelEditor({ id: c.id }) },
+      { label: "Permissões do canal", icon: LOCK, onClick: () => GP() && GP().channelPerms(c.id) },
       { label: "Duplicar canal", onClick: () => duplicateChannel(g, c) },
       { label: "Criar canal de texto", onClick: () => openChannelEditor({ cat: c.cat, kind: "text" }) },
       { label: "Criar canal de voz", onClick: () => openChannelEditor({ cat: c.cat, kind: "voice" }) },
@@ -2270,7 +2342,7 @@
   }
   function categoryMenu(x, y, cat) {
     const g = group(); if (!g) return;
-    const own = g.owner === "me";
+    const own = canG("GERIR_CANAIS");
     const list = S.channels.filter((c) => c.cat === cat);
     const items = [
       { label: "Marcar tudo como lido", disabled: !list.some((c) => c.unread), onClick: () => { list.forEach((c) => (c.unread = 0)); render(); } },
@@ -2282,6 +2354,7 @@
       { label: "Criar categoria", onClick: () => openCategoryEditor(null) },
       "-",
       { label: "Editar categoria", onClick: () => openCategoryEditor(cat) },
+      { label: "Permissões da categoria", icon: LOCK, onClick: () => GP() && GP().channelPerms("cat:" + cat) },
       { label: "Apagar categoria", danger: true, onClick: () => openCategoryEditor(cat) });
     tascaMenu.open(x, y, items);
   }
@@ -2643,7 +2716,7 @@
   }
 
   // Para os outros ficheiros da interface (amigos.js) e, mais tarde, para os plugins.
-  window.tascaApp = { bannerStyle, patch, S, I, FLOR, LOGO, $, esc, initials, avatar, toast, copy, modal, render, rerenderKeepInput, openDm, openGroup, openProfile, group, store, squarePhoto, myStatus, STATUS };
+  window.tascaApp = { bannerStyle, patch, S, I, FLOR, LOGO, $, esc, initials, avatar, toast, copy, modal, render, rerenderKeepInput, openDm, openGroup, openProfile, group, store, squarePhoto, myStatus, STATUS, confirmLeave, refreshMessages, voiceMod, who, gname };
   window.tascaToast = toast;
 
   // ---------------- arranque ----------------
