@@ -166,6 +166,8 @@ pub fn run() {
             grupos::list_categories,
             grupos::list_messages,
             avisos::set_notify_state,
+            grupos::leave_group,
+            grupos::backup_groups,
             plugins::list_plugins,
             plugins::install_plugin,
             plugins::sideload_plugin,

@@ -362,6 +362,11 @@ impl Node {
         &self.inner.identity
     }
 
+    /// Esquece um grupo neste dispositivo (sair do grupo, ou apagá-lo se fores o dono).
+    pub fn forget_group(&self, group: GroupId) -> Result<()> {
+        self.inner.store().forget_group(group)
+    }
+
     /// Acesso à base de dados local (para ler histórico, nomes, etc.).
     pub fn with_store<T>(&self, f: impl FnOnce(&Store) -> T) -> T {
         f(&self.inner.store())

@@ -296,7 +296,7 @@
 
   // ---------------- menu de botão direito ----------------
   function userMenu(x, y, id, from) {
-    const { S, group, copy, openProfile, openTransfer } = A();
+    const { S, group, copy, openProfile } = A();
     const me = id === "me";
     const p = person(id);
     const rel = p.rel;
@@ -330,11 +330,6 @@
         items.push(rel === "bloqueado"
           ? { label: "Desbloquear", onClick: () => act(() => api.unblock_user({ userId: id }), "Desbloqueado.") }
           : { label: "Bloquear", danger: true, icon: IC.block, onClick: () => blockUser(id) });
-      }
-      if (g && g.owner === "me" && inGroup && !p.bot) {
-        items.push("-", { label: "Anfitrião", items: [
-          { label: "Passar o grupo para " + p.name + "…", icon: IC.crown, onClick: () => openTransfer(g.id) },
-        ] });
       }
     }
     // Quem aloja a chamada pode passá-la a qualquer pessoa da chamada; o dono do grupo

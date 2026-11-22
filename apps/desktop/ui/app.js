@@ -100,7 +100,7 @@
     groupId: null, channelId: null,
     view: "chat",              // chat | voice | plugins | settings
     voice: null,               // { channelId, groupId, route, ping, codec }
-    muted: false, deaf: false, speaking: [],
+    muted: !!store.get("voice-state", {}).muted, deaf: !!store.get("voice-state", {}).deaf, mutedBeforeDeaf: !!store.get("voice-state", {}).before, speaking: [],
     camera: false,             // câmara ligada
     sharing: null,             // { source, quality, audio } quando estou a partilhar o ecrã
     focus: null,               // id do quadrado em destaque ("rui:screen", "me:cam", …); null = grelha
@@ -111,7 +111,7 @@
     showMembers: store.get("members", true),
     pluginTab: "loja", pluginQuery: "",
     settingsTab: "aparencia",
-    typing: null, backupPct: null,
+    typing: null,
   };
   const group = () => S.groups.find((g) => g.id === S.groupId);
   // pessoa por id, mesmo que ainda não se saiba nada dela
@@ -1054,7 +1054,6 @@
       <details class="row adv"><summary class="txt"><b>Chave de segurança</b><small>Só para quem quer confirmar a identidade à mão. A privada fica cifrada neste PC.</small></summary><div class="mono" style="color:var(--texto-2);word-break:break-all;font-size:12px">${esc(me.key)}</div><button class="btn ghost" data-act="copy-pubkey">Copiar chave</button></details>
       <div class="row"><div class="txt"><b>Cópia no Google Drive</b><small>A tua conta cifrada fica numa pasta privada da Tasca no teu Drive, para a recuperares noutro PC só com a palavra-passe.</small></div><button class="btn" data-act="google-backup">Ligar Google</button></div>
       <div class="row"><div class="txt"><b>Bloquear a Tasca</b><small>Fecha a sessão neste PC. Para voltar a entrar precisas da palavra-passe.</small></div><button class="btn danger" data-act="lock">Bloquear</button></div>
-      <div class="row"><div class="txt"><b>Exportar identidade</b><small>Guarda a chave num ficheiro cifrado para usar a mesma conta noutro PC. Sem ela, perdes o acesso aos grupos.</small></div><button class="btn">Exportar…</button></div>
     </div></div>`;
   }
   // ---------------- privacidade e permissões ----------------
@@ -1534,48 +1533,23 @@
     </div><p class="lede" style="font-size:13px">Codec Opus. Vídeo em AV1 ou H.264, conforme a placa gráfica. O anfitrião reencaminha áudio e vídeo sem os descodificar.</p></div>`;
   }
   function setRede() {
-    const s = S.settings;
-    return `<div class="section"><h2>Ligação entre PCs</h2><div class="box">
-      <div class="row"><div class="txt"><b>Relay</b><small>Quando dois PCs não se conseguem ligar diretamente (CGNAT, firewall), o tráfego cifrado passa por um relay. O relay não consegue ler nada.</small></div></div>
-      <div class="row"><div class="seg" role="radiogroup" aria-label="Relay">${[["public", "Relays públicos do iroh"], ["own", "O meu servidor"]].map(([k, l]) => `<button role="radio" aria-checked="${s.relay === k}" class="${s.relay === k ? "on" : ""}" data-relay="${k}">${l}</button>`).join("")}</div></div>
-      ${s.relay === "own" ? `<div class="row"><div class="field" style="flex:1"><label for="relayUrl">Endereço do teu relay</label><input class="input mono" id="relayUrl" data-setting="relayUrl" value="${esc(s.relayUrl)}"></div><button class="btn" data-act="test-relay">Testar</button></div>` : ""}
-      <div class="row"><dl class="kv"><dt>Estado</dt><dd><span style="color:var(--oliva);font-weight:700">● Ligado</span></dd><dt>Ligações diretas</dt><dd>3 de 4 grupos</dd><dt>Via relay</dt><dd>Clube de Xadrez (64 ms)</dd></dl></div>
-    </div></div>`;
+    const rota = (g) => g.owner === "me" && g.host.route === "este PC" ? "Alojado aqui" : !g.host.online ? "Anfitrião offline" : `${esc(g.host.route || "")}${g.host.ping != null ? ` · ${g.host.ping} ms` : ""}`;
+    return `<p class="lede">Os dispositivos ligam-se diretamente sempre que dá. Quando não dá (CGNAT, firewall), o tráfego vai cifrado por um relay do iroh, que não o consegue ler.</p>
+      <div class="section"><h2>Ligação a cada grupo</h2><div class="box">${S.groups.map((g) => `<div class="row"><span class="rail-btn on" style="width:36px;height:36px;border-radius:10px;font-size:12px;--g:${g.color || "var(--vinho)"}">${esc(g.short)}</span><div class="txt"><b>${esc(g.name)}</b><small>${rota(g)}</small></div></div>`).join("") || `<div class="row"><div class="txt"><small>Ainda não estás em nenhum grupo.</small></div></div>`}</div></div>
+      ${S.voice ? `<div class="section"><h2>Chamada</h2><div class="box"><div class="row"><div class="txt"><b>${esc(S.voice.route || "")}</b><small>${S.voice.hosting ? "Estás a alojar a chamada: o áudio dos outros passa por este dispositivo." : `Ping ${S.voice.ping ?? "?"} ms até quem aloja a chamada.`}</small></div></div></div></div>` : ""}`;
   }
   function setBackups() {
-    const b = S.settings.backup;
-    const dests = [
-      ["gdrive", "Google Drive", "#1A73E8", "GD"],
-      ["onedrive", "OneDrive", "#0F6CBD", "OD"],
-      ["local", "Ficheiro local", "var(--vinho)", "PC"],
-    ];
     const hosted = S.groups.filter((g) => g.owner === "me");
-    const prog = S.backupPct != null ? `<div class="row"><div class="txt"><b>A fazer cópia… ${S.backupPct}%</b><small>Comprimir com zstd, cifrar, enviar.</small><div class="meter" style="margin-top:8px"><i style="width:${S.backupPct}%"></i></div></div></div>` : "";
-    return `
-      <p class="lede">Os grupos que alojas vivem no teu PC. Faz cópias para não os perderes se o disco falhar. Tudo é comprimido e cifrado aqui antes de sair: a Google ou a Microsoft só veem um ficheiro ilegível.</p>
-      <div class="section"><h2>Destino</h2>
-        <div class="dest" role="radiogroup" aria-label="Destino das cópias">${dests.map(([k, l, col, ab]) => `<button role="radio" aria-checked="${b.dest === k}" class="${b.dest === k ? "on" : ""}" data-dest="${k}"><span class="lg" style="background:${col}">${ab}</span><b>${l}</b><small>${b.connected[k] ? esc(b.connected[k]) : "Não ligado"}</small></button>`).join("")}</div>
-        ${!b.connected[b.dest] ? `<div class="box"><div class="row"><div class="txt"><b>Ligar ${dests.find((d) => d[0] === b.dest)[1]}</b><small>Abre o browser para autorizares. A Tasca só pede acesso a uma pasta própria.</small></div><button class="btn blue" data-act="connect-dest">Ligar conta</button></div></div>` : ""}
-      </div>
-      <div class="section"><h2>Agendamento</h2><div class="box">
-        <div class="row"><div class="txt"><b>Cópias automáticas</b><small>Só envia o que mudou desde a última cópia.</small></div>${sw("backup.auto", b.auto, "Cópias automáticas")}</div>
-        <div class="row"><div class="txt"><b>Frequência</b></div><div class="seg" role="radiogroup" aria-label="Frequência">${[["hora", "De hora a hora"], ["diario", "Diária, 04:00"], ["semanal", "Semanal"]].map(([k, l]) => `<button role="radio" aria-checked="${b.every === k}" class="${b.every === k ? "on" : ""}" data-every="${k}">${l}</button>`).join("")}</div></div>
-        <div class="row"><div class="txt"><b>Grupos incluídos</b><small>${hosted.map((g) => esc(g.name)).join(", ") || "Ainda não alojas nenhum grupo."}</small></div></div>
-      </div></div>
-      <div class="section"><h2>Compressão e cifra</h2><div class="box">
-        <div class="row"><div class="txt"><b>Nível de compressão zstd</b><small>Nível ${b.zstdLevel}. Mais alto ocupa menos espaço mas demora mais.</small></div><input class="range" style="max-width:200px" type="range" min="3" max="22" id="zstdLevel" data-setting="backup.zstdLevel" value="${b.zstdLevel}"></div>
-        <div class="row"><div class="txt"><b>Reduzir imagens para AVIF</b><small>As fotos ocupam cerca de metade, quase sem perda visível.</small></div>${sw("backup.avif", b.avif, "Reduzir imagens para AVIF")}</div>
-        <div class="row"><span style="color:var(--oliva);width:20px">${I.lock}</span><div class="txt"><b>Palavra-passe das cópias</b><small>Definida. Guarda-a bem: sem ela ninguém, nem tu, consegue abrir as cópias.</small></div><button class="btn">Alterar</button></div>
-      </div></div>
-      <div class="section"><h2>Histórico</h2><div class="box">${prog}
-        <ul class="history">${b.history.map((h) => `<li><span class="ok">✓</span><span>${esc(h.at)} · ${esc(h.note)}</span><span>${esc(h.size)}</span></li>`).join("")}</ul>
-        <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn ghost">Restaurar…</button><button class="btn primary" data-act="backup-now" ${S.backupPct != null ? "disabled" : ""}>Fazer cópia agora</button></div>
+    return `<p class="lede">Os grupos que alojas vivem neste PC. Uma cópia guarda todo o histórico, membros e canais num ficheiro, para não perderes nada se o disco falhar.</p>
+      <div class="section"><div class="box">
+        <div class="row"><div class="txt"><b>Guardar cópia agora</b><small>Vai para a pasta Transferências. Inclui ${hosted.length ? hosted.map((g) => esc(g.name)).join(", ") + " e a tua cópia dos outros grupos" : "a tua cópia de todos os grupos"}. Guarda-a num sítio seguro: o ficheiro não vai cifrado.</small></div><button class="btn primary" data-act="backup-now">Guardar cópia</button></div>
+        <div class="row"><div class="txt"><b>A tua conta</b><small>A conta (chave e amigos) já fica cifrada no servidor da Tasca e, se quiseres, no teu Google Drive: vê A minha conta.</small></div></div>
       </div></div>`;
   }
   function setGrupos() {
     const hosted = S.groups.filter((g) => g.owner === "me");
     return `<p class="lede">Grupos que estão alojados neste PC. Enquanto a Tasca estiver aberta, os membros conseguem falar contigo e entre si.</p>
-      <div class="section"><div class="box">${hosted.map((g) => `<div class="row"><span class="rail-btn on" style="width:40px;height:40px;border-radius:12px;font-size:13px">${esc(g.short)}</span><div class="txt"><b>${esc(g.name)}</b><small>${(S.allMembers[g.id] || []).length} membros · 48,2 MB no disco</small></div><button class="btn" data-act="transfer" data-group-id="${g.id}">Transferir propriedade…</button></div>`).join("") || `<div class="row"><div class="txt"><small>Ainda não alojas nenhum grupo.</small></div></div>`}</div></div>
+      <div class="section"><div class="box">${hosted.map((g) => `<div class="row"><span class="rail-btn on" style="width:40px;height:40px;border-radius:12px;font-size:13px">${esc(g.short)}</span><div class="txt"><b>${esc(g.name)}</b><small>${(S.allMembers[g.id] || []).length} membros</small></div></div>`).join("") || `<div class="row"><div class="txt"><small>Ainda não alojas nenhum grupo.</small></div></div>`}</div></div>
       <div class="section only-desktop"><h2>Arranque</h2><div class="box"><div class="row"><div class="txt"><b>Abrir a Tasca quando o Windows arranca</b><small>Minimizada na área de notificação, para os teus grupos estarem sempre disponíveis.</small></div>${sw("perms.autostart", perm("autostart"), "Abrir no arranque")}</div></div></div>`;
   }
   function setSobre() {
@@ -1686,29 +1660,34 @@
         <div class="row"><div class="txt"><b>Anfitrião</b><small>${mine ? "Este PC" : esc(who(g.owner).name)}</small></div></div>
         ${mine ? `<div class="row"><div class="txt"><b>Canais</b><small>Texto e voz podem estar na mesma categoria. Arrasta canais e categorias na lista para os ordenar.</small></div><span style="display:flex;gap:6px"><button class="btn ghost" data-act="new-category">Criar categoria</button><button class="btn" data-act="new-channel">Criar canal</button></span></div>` : ""}
         <div class="row"><div class="txt"><b>Avisos deste grupo</b><small>Quando a Tasca está em segundo plano.</small></div><div class="seg vs-seg" role="radiogroup" aria-label="Avisos deste grupo">${[["all", "Tudo"], ["mentions", "Menções"], ["none", "Nada"]].map(([k, l]) => `<button role="radio" aria-checked="${groupMode(g.id) === k}" class="${groupMode(g.id) === k ? "on" : ""}" data-gnotify="${g.id}|${k}">${l}</button>`).join("")}</div></div>
-        ${mine ? `<div class="row"><div class="txt"><b>Transferir propriedade</b><small>Passa o grupo para o PC de outro membro. Ele tem de aceitar.</small></div><button class="btn" data-act="transfer" data-group-id="${g.id}">Transferir…</button></div>` : ""}
-        <div class="row"><div class="txt"><b>${mine ? "Apagar grupo" : "Sair do grupo"}</b><small>${mine ? "Apaga o grupo deste PC. Os membros ficam com a cópia deles." : "Apaga a tua cópia local."}</small></div><button class="btn danger">${mine ? "Apagar" : "Sair"}</button></div>
+        <div class="row"><div class="txt"><b>${mine ? "Apagar grupo" : "Sair do grupo"}</b><small>${mine ? "Apaga o grupo deste PC. Os membros ficam com a cópia deles." : "Apaga a tua cópia local."}</small></div><button class="btn danger" data-act="leave-group" data-group-id="${g.id}">${mine ? "Apagar" : "Sair"}</button></div>
       </div>
       <div class="actions"><button class="btn ghost" data-close>Fechar</button></div>`);
   }
 
-  function openTransfer(groupId) {
-    const g = S.groups.find((x) => x.id === groupId);
-    const others = (S.allMembers[groupId] || []).filter((m) => m.id !== "me" && !m.bot);
+  function confirmLeave(groupId) {
+    const g = S.groups.find((x) => x.id === groupId); if (!g) return;
+    const mine = g.owner === "me";
     document.querySelectorAll(".scrim").forEach((x) => x.remove());
-    modal(`<h2>Transferir ${esc(g.name)}</h2>
-      <p>O grupo passa a viver no PC da pessoa que escolheres. Assinas a transferência, ela aceita, os dados vão cifrados e só depois de confirmados é que deixas de ser anfitrião.</p>
-      <div class="field"><label for="to-who">Novo anfitrião</label><select class="input" id="to-who">${others.map((m) => `<option value="${m.id}">${esc(m.name)}${m.username ? " · @" + esc(m.username) : ""}</option>`).join("") || "<option disabled>Não há outros membros</option>"}</select></div>
-      <div class="actions"><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="do-transfer" ${others.length ? "" : "disabled"}>Pedir transferência</button></div>`,
+    modal(`<h2>${mine ? "Apagar" : "Sair de"} ${esc(g.name)}?</h2>
+      <p>${mine ? "O grupo deixa de estar alojado neste PC e o histórico é apagado daqui. Os membros ficam com a cópia deles, mas deixam de conseguir falar no grupo." : "A tua cópia do grupo é apagada deste dispositivo. Para voltar precisas de um convite novo."}</p>
+      <div class="actions"><button class="btn ghost" data-close>Cancelar</button><button class="btn danger" id="do-leave">${mine ? "Apagar grupo" : "Sair do grupo"}</button></div>`,
     (el, close) => {
-      $("#do-transfer", el).onclick = async () => {
-        const who = S.people[$("#to-who", el).value];
-        await api.transfer_ownership({ groupId, to: who.id });
-        close(); toast(`Pedido enviado a ${who.name}. A transferência termina quando ele aceitar.`);
+      $("#do-leave", el).onclick = async () => {
+        close();
+        try { await api.leave_group({ groupId }); }
+        catch (x) { return toast("Não consegui: " + (x.message || x)); }
+        if (S.voice && S.voice.groupId === groupId) { try { await leaveVoice(); } catch {} }
+        S.groups = S.groups.filter((x) => x.id !== groupId);
+        delete S.allChannels[groupId]; delete S.allMembers[groupId];
+        if (S.groupId === groupId) {
+          if (S.groups.length) await openGroup(S.groups[0].id);
+          else { S.home = true; S.groupId = null; S.view = window.tascaAmigos ? "friends" : "chat"; S.channelId = null; S.messages = []; render(); }
+        } else render();
+        toast(mine ? "Grupo apagado." : "Saíste do grupo.");
       };
     });
   }
-
   function copy(text, field, msg) {
     const done = () => toast(msg);
     try {
@@ -2028,8 +2007,8 @@
       case "voice-quick": return openVoiceSettings();
       case "voicepre-back": S.view = S.prevView && S.prevView !== "voicepre" ? S.prevView : "chat"; return render();
       case "voicepre-invite": { const c = findChannel(S.preVoice); const g = S.groups.find((x) => (S.allChannels[x.id] || []).some((y) => y.id === c.id)); if (g && S.groupId !== g.id) await openGroup(g.id); S.view = "voicepre"; render(); return openInvite(); }
-      case "vp-mic": haptic(); if (S.muted && !micAllowed()) return toast("O microfone está desligado em Definições > Privacidade e permissões."); S.muted = !S.muted; if (!S.muted && S.deaf) { S.deaf = false; S.mutedBeforeDeaf = false; } return render();
-      case "vp-deaf": haptic(); if (!S.deaf) { S.mutedBeforeDeaf = S.muted; S.deaf = true; S.muted = true; } else { S.deaf = false; S.muted = !!S.mutedBeforeDeaf; } return render();
+      case "vp-mic": haptic(); if (S.muted && !micAllowed()) return toast("O microfone está desligado em Definições > Privacidade e permissões."); S.muted = !S.muted; if (!S.muted && S.deaf) { S.deaf = false; S.mutedBeforeDeaf = false; } store.set("voice-state", { muted: S.muted, deaf: S.deaf, before: !!S.mutedBeforeDeaf }); return render();
+      case "vp-deaf": haptic(); if (!S.deaf) { S.mutedBeforeDeaf = S.muted; S.deaf = true; S.muted = true; } else { S.deaf = false; S.muted = !!S.mutedBeforeDeaf; } store.set("voice-state", { muted: S.muted, deaf: S.deaf, before: !!S.mutedBeforeDeaf }); return render();
       case "vp-join": {
         haptic(12); S.preVoiceBusy = true; S.preVoiceErr = null; render();
         const fail = await joinVoice(S.preVoice, { quiet: true });
@@ -2047,7 +2026,7 @@
       }
       case "invite": return openInvite();
       case "group-menu": return openGroupMenu();
-      case "transfer": return openTransfer(d.groupId);
+      case "leave-group": return confirmLeave(d.groupId);
       case "toggle-members":
         if (window.innerWidth <= 1100) S.membersOpen = !S.membersOpen;
         else { S.showMembers = !S.showMembers; store.set("members", S.showMembers); }
@@ -2061,21 +2040,15 @@
       case "cancel-compose": { if (S.editing) { const i = $("#msg-input"); if (i) i.value = ""; } S.reply = null; S.editing = null; return rerenderKeepInput(); }
       case "search": return openSearch();
       case "emoji": return window.tascaEmoji.open(t, $("#msg-input"));
-      case "connect-dest": {
-        const k = S.settings.backup.dest;
-        await patch({ backup: { connected: { [k]: k === "local" ? "D:\\Backups\\Tasca" : "conta ligada" } } });
-        render(); return toast("Conta ligada. A próxima cópia vai para lá.");
-      }
       case "backup-now": {
-        S.backupPct = 0; render();
-        await api.run_backup();
-        S.backupPct = null; S.settings = await api.get_settings(); render();
-        return toast("Cópia feita, cifrada e enviada.");
+        t.disabled = true; t.textContent = "A guardar…";
+        try { const p = await api.backup_groups(); toast("Cópia guardada em " + p); }
+        catch (e) { toast("Não deu para guardar a cópia: " + (e.message || e)); }
+        t.disabled = false; t.textContent = "Guardar cópia"; return;
       }
       case "test-sound": sfx.join(); return;
       case "lock": await api.lock(); location.reload(); return;
       case "google-backup": t.disabled = true; t.textContent = "A ligar…"; await api.google_backup(); t.textContent = "Ligado"; return toast("Cópia cifrada guardada no Google Drive.");
-      case "test-relay": return toast("Relay respondeu em 12 ms.");
       case "new-category": return openCategoryEditor(null);
       case "new-channel": document.querySelectorAll(".scrim:not(.locked)").forEach((x) => x.remove()); return openChannelEditor({ cat: d.cat });
       case "edit-profile": return openProfile();
@@ -2509,7 +2482,6 @@
       el.classList.toggle(el.dataset.spkCls || "speaking", S.speaking.includes(id) && !(id === "me" && S.muted));
     });
   }
-  api.on("backup_progress", ({ pct }) => { S.backupPct = pct; if (S.view === "settings" && S.settingsTab === "backups") rerenderKeepInput(); });
 
   function rerenderKeepInput() {
     const inp = $("#msg-input");
@@ -2521,7 +2493,7 @@
   }
 
   // Para os outros ficheiros da interface (amigos.js) e, mais tarde, para os plugins.
-  window.tascaApp = { bannerStyle, patch, S, I, FLOR, LOGO, $, esc, initials, avatar, toast, copy, modal, render, rerenderKeepInput, openDm, openGroup, openProfile, openTransfer, group, store, squarePhoto, myStatus, STATUS };
+  window.tascaApp = { bannerStyle, patch, S, I, FLOR, LOGO, $, esc, initials, avatar, toast, copy, modal, render, rerenderKeepInput, openDm, openGroup, openProfile, group, store, squarePhoto, myStatus, STATUS };
   window.tascaToast = toast;
 
   // ---------------- arranque ----------------

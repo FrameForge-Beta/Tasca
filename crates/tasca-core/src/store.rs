@@ -339,6 +339,24 @@ impl Store {
         Ok(true)
     }
 
+    /// Esquece um grupo neste dispositivo: apaga o histórico, os membros e as chaves.
+    pub fn forget_group(&mut self, group: GroupId) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        for t in ["events", "members", "invites", "group_keys", "layouts", "profiles", "profile_cards"] {
+            tx.execute(&format!("DELETE FROM {t} WHERE group_id = ?1"), params![group.0])?;
+        }
+        tx.execute("DELETE FROM groups WHERE id = ?1", params![group.0])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Copia a base de dados inteira para um ficheiro novo (cópia de segurança).
+    pub fn copy_to(&self, path: &Path) -> Result<()> {
+        ensure!(!path.exists(), "esse ficheiro já existe");
+        self.conn.execute("VACUUM INTO ?1", params![path.to_string_lossy()])?;
+        Ok(())
+    }
+
     /// Um evento do grupo pelo id.
     pub fn event_by_id(&self, group: GroupId, id: &[u8; 32]) -> Result<Option<SignedEvent>> {
         let data: Option<Vec<u8>> = self

@@ -72,6 +72,9 @@ struct Sinc {
     em_foto: u64,
     #[serde(default)]
     em_banner: u64,
+    /// Grupos de que saíste neste dispositivo (não voltam pela sincronia da conta).
+    #[serde(default)]
+    esquecidos: Vec<String>,
 }
 
 struct Ligacao {
@@ -495,7 +498,7 @@ impl Ativa {
             Item::Grupo { id, nome, dono, .. } => {
                 let (Some(g), Some(dono)) = (unhex32(&id).map(GroupId), unhex32(&dono)) else { return };
                 let Ok(dono_pk) = PublicKey::from_bytes(&dono) else { return };
-                if self.node.with_store(|s| s.group(g)).ok().flatten().is_some() {
+                if self.node.with_store(|s| s.group(g)).ok().flatten().is_some() || self.sinc.lock().unwrap().esquecidos.contains(&id) {
                     return;
                 }
                 // grupo meu que este PC não tem: só o PC que o criou o pode hospedar
@@ -1260,4 +1263,62 @@ pub async fn publish_profile(
         }
     }
     Ok(true)
+}
+
+/// Sai de um grupo (ou apaga-o, se fores o dono) neste dispositivo. Os outros membros ficam
+/// com a cópia deles. A rede reinicia para parar tudo o que estava ligado a este grupo.
+#[tauri::command]
+pub async fn leave_group(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>, group_id: String) -> Res<bool> {
+    let a = ativa(&app, &rede, &c).await?;
+    let g = grupo(&group_id)?;
+    a.node.forget_group(g).map_err(txt)?;
+    a.sinc.lock().unwrap().esquecidos.push(group_id);
+    a.guardar_sinc();
+    if let Some(velha) = rede.ativa.lock().await.take() {
+        velha.parar().await;
+    }
+    ativa(&app, &rede, &c).await?;
+    Ok(true)
+}
+
+/// Guarda uma cópia de todos os grupos deste dispositivo na pasta Transferências.
+#[tauri::command]
+pub async fn backup_groups(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>) -> Res<String> {
+    use tauri::Manager;
+    let a = ativa(&app, &rede, &c).await?;
+    let pasta = app.path().download_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&pasta).map_err(|e| e.to_string())?;
+    let dia = {
+        let s = now_ms() / 1000;
+        let (d, m, y) = civil(s / 86400);
+        format!("{y:04}-{m:02}-{d:02}")
+    };
+    let mut destino = pasta.join(format!("Tasca-grupos-{dia}.db"));
+    let mut n = 1;
+    while destino.exists() {
+        destino = pasta.join(format!("Tasca-grupos-{dia} ({n}).db"));
+        n += 1;
+    }
+    let d2 = destino.clone();
+    a.node.with_store(|s| s.copy_to(&d2)).map_err(txt)?;
+    #[cfg(desktop)]
+    {
+        use tauri_plugin_opener::OpenerExt;
+        let _ = app.opener().reveal_item_in_dir(&destino);
+    }
+    Ok(destino.to_string_lossy().into_owned())
+}
+
+/// Dias desde 1970 → (dia, mês, ano).
+fn civil(z: u64) -> (u64, u64, i64) {
+    let z = z as i64 + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
+    (d as u64, m as u64, y)
 }

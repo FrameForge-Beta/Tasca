@@ -570,13 +570,8 @@
       try { localStorage.setItem("tasca:settings", JSON.stringify(settings)); } catch {}
       return clone(settings);
     },
-    async run_backup() {
-      for (let i = 1; i <= 10; i++) { await wait(180); emit("backup_progress", { pct: i * 10 }); }
-      const entry = { at: "20 nov, " + nowHHMM(), size: "0,4 MB", note: "incremental", ok: true };
-      settings.backup.history.unshift(entry);
-      return clone(entry);
-    },
-    async transfer_ownership() { await wait(500); return true; },
+    async backup_groups() { await wait(400); return "Transferências/Tasca-grupos-teste.db"; },
+    async leave_group({ groupId }) { await wait(300); return true; },
     // ---- amigos (teste) ----
     async list_friends() { return clone(friends.map((f) => ({ ...people[f.id], ...f, statusText: people[f.id].statusText || "" }))); },
     async send_friend_request({ username, userId, name }) {
