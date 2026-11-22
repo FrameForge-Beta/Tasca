@@ -1881,3 +1881,33 @@ details.row.adv .btn { justify-self: start; }
 body.has-titlebar .gset { top: var(--tb-h); }
 .modal:has(.cp-wrap) { width: min(780px, calc(100vw - 32px)); max-width: none; }
 .kind-card { align-content: start; }
+/* amigos no telemóvel: título e botão de adicionar em cima, separadores a toda a largura por baixo */
+.fr-add-ic { display: none; }
+@media (max-width: 720px) {
+  .main-head.fr-head { height: auto; flex-wrap: wrap; row-gap: 8px; padding-top: 8px; padding-bottom: 10px; }
+  .fr-head .title { flex: 1; }
+  .fr-add-ic { display: grid; color: var(--oliva); }
+  .fr-add-ic.on { background: var(--ativo); }
+  .fr-head .fr-tabs { order: 9; flex: 1 0 100%; overflow: visible; padding: 3px; gap: 2px; border-radius: var(--r-m); background: var(--caixa); }
+  .fr-head .fr-tab { flex: 1 1 0; justify-content: center; padding: 7px 4px; font-size: 13px; border-radius: 7px; min-width: 0; }
+  .fr-head .fr-tab.on { background: var(--fundo); box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+  .fr-head .fr-tab.add { display: none; }
+}
+
+/* gaveta do telemóvel: painel de canais arredondado como o resto da app; ao chegar à tua
+   barra, a lista desvanece por baixo dela em vez de ser cortada */
+@media (max-width: 720px) {
+  .app .rail { top: 0; bottom: 0; z-index: 35; padding-bottom: calc(96px + var(--safe-b)); }
+  .app .sidebar {
+    z-index: 36; top: 8px; left: 72px; width: calc(var(--navw) - 80px);
+    border-radius: 16px 16px 0 0; border: 1px solid var(--linha); border-bottom: 0;
+    box-shadow: 0 0 0 8px var(--rail), 18px 0 36px rgba(0, 0, 0, .35);
+  }
+  .app .sidebar .channels { padding-bottom: 28px; }
+  .app .sidebar > .dock {
+    margin-left: -73px; margin-right: -9px; margin-top: -28px; position: relative; z-index: 1;
+    padding: 28px 10px calc(8px + var(--safe-b)); border-top: 0;
+    background: linear-gradient(to bottom, transparent, var(--rail) 26px);
+  }
+  .rail { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 96px - var(--safe-b)), transparent calc(100% - 70px - var(--safe-b))); mask-image: linear-gradient(to bottom, #000 calc(100% - 96px - var(--safe-b)), transparent calc(100% - 70px - var(--safe-b))); }
+}

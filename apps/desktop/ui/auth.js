@@ -27,7 +27,7 @@
         <aside class="auth-brand" aria-hidden="true">
           <div class="auth-brand-in">
             <span class="auth-logo">${LOGO}</span>
-            <p class="auth-tag">Conversa, voz e plugins.<br>Tudo cifrado de ponta a ponta: só tu e o teu grupo conseguem ler.</p>
+            <p class="auth-tag">Conversa, voz e plugins.<br>Com os teus amigos.</p>
           </div>
         </aside>
         <main class="auth-main">
@@ -103,11 +103,11 @@
           <p class="wl-tag">O teu grupo, na <em>tua</em> tasca.</p>
         </div>
         <h1 class="wl-title">Bem-vindo à Tasca</h1>
-        <p class="auth-lede wl-lede">A tua conta é cifrada com a tua palavra-passe antes de sair deste PC. Ninguém, nem nós, a consegue abrir.</p>
+        <p class="auth-lede wl-lede">Fala, joga e partilha com os teus amigos.</p>
         <ul class="wl-feats">
           <li><i style="--c:#9B2C3F">${WL.chat}</i><span><b>Grupos e mensagens</b><small>Canais de texto, amigos e mensagens privadas.</small></span></li>
-          <li><i style="--c:#5E8C4A">${WL.mic}</i><span><b>Voz e vídeo</b><small>Chamadas com supressão de ruído, direto entre vocês.</small></span></li>
-          <li><i style="--c:#2A5CAA">${WL.lock}</i><span><b>Cifrado de ponta a ponta</b><small>Só tu e o teu grupo conseguem ler.</small></span></li>
+          <li><i style="--c:#5E8C4A">${WL.mic}</i><span><b>Voz e vídeo</b><small>Chamadas com supressão de ruído.</small></span></li>
+          <li><i style="--c:#2A5CAA">${WL.lock}</i><span><b>Privado</b><small>Só tu e o teu grupo leem as vossas mensagens.</small></span></li>
           <li><i style="--c:#B8791A">${WL.puzzle}</i><span><b>Plugins</b><small>Junta funcionalidades novas à tua medida.</small></span></li>
         </ul>
         <div class="wl-actions">
@@ -138,7 +138,7 @@
       shell(`
         <h1>As tuas 12 palavras</h1>
         <p class="auth-lede">Escreve-as num papel e guarda-o num sítio seguro. Servem para recuperar a conta noutro PC ou se te esqueceres da palavra-passe. Quem as tiver, tem a tua conta.</p>
-        ${st.serverErr ? `<p class="auth-note">A conta foi criada neste PC, mas não ficou no servidor: ${esc(st.serverErr)}</p>` : ""}
+        ${st.serverErr ? `<p class="auth-note">A conta foi criada, mas não ficou guardada online: ${esc(st.serverErr)}</p>` : ""}
         <ol class="words">${st.phrase.split(" ").map((w) => `<li><span>${esc(w)}</span></li>`).join("")}</ol>
         <div class="auth-row"><button class="btn ghost only-desktop" id="w-txt">Guardar .txt no ambiente de trabalho</button><button class="btn ghost" id="w-copy">Copiar</button></div>
         <p class="auth-note" id="w-txt-ok" hidden></p>
@@ -196,7 +196,7 @@
       shell(`
         <h1>Entrar</h1>
         ${st.server ? `
-        <p class="auth-lede">A tua conta vem cifrada do servidor e só abre aqui, com a tua palavra-passe.</p>
+        <p class="auth-lede">Entra com a tua palavra-passe.</p>
         <form id="f-login" class="auth-form" novalidate>
           <div class="field"><label for="l-user">Nome de utilizador</label><input class="input" id="l-user" data-sugg="utilizador" maxlength="25" autocomplete="username" autocapitalize="off" spellcheck="false" value="${esc(st.username || "")}"></div>
           ${pwField("l-pw", "Palavra-passe", "current-password")}
@@ -232,7 +232,7 @@
     google() {
       shell(`
         <h1>Entrar com Google</h1>
-        <p class="auth-lede">Vamos abrir o browser para escolheres a conta Google. A Tasca só pede acesso a uma pasta privada dela no teu Google Drive, onde guarda a tua conta cifrada. Não vê os teus emails nem os teus ficheiros.</p>
+        <p class="auth-lede">Vamos abrir o browser para escolheres a conta Google. A Tasca só pede acesso a uma pasta privada dela no teu Google Drive, onde guarda a tua conta. Não vê os teus emails nem os teus ficheiros.</p>
         <p class="auth-err" hidden></p>
         <button class="btn google big" id="g-go">${G}Abrir o browser</button>`, { back: "login" });
     },
@@ -248,7 +248,7 @@
         <div class="auth-who">${G.replace("<svg", '<svg class="g-big"')}<div><b>${esc(st.gmail || "Conta Google")}</b><small>Encontrámos a tua conta da Tasca no Google Drive</small></div></div>
         <form id="f-grestore" class="auth-form" novalidate>
           ${pwField("g-pw", "Palavra-passe da Tasca", "current-password")}
-          <p class="auth-note">É a palavra-passe da Tasca, não a do Google. A cópia está cifrada com ela.</p>
+          <p class="auth-note">É a palavra-passe da Tasca, não a do Google.</p>
           ${rememberField("g-rem")}
           <p class="auth-err" hidden></p>
           <button class="btn primary big" type="submit">Entrar</button>
@@ -258,7 +258,7 @@
     googleNone() {
       shell(`
         <h1>Ainda não tens conta guardada</h1>
-        <p class="auth-lede">A conta Google ${esc(st.gmail || "")} ficou ligada, mas não há nenhuma conta da Tasca guardada nela. Cria uma agora e guardamos uma cópia cifrada no teu Google Drive.</p>
+        <p class="auth-lede">A conta Google ${esc(st.gmail || "")} ficou ligada, mas não há nenhuma conta da Tasca guardada nela. Cria uma agora e guardamos uma cópia no teu Google Drive.</p>
         <button class="btn primary big" data-go="create">Criar conta</button>`, { back: "welcome" });
     },
   };
