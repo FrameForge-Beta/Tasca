@@ -15,6 +15,7 @@ mod contas;
 mod dms;
 mod grupos;
 mod mensagens;
+mod plugins;
 mod presenca;
 mod sincronia;
 mod voz;
@@ -113,7 +114,8 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
-        .manage(avisos::Avisos::default());
+        .manage(avisos::Avisos::default())
+        .manage(plugins::Loja::default());
     #[cfg(desktop)]
     let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -164,6 +166,12 @@ pub fn run() {
             grupos::list_categories,
             grupos::list_messages,
             avisos::set_notify_state,
+            plugins::list_plugins,
+            plugins::install_plugin,
+            plugins::sideload_plugin,
+            plugins::uninstall_plugin,
+            plugins::set_plugin_enabled,
+            plugins::plugin_code,
             mensagens::send_message,
             mensagens::edit_message,
             mensagens::delete_message,

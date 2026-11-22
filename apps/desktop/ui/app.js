@@ -1010,9 +1010,9 @@
     const nInst = S.plugins.filter((p) => p.installed).length;
     let body;
     if (S.pluginTab === "carregar") {
-      body = `<div class="box"><div class="row"><div class="txt"><b>Carregar um plugin a partir de ficheiro</b><small>Para testares plugins teus antes de os enviares para a loja. Aceita .tasca-plugin (WASM ou JS).</small></div>
-        <label class="btn" for="sideload">${I.upload}Escolher ficheiro</label><input type="file" id="sideload" accept=".tasca-plugin,.wasm,.js,.zip" hidden></div>
-        <div class="row" style="background:var(--mencao-bg)"><span style="color:var(--ocre);width:20px">${I.warn}</span><div class="txt"><b>Plugins carregados à mão não são verificados</b><small>Corre num ambiente isolado e só tem as permissões que aceitares, mas a equipa não reviu o código. Instala apenas o que confias.</small></div></div></div>`;
+      body = `<div class="box"><div class="row"><div class="txt"><b>Carregar um plugin a partir de ficheiro</b><small>Para testares plugins teus antes de os enviares para a loja. Um ficheiro .js com a API descrita em docs/plugins.md.</small></div>
+        <label class="btn" for="sideload">${I.upload}Escolher ficheiro</label><input type="file" id="sideload" accept=".js,text/javascript" hidden></div>
+        <div class="row" style="background:var(--mencao-bg)"><span style="color:var(--ocre);width:20px">${I.warn}</span><div class="txt"><b>Plugins carregados à mão não são verificados</b><small>Corre num ambiente isolado, sem acesso à rede nem aos teus ficheiros, mas a equipa não reviu o código e pode enviar mensagens por ti. Instala apenas o que confias.</small></div></div></div>`;
     } else {
       body = list.length ? `<div class="plugins">${list.map(pluginCard).join("")}</div>` : `<p class="lede">Nenhum plugin corresponde a «${esc(S.pluginQuery)}».</p>`;
     }
@@ -1068,11 +1068,11 @@
     const ok = S.settings.termsAccepted === termsVersion();
     return `<p class="lede">O que a Tasca pode usar neste PC. Desligar aqui desliga mesmo: a funcionalidade deixa de funcionar até a voltares a ligar.</p>
       <div class="section"><h2>Permissões</h2><div class="box">${PERMS.map(([k, l, d]) => `<div class="row"><div class="txt"><b>${l}</b><small>${d}</small></div>${sw("perms." + k, perm(k), l)}</div>`).join("")}</div>
+      <p class="lede" style="font-size:13px">O Windows também tem as suas permissões. Se o microfone ou a câmara não funcionarem com isto ligado, vê Definições do Windows > Privacidade e segurança.</p></div>
       <div class="section"><h2>Avisos de mensagens</h2><div class="box">
         <div class="row"><div class="txt"><b>Mostrar o texto da mensagem</b><small>Desligado, o aviso diz só quem escreveu e onde.</small></div>${sw("notifPreview", S.settings.notifPreview !== false, "Mostrar o texto da mensagem")}</div>
         ${window.TascaServico ? `<div class="row"><div class="txt"><b>Receber com a app fechada</b><small>Deixa uma notificação discreta «Tasca ligada» para o Android não adormecer a app. Gasta um pouco mais de bateria.</small></div>${sw("bgService", (() => { try { return TascaServico.ligado(); } catch { return true; } })(), "Receber com a app fechada")}</div>` : ""}
       </div><small class="hint" style="display:block;margin-top:6px">Cada grupo pode avisar de tudo, só de menções ou de nada: no menu do grupo. Um canal silencia-se com o botão direito (ou tocando e mantendo) no nome dele.</small></div>
-      <p class="lede" style="font-size:13px">O Windows também tem as suas permissões. Se o microfone ou a câmara não funcionarem com isto ligado, vê Definições do Windows > Privacidade e segurança.</p></div>
       <div class="section"><h2>Termos e regras</h2><div class="box">
         <div class="row"><div class="txt"><b>${ok ? "Aceitaste os termos e regras da Tasca" : "Ainda não aceitaste os termos"}</b><small>Versão de ${esc(termsVersion())}.</small></div><button class="btn" data-act="read-terms">Ler</button></div>
       </div></div>`;
@@ -1930,13 +1930,18 @@
     if (d.pluginTab) { S.pluginTab = d.pluginTab; S.navOpen = false; return render(); }
     if (d.install) {
       t.disabled = true; t.textContent = "A verificar assinatura…";
-      const p = await api.install_plugin({ id: d.install });
+      let p;
+      try { p = await api.install_plugin({ id: d.install }); }
+      catch (x) { t.disabled = false; t.textContent = "Instalar"; return toast(String(x.message || x)); }
       Object.assign(S.plugins.find((x) => x.id === p.id), p);
+      if (window.tascaPlugins) window.tascaPlugins.carregar();
       render(); return toast(`${p.name} instalado e ativo.`);
     }
     if (d.uninstall) {
       const p = await api.uninstall_plugin({ id: d.uninstall });
-      Object.assign(S.plugins.find((x) => x.id === p.id), p);
+      if (String(p.id).startsWith("local-")) S.plugins = S.plugins.filter((x) => x.id !== p.id);
+      else Object.assign(S.plugins.find((x) => x.id === p.id), p);
+      if (window.tascaPlugins) window.tascaPlugins.carregar();
       render(); return toast(`${p.name} removido.`);
     }
     if (d.retry) {
@@ -2194,6 +2199,8 @@
     e.preventDefault();
     const inp = $("#msg-input");
     const text = inp.value.trim();
+    // "/comando" de um plugin: vai para o plugin, não para o chat
+    if (!S.editing && text.startsWith("/") && window.tascaPlugins && window.tascaPlugins.correr(text, S.channelId)) { inp.value = ""; return; }
     if (S.editing) {
       const m = findMsg(S.editing.id); S.editing = null;
       if (!text || !m) return rerenderKeepInput();
@@ -2293,7 +2300,9 @@
     const t = e.target;
     if (t.dataset.pluginToggle) {
       const p = await api.set_plugin_enabled({ id: t.dataset.pluginToggle, enabled: t.checked });
-      Object.assign(S.plugins.find((x) => x.id === p.id), p); render(); return;
+      Object.assign(S.plugins.find((x) => x.id === p.id), p);
+      if (window.tascaPlugins) window.tascaPlugins.carregar();
+      render(); return;
     }
     if (t.id === "custom-status") {
       if (window.tascaSugg) tascaSugg.remember("estado", t.value);
@@ -2301,7 +2310,17 @@
       api.set_presence({ status: myStatus(), text: t.value }).catch(() => {});
       return;
     }
-    if (t.id === "sideload" && t.files[0]) { toast(`«${t.files[0].name}» carregado. Revê as permissões antes de ativar.`); return; }
+    if (t.id === "sideload" && t.files[0]) {
+      const f = t.files[0];
+      if (f.size > 2 * 1048576) return toast("Esse ficheiro é grande demais para um plugin.");
+      try {
+        const p = await api.sideload_plugin({ name: f.name, code: await f.text() });
+        const i = S.plugins.findIndex((x) => x.id === p.id); if (i >= 0) S.plugins[i] = p; else S.plugins.push(p);
+        if (window.tascaPlugins) await window.tascaPlugins.carregar();
+        S.pluginTab = "instalados"; render(); toast(`«${p.name}» instalado e ativo.`);
+      } catch (x) { toast("Não consegui instalar: " + (x.message || x)); }
+      return;
+    }
     if (t.dataset.setting && t.type === "checkbox" && t.dataset.setting.startsWith("perms.")) {
       await patch(pathPatch(t.dataset.setting, t.checked)); return applyPerm(t.dataset.setting.slice(6), t.checked);
     }
