@@ -34,6 +34,8 @@ fn juntar(eventos: &[(u64, SignedEvent)], ch: Option<&str>) -> (Vec<Msg>, HashMa
     let mut idx: HashMap<[u8; 32], usize> = HashMap::new();
     for (_, ev) in eventos {
         match &ev.body.kind {
+            // a mesma mensagem duas vezes (por exemplo, histórico e caixa): conta uma
+            EventKind::Message { .. } | EventKind::Post { .. } if idx.contains_key(&ev.id()) => {}
             EventKind::Message { channel, text } if ch.is_none_or(|c| c == channel) => {
                 idx.insert(ev.id(), msgs.len());
                 msgs.push(Some(Msg { ev: ev.clone(), channel: channel.clone(), text: text.clone(), reply_to: None, files: vec![], edited: false, reacts: vec![] }));
@@ -137,7 +139,16 @@ fn resumo(m: &Msg) -> String {
 /// O histórico do grupo, mais o que ainda está à espera do anfitrião (no fim, com número 0).
 fn eventos(a: &Ativa, g: GroupId) -> Res<Vec<(u64, SignedEvent)>> {
     let mut v = a.node.with_store(|s| s.events_since(g, 0)).map_err(txt)?;
-    v.extend(a.node.with_store(|s| s.pending(g)).unwrap_or_default().into_iter().map(|e| (0, e)));
+    // um pedido que o anfitrião já aceitou está no histórico: não aparece outra vez
+    let ja: std::collections::HashSet<[u8; 32]> = v.iter().map(|(_, e)| e.id()).collect();
+    v.extend(
+        a.node
+            .with_store(|s| s.pending(g))
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|e| !ja.contains(&e.id()))
+            .map(|e| (0, e)),
+    );
     Ok(v)
 }
 
