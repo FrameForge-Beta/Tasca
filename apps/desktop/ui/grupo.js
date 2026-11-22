@@ -220,7 +220,7 @@
     const g = group(); if (!g) return;
     if (!can(P.CRIAR_CONVITES)) return A().toast("Não tens permissão para convidar pessoas neste grupo.");
     modal(`<h2>Convidar para ${esc(g.name)}</h2>
-      <p>Quem tiver o código entra diretamente no PC do anfitrião${g.owner === "me" ? " (este)" : ""}, sem passar por servidores.</p>
+      <p>Envia este código a quem quiseres convidar.</p>
       <div class="inv-opts"><div class="field"><label for="inv-exp">Expira</label><select class="input" id="inv-exp"><option value="1800">Daqui a 30 minutos</option><option value="3600">Daqui a 1 hora</option><option value="86400">Daqui a 1 dia</option><option value="604800" selected>Daqui a 7 dias</option><option value="0">Nunca</option></select></div>
       <div class="field"><label for="inv-max">Usos</label><select class="input" id="inv-max"><option value="0">Sem limite</option><option value="1">1 pessoa</option><option value="5">5 pessoas</option><option value="10">10 pessoas</option><option value="25">25 pessoas</option><option value="100">100 pessoas</option></select></div></div>
       <div class="field"><label for="inv">Convite</label><textarea class="input mono" id="inv" rows="3" readonly placeholder="A criar…"></textarea><small id="inv-note" class="muted"></small></div>
@@ -420,7 +420,7 @@
     const d = draft || {}; const rules = d.automod || [];
     const g = A().group();
     const roles = (G.roles[g.id] || []).filter((r) => r.id !== "todos");
-    return `<p class="lede">O AutoMod corre no PC do anfitrião e vê cada mensagem antes de ela entrar no grupo. Quem tem «Gerir o grupo» ou é administrador não é apanhado.</p>
+    return `<p class="lede">O AutoMod vê cada mensagem antes de ela aparecer no grupo. Quem tem «Gerir o grupo» ou é administrador não é apanhado.</p>
       ${rules.map((r, i) => { const k = ruleKind(r); const val = typeof r.tipo === "object" ? r.tipo[k] : null; return `<div class="section"><div class="box rule">
         <div class="row"><div class="txt"><b>${esc(r.name)}</b><small>${esc((RULE_TYPES[k] || [k, ""])[1])}</small></div>${sw("automod." + i + ".on", r.on, "Ligada")}</div>
         ${k === "Palavras" ? `<div class="row col"><label class="muted">Palavras (separadas por vírgulas)</label><textarea class="input" id="am-${i}-w" data-am="${i}|words" rows="2" placeholder="palavrão, *ofensa*, outra expressão">${esc((val || []).join(", "))}</textarea></div>` : ""}

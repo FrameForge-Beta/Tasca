@@ -314,17 +314,9 @@
       <button class="rail-btn add" data-act="new-group" data-tip="Criar ou entrar num grupo" aria-label="Criar ou entrar num grupo">${I.plus}</button>`;
   }
 
-  function hostCard(g) {
-    const owner = who(g.owner);
-    // grupo teu alojado no PC, visto do telemóvel
-    if (g.owner === "me" && g.host.route !== "este PC") return g.host.online
-      ? `<div class="host-card online"><i class="led"></i><b>Alojado no teu PC</b><span>Ligação ${esc(g.host.route)}</span></div>`
-      : `<div class="host-card offline"><i class="led"></i><b>O teu PC está desligado</b><span>A ver cópia local. Abre a Tasca no PC.</span></div>`;
-    if (g.owner === "me") return `<div class="host-card online"><i class="led"></i><b>Alojado neste PC</b><span>És o anfitrião. Mantém a Tasca aberta.</span></div>`;
-    if (!g.host.online && g.server) return `<div class="host-card offline soft"><i class="led"></i><b>Anfitrião offline</b><span>As mensagens chegam a todos pelo servidor.</span></div>`;
-    if (!g.host.online) return `<div class="host-card offline"><i class="led"></i><b>${esc(owner.name)} está offline</b><span>Visto ${esc(g.host.lastSeen)}. A ver cópia local.</span></div>`;
-    return `<div class="host-card online"><i class="led"></i><b>Alojado no PC de ${esc(owner.name)}</b><span>Ligação ${esc(g.host.route)}${g.host.ping != null ? ` · ${g.host.ping} ms` : ""}</span></div>`;
-  }
+  // Sem cartão de "onde está alojado": a app não fala de PCs nem de servidores.
+  function hostCard() { return ""; }
+
 
   function renderSidebar() {
     if (S.home) return renderDmSidebar();
@@ -523,7 +515,7 @@
       const first = m.from !== lastFrom || m.file || m.replyTo || minutes(m.at) - minutes(lastAt) > 7;
       lastFrom = m.from; lastAt = m.at;
       const reacts = m.reactions && m.reactions.length ? `<div class="reactions">${m.reactions.map((r, i) => `<button class="reaction ${r.mine ? "mine" : ""}" data-react="${esc(m.id)}:${i}" aria-pressed="${!!r.mine}">${esc(r.e)} ${r.n}</button>`).join("")}</div>` : "";
-      const file = (m.file ? `<div class="attach"><span class="ext">${esc(m.file.ext)}</span><div><b>${esc(m.file.name)}</b><small>${esc(m.file.size)} · enviado diretamente por ${esc(p.name)}</small></div></div>` : "") + (m.files || []).map(fileHtml).join("");
+      const file = (m.file ? `<div class="attach"><span class="ext">${esc(m.file.ext)}</span><div><b>${esc(m.file.name)}</b><small>${esc(m.file.size)}</small></div></div>` : "") + (m.files || []).map(fileHtml).join("");
       const reply = m.replyTo ? `<button type="button" class="reply-ref" data-jump="${esc(m.replyTo.id)}">${I.reply}${m.replyTo.deleted ? "<span>Mensagem apagada</span>" : `<b>${esc(who(m.replyTo.from).name)}</b><span>${esc(m.replyTo.text || "")}</span>`}</button>` : "";
       const edited = m.edited ? ` <span class="edited" title="Editada">(editada)</span>` : "";
       const real = !m.pending && !m.queued && !m.failed && !String(m.id).startsWith("tmp-") && !dm;
@@ -532,7 +524,7 @@
       const mine = m.from === "me";
       const fresh = seenCh === S.channelId && !seen.has(String(m.id));
       const cls = `msg ${mine ? "mine" : ""} ${first ? "first" : ""} ${m.mentionsMe ? "mentioned" : ""} ${m.pending || m.queued ? "pending" : ""} ${m.queued ? "queued" : ""} ${m.failed ? "failed" : ""} ${fresh ? "new" : ""}`;
-        const qTitle = m.queued ? ` title="À espera do anfitrião: os outros já a veem, fica guardada quando ele voltar"` : "";
+        const qTitle = m.queued ? ` title="A enviar"` : "";
       const fail = m.failed ? `<div class="msg-fail"><small>Não foi enviada. Volta a tentar.</small><button class="retry" data-retry="${esc(m.id)}" aria-label="Tentar enviar outra vez" title="Tentar enviar outra vez">${I.retry}</button></div>` : "";
       if (first) {
         const tag = p.bot ? '<span class="tag bot">plugin</span>' : g.owner === p.id ? '<span class="tag">anfitrião</span>' : "";
@@ -557,7 +549,7 @@
       </div>
       <div class="messages ${S.settings.msgStyle === "list" ? "" : "bubbles"}" role="log" aria-live="polite">
         <div class="spacer"></div>
-        <div class="welcome">${avatar(p).replace('class="av ', 'class="av big ')}<h2>${esc(p.name)}</h2><p>Esta conversa é só entre ti e ${esc(p.name)}, cifrada de ponta a ponta: o servidor da Tasca guarda-a para chegar mesmo com um de vocês offline, mas não a consegue ler.</p></div>
+        <div class="welcome">${avatar(p).replace('class="av ', 'class="av big ')}<h2>${esc(p.name)}</h2><p>Este é o início da tua conversa com ${esc(p.name)}.</p></div>
         ${rows}
       </div>
       <div class="composer">${callPill()}${composerExtras()}
@@ -571,7 +563,7 @@
         <div class="typing">${S.typing && S.typing.channelId === c.id ? `<b>${esc(S.typing.who)}</b> está a escrever…` : ""}</div>
       </div>`;
     }
-    const offline = !g.host.online && !g.server ? `<div class="banner ${S.bannerOpen ? "open" : ""}" data-banner-toggle role="button" tabindex="0" aria-expanded="${!!S.bannerOpen}">${I.warn}<span class="banner-short"><b>Anfitrião offline</b> · a ver a tua cópia local</span><div class="banner-long"><b>${g.owner === "me" ? "O teu PC" : esc(who(g.owner).name)}</b>, o anfitrião, está offline. Estás a ver a tua cópia local. O que escreveres é enviado quando ele voltar.</div></div>` : "";
+    const offline = !g.host.online && !g.server ? `<div class="banner ${S.bannerOpen ? "open" : ""}" data-banner-toggle role="button" tabindex="0" aria-expanded="${!!S.bannerOpen}">${I.warn}<span class="banner-short"><b>Sem ligação ao grupo</b></span><div class="banner-long">O que escreveres é enviado assim que voltar a haver ligação.</div></div>` : "";
     const typing = S.typing && S.typing.channelId === c.id ? `<b>${esc(S.typing.who)}</b> está a escrever…` : "";
     return `
       <div class="main-head">${menuBtn()}
@@ -584,7 +576,7 @@
       ${offline}
       <div class="messages ${S.settings.msgStyle === "list" ? "" : "bubbles"}" role="log" aria-live="polite">
         <div class="spacer"></div>
-        <div class="welcome"><div class="tile"><span>#</span></div><h2>Bem-vindo a #${esc(c.name)}</h2><p>Este é o início do canal #${esc(c.name)} em ${esc(g.name)}. As mensagens ficam guardadas no PC do anfitrião e numa cópia em cada membro.</p></div>
+        <div class="welcome"><div class="tile"><span>#</span></div><h2>Bem-vindo a #${esc(c.name)}</h2><p>Este é o início do canal #${esc(c.name)}.</p></div>
         ${rows}
       </div>
       <div class="composer">${callPill()}${composerBlock(c) || `${composerExtras()}
@@ -1178,7 +1170,7 @@
   // ---------------- definições ----------------
   const SET_TABS = [
     ["Utilizador", [["conta", "A minha conta"], ["privacidade", "Privacidade e permissões"], ["aparencia", "Aparência"], ["voz", "Voz e vídeo"]]],
-    ["Tasca", [["plugins", "Plugins"], ["rede", "Rede e relay"], ["backups", "Cópias de segurança"], ["grupos", "Grupos que aloja"], ["sobre", "Sobre"]]],
+    ["Tasca", [["plugins", "Plugins"], ["rede", "Ligação"], ["backups", "Cópias de segurança"], ["grupos", "Grupos que aloja"], ["sobre", "Sobre"]]],
   ];
   function renderSettings() {
     if (window.TASCA_MOBILE && S.settingsTab === "grupos") S.settingsTab = "conta";
@@ -1200,8 +1192,8 @@
       <div class="row">${avatar(me).replace('class="av ', 'class="av xl ')}
         <div class="txt"><b style="font-size:18px">${esc(me.name)}</b><small>${me.username ? "@" + esc(me.username) : "Ainda sem nome de utilizador"}</small></div><button class="btn" data-act="edit-profile">Editar perfil</button></div>
       <div class="row"><div class="txt"><b>O teu ID</b><small>${me.username ? "É único e é com ele que te adicionam como amigo. O nome que aparece pode repetir-se; este não." : "Ainda não tens. Escolhe um em Editar perfil para te poderem adicionar."}</small>${me.username ? `<div style="margin-top:6px;font-weight:700;font-size:16px">@${esc(me.username)}</div>` : ""}</div>${me.username ? `<button class="btn" data-act="copy-key">Copiar</button>` : `<button class="btn primary" data-act="edit-profile">Escolher</button>`}</div>
-      <details class="row adv"><summary class="txt"><b>Chave de segurança</b><small>Só para quem quer confirmar a identidade à mão. A privada fica cifrada neste PC.</small></summary><div class="mono" style="color:var(--texto-2);word-break:break-all;font-size:12px">${esc(me.key)}</div><button class="btn ghost" data-act="copy-pubkey">Copiar chave</button></details>
-      <div class="row"><div class="txt"><b>Cópia no Google Drive</b><small>A tua conta cifrada fica numa pasta privada da Tasca no teu Drive, para a recuperares noutro PC só com a palavra-passe.</small></div><button class="btn" data-act="google-backup">Ligar Google</button></div>
+      <details class="row adv"><summary class="txt"><b>Chave de segurança</b><small>Só para quem quer confirmar a identidade à mão.</small></summary><div class="mono" style="color:var(--texto-2);word-break:break-all;font-size:12px">${esc(me.key)}</div><button class="btn ghost" data-act="copy-pubkey">Copiar chave</button></details>
+      <div class="row"><div class="txt"><b>Cópia no Google Drive</b><small>Guarda a tua conta no teu Drive, para a recuperares noutro dispositivo só com a palavra-passe.</small></div><button class="btn" data-act="google-backup">Ligar Google</button></div>
       <div class="row"><div class="txt"><b>Bloquear a Tasca</b><small>Fecha a sessão neste PC. Para voltar a entrar precisas da palavra-passe.</small></div><button class="btn danger" data-act="lock">Bloquear</button></div>
     </div></div>`;
   }
@@ -1681,25 +1673,24 @@
       <div class="row"><div class="field" style="flex:1;min-width:200px"><label for="camDevice">Câmara</label>${devSelect("camDevice", "camDevice", DEV.cam, DEV.cam.length ? "Predefinição do sistema" : "Nenhuma câmara encontrada")}</div>
         <div class="field" style="flex:1;min-width:200px"><label for="shareQuality">Qualidade da partilha de ecrã</label><select class="input" id="shareQuality" data-setting="shareQuality">${["720p · 30 fps", "1080p · 30 fps", "1080p · 60 fps"].map((d) => `<option ${d === (S.settings.shareQuality || "1080p · 30 fps") ? "selected" : ""}>${d}</option>`).join("")}</select></div></div>
       <div class="row"><div class="txt"><b>Usar a placa gráfica para codificar</b><small>Menos peso no processador quando partilhas um jogo (NVENC, AMF ou Quick Sync).</small></div>${sw("hwEncode", true, "Codificação por hardware")}</div>
-    </div><p class="lede" style="font-size:13px">Codec Opus. Vídeo em AV1 ou H.264, conforme a placa gráfica. O anfitrião reencaminha áudio e vídeo sem os descodificar.</p></div>`;
+    </div></div>`;
   }
   function setRede() {
     const rota = (g) => g.owner === "me" && g.host.route === "este PC" ? "Alojado aqui" : !g.host.online ? "Anfitrião offline" : `${esc(g.host.route || "")}${g.host.ping != null ? ` · ${g.host.ping} ms` : ""}`;
-    return `<p class="lede">Os dispositivos ligam-se diretamente sempre que dá. Quando não dá (CGNAT, firewall), o tráfego vai cifrado por um relay do iroh, que não o consegue ler.</p>
-      <div class="section"><h2>Ligação a cada grupo</h2><div class="box">${S.groups.map((g) => `<div class="row"><span class="rail-btn on" style="width:36px;height:36px;border-radius:10px;font-size:12px;--g:${g.color || "var(--vinho)"}">${esc(g.short)}</span><div class="txt"><b>${esc(g.name)}</b><small>${rota(g)}</small></div></div>`).join("") || `<div class="row"><div class="txt"><small>Ainda não estás em nenhum grupo.</small></div></div>`}</div></div>
+    return `      <div class="section"><h2>Ligação a cada grupo</h2><div class="box">${S.groups.map((g) => `<div class="row"><span class="rail-btn on" style="width:36px;height:36px;border-radius:10px;font-size:12px;--g:${g.color || "var(--vinho)"}">${esc(g.short)}</span><div class="txt"><b>${esc(g.name)}</b><small>${rota(g)}</small></div></div>`).join("") || `<div class="row"><div class="txt"><small>Ainda não estás em nenhum grupo.</small></div></div>`}</div></div>
       ${S.voice ? `<div class="section"><h2>Chamada</h2><div class="box"><div class="row"><div class="txt">${S.voice.hosting ? `<b>Estás a alojar a chamada</b><small>O áudio e o vídeo dos outros passam por este dispositivo.</small>` : `<b>${esc((S.voice.route || "").replace(/^./, (x) => x.toUpperCase()))}</b><small>Ping ${S.voice.ping ?? "?"} ms até quem aloja a chamada.</small>`}</div></div></div></div>` : ""}`;
   }
   function setBackups() {
     const hosted = S.groups.filter((g) => g.owner === "me");
     if (window.TASCA_MOBILE) return `<p class="lede">O telemóvel guarda uma cópia dos teus grupos. Os grupos que alojas vivem no teu computador: é aí que convém fazer a cópia de segurança.</p>
       <div class="section"><div class="box">
-        <div class="row"><div class="txt"><b>Guardar cópia agora</b><small>Guarda a cópia deste telemóvel na pasta Transferências. O ficheiro não vai cifrado: guarda-o num sítio seguro.</small></div><button class="btn primary" data-act="backup-now">Guardar cópia</button></div>
-        <div class="row"><div class="txt"><b>A tua conta</b><small>A conta (chave e amigos) já fica cifrada no servidor da Tasca e, se quiseres, no teu Google Drive: vê A minha conta.</small></div></div>
+        <div class="row"><div class="txt"><b>Guardar cópia agora</b><small>Guarda a cópia deste telemóvel na pasta Transferências. Guarda-o num sítio seguro.</small></div><button class="btn primary" data-act="backup-now">Guardar cópia</button></div>
+        <div class="row"><div class="txt"><b>A tua conta</b><small>A tua conta e os teus amigos já ficam guardados na tua conta Tasca e, se quiseres, no teu Google Drive.</small></div></div>
       </div></div>`;
     return `<p class="lede">Os grupos que alojas vivem neste PC. Uma cópia guarda todo o histórico, membros e canais num ficheiro, para não perderes nada se o disco falhar.</p>
       <div class="section"><div class="box">
-        <div class="row"><div class="txt"><b>Guardar cópia agora</b><small>Vai para a pasta Transferências. Inclui ${hosted.length ? hosted.map((g) => esc(g.name)).join(", ") + " e a tua cópia dos outros grupos" : "a tua cópia de todos os grupos"}. Guarda-a num sítio seguro: o ficheiro não vai cifrado.</small></div><button class="btn primary" data-act="backup-now">Guardar cópia</button></div>
-        <div class="row"><div class="txt"><b>A tua conta</b><small>A conta (chave e amigos) já fica cifrada no servidor da Tasca e, se quiseres, no teu Google Drive: vê A minha conta.</small></div></div>
+        <div class="row"><div class="txt"><b>Guardar cópia agora</b><small>Vai para a pasta Transferências. Inclui ${hosted.length ? hosted.map((g) => esc(g.name)).join(", ") + " e a tua cópia dos outros grupos" : "a tua cópia de todos os grupos"}. Guarda-a num sítio seguro.</small></div><button class="btn primary" data-act="backup-now">Guardar cópia</button></div>
+        <div class="row"><div class="txt"><b>A tua conta</b><small>A tua conta e os teus amigos já ficam guardados na tua conta Tasca e, se quiseres, no teu Google Drive.</small></div></div>
       </div></div>`;
   }
   function setGrupos() {
@@ -1711,7 +1702,7 @@
   function setSobre() {
     const onde = window.api.isMock ? "dados de teste no browser" : window.TASCA_MOBILE ? "app Android" : "app para PC";
     return `<div class="section"><div class="box"><div class="row"><span style="width:56px;height:56px;display:block">${LOGO}</span><div class="txt"><b style="font-size:18px">Tasca</b><small>Versão ${esc(appVersion || "…")} · ${onde}</small></div>${window.TASCA_MOBILE && !window.api.isMock ? `<button class="btn primary" data-act="check-update">Procurar atualizações</button>` : ""}</div>
-      <div class="row"><div class="txt"><small>Conversa, voz e plugins. As mensagens vão cifradas de ponta a ponta; ficheiros e chamadas vão direto entre PCs. Feito com Rust, iroh, SQLite e Tauri.</small></div></div></div></div>`;
+      <div class="row"><div class="txt"><small>Conversa, voz e plugins.</small></div></div></div></div>`;
   }
 
   // ---------------- modais ----------------
@@ -1763,7 +1754,7 @@
 
   function openNewGroup() {
     modal(`<h2>Criar ou entrar num grupo</h2>
-      <p>Um grupo novo fica alojado neste PC. Para entrar no grupo de alguém, cola o convite que te enviaram.</p>
+      <p>Cria um grupo novo, ou cola o convite que te enviaram para entrar no grupo de alguém.</p>
       <div class="field"><label for="new-name">Nome do grupo novo</label><input class="input" id="new-name" placeholder="Ex.: Malta do Futsal" maxlength="40"></div>
       <div class="actions"><button class="btn primary" id="do-create">Criar grupo</button></div>
       <div class="day" style="margin:4px 0">ou</div>
@@ -1775,7 +1766,7 @@
         const name = $("#new-name", el).value.trim();
         if (!name) { $("#new-name", el).focus(); return; }
         const g = await api.create_group({ name });
-        S.groups.push(g); close(); await openGroup(g.id); toast(`Grupo «${name}» criado. Está alojado neste PC.`);
+        S.groups.push(g); close(); await openGroup(g.id); toast(`Grupo «${name}» criado.`);
       };
       $("#do-join", el).onclick = async (e) => {
         const err = $("#join-err", el); err.hidden = true;
@@ -1800,7 +1791,7 @@
     const g = group();
     const inv = await api.create_invite({ groupId: g.id });
     modal(`<h2>Convidar para ${esc(g.name)}</h2>
-      <p>Envia este código a quem quiseres convidar. Quem o tiver entra diretamente no teu PC${g.owner === "me" ? "" : " do anfitrião"}, sem passar por servidores.</p>
+      <p>Envia este código a quem quiseres convidar.</p>
       <div class="field"><label for="inv">Convite${inv.expires ? " · expira em " + inv.expires : " · não expira"}</label><textarea class="input mono" id="inv" rows="3" readonly>${inv.code}</textarea></div>
       <div class="actions"><button class="btn ghost" data-close>Fechar</button><button class="btn primary" id="copy-inv">Copiar convite</button></div>`,
     (el) => {
@@ -1819,7 +1810,7 @@
         ${canG("MUDAR_APELIDO") && GP() ? `<div class="row"><div class="txt"><b>O meu apelido neste grupo</b><small>${esc((gm("me") || {}).nick || "Sem apelido")}</small></div><button class="btn ghost" data-act="my-nick">Mudar</button></div>` : ""}
         ${canG("GERIR_CANAIS") ? `<div class="row"><div class="txt"><b>Canais</b><small>Texto e voz podem estar na mesma categoria. Arrasta canais e categorias na lista para os ordenar.</small></div><span style="display:flex;gap:6px"><button class="btn ghost" data-act="new-category">Criar categoria</button><button class="btn" data-act="new-channel">Criar canal</button></span></div>` : ""}
         <div class="row"><div class="txt"><b>Avisos deste grupo</b><small>Quando a Tasca está em segundo plano.</small></div><div class="seg vs-seg" role="radiogroup" aria-label="Avisos deste grupo">${[["all", "Tudo"], ["mentions", "Menções"], ["none", "Nada"]].map(([k, l]) => `<button role="radio" aria-checked="${groupMode(g.id) === k}" class="${groupMode(g.id) === k ? "on" : ""}" data-gnotify="${g.id}|${k}">${l}</button>`).join("")}</div></div>
-        <div class="row"><div class="txt"><b>${mine ? "Apagar grupo" : "Sair do grupo"}</b><small>${mine ? "Apaga o grupo deste PC. Os membros ficam com a cópia deles." : "Apaga a tua cópia local."}</small></div><button class="btn danger" data-act="leave-group" data-group-id="${g.id}">${mine ? "Apagar" : "Sair"}</button></div>
+        <div class="row"><div class="txt"><b>${mine ? "Apagar grupo" : "Sair do grupo"}</b><small>${mine ? "O grupo deixa de existir." : "Deixas de ver o grupo."}</small></div><button class="btn danger" data-act="leave-group" data-group-id="${g.id}">${mine ? "Apagar" : "Sair"}</button></div>
       </div>
       <div class="actions"><button class="btn ghost" data-close>Fechar</button></div>`);
   }
@@ -1829,7 +1820,7 @@
     const mine = g.owner === "me";
     document.querySelectorAll(".scrim").forEach((x) => x.remove());
     modal(`<h2>${mine ? "Apagar" : "Sair de"} ${esc(g.name)}?</h2>
-      <p>${mine ? "O grupo deixa de estar alojado neste PC e o histórico é apagado daqui. Os membros ficam com a cópia deles, mas deixam de conseguir falar no grupo." : "A tua cópia do grupo é apagada deste dispositivo. Para voltar precisas de um convite novo."}</p>
+      <p>${mine ? "O grupo e as mensagens são apagados e ninguém consegue voltar a falar nele." : "Para voltar precisas de um convite novo."}</p>
       <div class="actions"><button class="btn ghost" data-close>Cancelar</button><button class="btn danger" id="do-leave">${mine ? "Apagar grupo" : "Sair do grupo"}</button></div>`,
     (el, close) => {
       $("#do-leave", el).onclick = async () => {
@@ -1913,8 +1904,6 @@
     const id = S.preVoice, c = findChannel(id);
     if (!c) { S.view = "chat"; return renderChat(); }
     const g = S.groups.find((x) => (S.allChannels[x.id] || []).some((y) => y.id === id)) || group();
-    const off = hostOffline(g);
-    const hostName = g.owner === "me" ? "O teu PC" : `O PC de ${esc(who(g.owner).name)}`;
     const n = (c.inVoice || []).length;
     return `<div class="vpre">
       <div class="call-top m">
@@ -1924,7 +1913,7 @@
         <button class="icon-btn" data-act="voice-quick" aria-label="Definições de voz">${I.gear}</button>
       </div>
       <div class="vpre-body">${voicePeopleHtml(c)}</div>
-      ${n && c.voiceHost ? `<p class="vs-host">${I.crown}<span>Alojada por <b>${esc(c.voiceHost === "me" ? "ti" : who(c.voiceHost).name)}</b></span></p>` : !n ? `<p class="vs-host">${I.info || I.speaker}<span>${off ? `${hostName} está desligado, mas não faz mal. ` : ""}Quem entra primeiro aloja a chamada no seu dispositivo.</span></p>` : ""}
+      ${n && c.voiceHost ? `<p class="vs-host">${I.crown}<span>Alojada por <b>${esc(c.voiceHost === "me" ? "ti" : who(c.voiceHost).name)}</b></span></p>` : !n ? `<p class="vs-host">${I.info || I.speaker}<span>Quem entra primeiro aloja a chamada no seu dispositivo.</span></p>` : ""}
       ${S.preVoiceErr ? `<p class="vs-err">${esc(S.preVoiceErr)}</p>` : ""}
       <div class="vs-bar">
         <button class="vs-round ${S.muted ? "off" : ""}" data-act="vp-mic" aria-pressed="${S.muted}" aria-label="${S.muted ? "Ligar microfone" : "Desligar microfone"}">${S.muted ? I.micOff : I.mic}</button>
@@ -2180,7 +2169,7 @@
       }
       case "dm-call": case "dm-video": {
         if (!S.channelId || !S.channelId.startsWith("dm-")) return;
-        if (api.isMock) return toast("Na app instalada, a chamada vai diretamente entre os dois dispositivos.");
+        if (api.isMock) return toast("As chamadas só funcionam na app instalada.");
         const err = await joinVoice(S.channelId);
         if (!err && d.act === "dm-video" && !S.camera) { const b = document.querySelector('[data-act="camera"]'); if (b) b.click(); }
         return;
@@ -2269,7 +2258,7 @@
       }
       case "test-sound": sfx.join(); return;
       case "lock": await api.lock(); location.reload(); return;
-      case "google-backup": t.disabled = true; t.textContent = "A ligar…"; await api.google_backup(); t.textContent = "Ligado"; return toast("Cópia cifrada guardada no Google Drive.");
+      case "google-backup": t.disabled = true; t.textContent = "A ligar…"; await api.google_backup(); t.textContent = "Ligado"; return toast("Conta guardada no Google Drive.");
       case "new-category": return openCategoryEditor(null);
       case "new-channel": document.querySelectorAll(".scrim:not(.locked)").forEach((x) => x.remove()); return openChannelEditor({ cat: d.cat });
       case "edit-profile": return openProfile();

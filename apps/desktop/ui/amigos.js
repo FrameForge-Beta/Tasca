@@ -141,6 +141,7 @@
       `<button class="fr-tab ${F.tab === k && !F.addOpen ? "on" : ""}" data-fr-tab="${k}">${esc(l)}${k === "pendentes" && pend ? `<span class="pill">${pend}</span>` : ""}</button>`).join("");
     const head = `<div class="main-head fr-head"><button class="icon-btn menu-btn" data-act="nav" aria-label="Grupos e canais">${I.menu}</button>
       <span class="title">${IC.users}Amigos</span><span class="fr-sep"></span>
+      <button class="icon-btn fr-add-ic ${F.addOpen ? "on" : ""}" data-fr-add aria-label="Adicionar amigo" title="Adicionar amigo">${I.invite}</button>
       <nav class="fr-tabs" aria-label="Amigos">${tabs}<button class="fr-tab add ${F.addOpen ? "on" : ""}" data-fr-add>Adicionar amigo</button></nav></div>`;
     let body;
     const tabX = extra.find((t) => t.id === F.tab);
@@ -162,7 +163,6 @@
         <button class="btn primary" type="submit" id="fr-send" ${F.addValue ? "" : "disabled"}>Enviar pedido</button>
       </form>
       ${F.addMsg ? `<p class="fr-add-msg ${F.addOk ? "ok" : "bad"}">${esc(F.addMsg)}</p>` : ""}
-      <div class="fr-add-how"><span class="fr-flor">${LOGO}</span><div><b>Como funciona</b><small>O pedido vai cifrado pelo servidor da Tasca: só a outra pessoa o consegue ler. Quando ela aceitar, passam a ver se estão online e o perfil um do outro, diretamente entre os vossos PCs.</small></div></div>
     </div>`;
   }
 
