@@ -383,12 +383,12 @@ pub async fn unread_counts(
 #[tauri::command]
 pub async fn upload_file(app: AppHandle, rede: State<'_, Rede>, c: State<'_, Contas>, request: tauri::ipc::Request<'_>) -> Res<Value> {
     let a = ativa(&app, &rede, &c).await?;
-    let tauri::ipc::InvokeBody::Raw(dados) = request.body() else {
+    let Some(dados) = crate::corpo::bytes(request.body()) else {
         return Err("Ficheiro em falta.".into());
     };
     let pasta = a.node.pasta().ok_or("Sem pasta de ficheiros.")?.clone();
     let tam = dados.len() as u64;
-    let dados = dados.clone();
+    let dados = dados.into_owned();
     let hash = tauri::async_runtime::spawn_blocking(move || pasta.guardar(&dados))
         .await
         .map_err(|e| e.to_string())?

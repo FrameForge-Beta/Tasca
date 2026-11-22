@@ -53,6 +53,8 @@ pub(crate) struct Inner {
     presence: Mutex<HashMap<GroupId, watch::Sender<Presence>>>,
     /// Anfitrião: ligações abertas por (grupo, membro), para saber quando alguém sai mesmo.
     conns: Mutex<HashMap<(GroupId, [u8; 32]), usize>>,
+    /// Quantas dessas ligações vêm de um telemóvel (dispositivo com chave própria).
+    conns_tel: Mutex<HashMap<(GroupId, [u8; 32]), usize>>,
     /// Lista de amigos, o meu estado e os perfis deles.
     amigos: Arc<crate::amigos::Amigos>,
     /// Certificado deste dispositivo, quando não usa a chave da conta.
@@ -325,6 +327,7 @@ impl Node {
             feeds: Default::default(),
             presence: Default::default(),
             conns: Default::default(),
+            conns_tel: Default::default(),
             amigos: Default::default(),
             certificado,
             anuncios: Default::default(),
@@ -1013,9 +1016,13 @@ impl Node {
         if let Ok(Some(info)) = self.inner.store().group(group) {
             alvos.push(info.owner);
         }
-        for k in self.inner.presence(group).borrow().keys() {
-            if let Ok(k) = iroh::PublicKey::from_bytes(k) {
-                alvos.push(k);
+        let online: Vec<[u8; 32]> = self.inner.presence(group).borrow().keys().copied().collect();
+        for k in online {
+            // (a presença também tem marcas de "só no telemóvel", que não são pessoas)
+            if let Ok(k) = iroh::PublicKey::from_bytes(&k) {
+                if self.inner.store().is_member(group, &k).unwrap_or(false) {
+                    alvos.push(k);
+                }
             }
         }
         let mut vistos = Vec::new();
@@ -1418,7 +1425,8 @@ impl HostProtocol {
 
         // Fica online enquanto esta ligação durar.
         let presence = self.inner.presence(group);
-        let _online = Online::new(self.inner.clone(), group, *remote.as_bytes());
+        let telemovel = conn.remote_id() != remote;
+        let _online = Online::new(self.inner.clone(), group, *remote.as_bytes(), telemovel);
         let mut pres_rx = presence.subscribe();
 
         // Subscreve antes de ler o histórico, para não perder nada entretanto.
@@ -1521,11 +1529,15 @@ struct Online {
     inner: Arc<Inner>,
     group: GroupId,
     who: [u8; 32],
+    telemovel: bool,
 }
 
 impl Online {
-    fn new(inner: Arc<Inner>, group: GroupId, who: [u8; 32]) -> Self {
+    fn new(inner: Arc<Inner>, group: GroupId, who: [u8; 32], telemovel: bool) -> Self {
         *inner.conns.lock().unwrap().entry((group, who)).or_default() += 1;
+        if telemovel {
+            *inner.conns_tel.lock().unwrap().entry((group, who)).or_default() += 1;
+        }
         inner.presence(group).send_if_modified(|p| {
             if p.contains_key(&who) {
                 return false;
@@ -1533,21 +1545,57 @@ impl Online {
             p.insert(who, None);
             true
         });
-        Self { inner, group, who }
+        let o = Self { inner, group, who, telemovel };
+        o.marcar_telemovel();
+        o
+    }
+
+    /// Marca na presença quem está ligado só pelo telemóvel (ver
+    /// [`crate::protocol::marca_telemovel`]). O anfitrião está sempre no PC.
+    fn marcar_telemovel(&self) {
+        let chave = (self.group, self.who);
+        let total = self.inner.conns.lock().unwrap().get(&chave).copied().unwrap_or(0);
+        let tel = self.inner.conns_tel.lock().unwrap().get(&chave).copied().unwrap_or(0);
+        let so_tel = total > 0 && tel == total && self.who != *self.inner.identity.public().as_bytes();
+        let marca = crate::protocol::marca_telemovel(&self.who);
+        self.inner.presence(self.group).send_if_modified(|p| {
+            if so_tel == p.contains_key(&marca) {
+                return false;
+            }
+            if so_tel {
+                p.insert(marca, None);
+            } else {
+                p.remove(&marca);
+            }
+            true
+        });
     }
 }
 
 impl Drop for Online {
     fn drop(&mut self) {
-        let mut conns = self.inner.conns.lock().unwrap();
-        let n = conns.entry((self.group, self.who)).or_default();
-        *n = n.saturating_sub(1);
-        if *n == 0 {
-            conns.remove(&(self.group, self.who));
-            // o telemóvel do próprio anfitrião saiu: o anfitrião continua online
-            if self.who == *self.inner.identity.public().as_bytes() {
-                return;
+        let chave = (self.group, self.who);
+        if self.telemovel {
+            let mut t = self.inner.conns_tel.lock().unwrap();
+            let n = t.entry(chave).or_default();
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                t.remove(&chave);
             }
+        }
+        let acabou = {
+            let mut conns = self.inner.conns.lock().unwrap();
+            let n = conns.entry(chave).or_default();
+            *n = n.saturating_sub(1);
+            let acabou = *n == 0;
+            if acabou {
+                conns.remove(&chave);
+            }
+            acabou
+        };
+        self.marcar_telemovel();
+        // o telemóvel do próprio anfitrião saiu: o anfitrião continua online
+        if acabou && self.who != *self.inner.identity.public().as_bytes() {
             self.inner.presence(self.group).send_modify(|p| {
                 p.remove(&self.who);
             });

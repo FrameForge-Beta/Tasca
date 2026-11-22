@@ -13,6 +13,7 @@ mod amigos;
 mod avisos;
 mod barra_partilha;
 mod contas;
+mod corpo;
 mod dms;
 mod grupos;
 mod mensagens;

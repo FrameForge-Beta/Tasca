@@ -300,3 +300,30 @@ async fn telemovel_e_reconhecido_pelos_amigos() {
     intruso.amigos().definir_lista([*rui.identity().public().as_bytes()]);
     assert_eq!(intruso.perguntar_amigo(rui.addr()).await.unwrap(), None);
 }
+
+#[tokio::test]
+async fn quem_esta_so_no_telemovel_fica_marcado() {
+    use tasca_core::protocol::marca_telemovel;
+    let pc = node().await;
+    let group = pc.create_group("Malta", "Tiago").unwrap();
+    let _h = pc.open_hosted(group).unwrap();
+    let rui = Identity::generate();
+    let tel = telemovel(&rui).await;
+    let invite = pc.create_invite(group).await.unwrap();
+    let chat = tel.join(&invite, "Rui").await.unwrap();
+    let rk = *rui.public().as_bytes();
+    let mut pres = pc.presence(group);
+    tokio::time::timeout(Duration::from_secs(5), pres.wait_for(|p| p.contains_key(&rk) && p.contains_key(&marca_telemovel(&rk))))
+        .await
+        .expect("o Rui devia aparecer no telemóvel")
+        .unwrap();
+    // O telemóvel do próprio dono não o marca: ele está no PC.
+    assert!(!pres.borrow().contains_key(&marca_telemovel(pc.identity().public().as_bytes())));
+    // Sai: a marca vai com ele.
+    drop(chat);
+    tel.shutdown().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), pres.wait_for(|p| !p.contains_key(&rk) && !p.contains_key(&marca_telemovel(&rk))))
+        .await
+        .expect("a marca devia sair")
+        .unwrap();
+}

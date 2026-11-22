@@ -266,3 +266,119 @@ async fn sala_vazia_entra_logo() {
     assert!(z.e_anfitriao());
     assert!(t.elapsed() < Duration::from_millis(1000), "demorou {:?}", t.elapsed());
 }
+
+/// Telemóvel: chave própria, apresentada com certificado da conta.
+async fn telemovel(conta: &Identity) -> Node {
+    Node::spawn(
+        conta.clone(),
+        Store::open_in_memory().unwrap(),
+        NodeOptions { local_only: true, dispositivo: Some(Identity::generate().secret().clone()), ..Default::default() },
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn telemovel_ouve_e_e_ouvido() {
+    let pc = node().await;
+    let group = pc.create_group("Malta", "Tiago").unwrap();
+    let _h = pc.open_hosted(group).unwrap();
+    let conta = Identity::generate();
+    let tel = telemovel(&conta).await;
+    let code = pc.create_invite(group).await.unwrap().encode();
+    std::mem::forget(tel.join(&Invite::decode(&code).unwrap(), "Rui").await.unwrap());
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // O PC está na chamada; o telemóvel entra e liga-se a ele.
+    let mut p = pc.entrar_voz(group, "sala").await.unwrap();
+    let mut t = tel.entrar_voz(group, "sala").await.unwrap();
+    assert!(!t.e_anfitriao(), "o telemóvel não pode ficar numa chamada à parte");
+    let l = sala_com(&p, 2).await;
+    assert!(l.iter().any(|x| x.key == *conta.public().as_bytes()), "o telemóvel aparece com a conta");
+    sala_com(&t, 2).await;
+
+    let mut pp = p.pacotes().unwrap();
+    let mut tp = t.pacotes().unwrap();
+    let mut pv = p.imagens().unwrap();
+    t.enviar(b"do telemovel");
+    let r = timeout(Duration::from_secs(5), pp.recv()).await.expect("o PC não ouviu o telemóvel").unwrap();
+    assert_eq!(&r.data[..], b"do telemovel");
+    assert_eq!(r.from, *conta.public().as_bytes());
+    p.enviar(b"do pc");
+    let r = timeout(Duration::from_secs(5), tp.recv()).await.expect("o telemóvel não ouviu o PC").unwrap();
+    assert_eq!(&r.data[..], b"do pc");
+    t.enviar_video(bytes::Bytes::from_static(b"\x01camara"));
+    let i = timeout(Duration::from_secs(5), pv.recv()).await.expect("o PC não viu a câmara").unwrap();
+    assert_eq!(&i.data[..], b"\x01camara");
+    drop((t, p));
+
+    // Agora o telemóvel entra primeiro (aloja) e o PC liga-se a ele.
+    let mut t = tel.entrar_voz(group, "outra").await.unwrap();
+    assert!(t.e_anfitriao());
+    timeout(Duration::from_secs(5), async {
+        while !pc.salas_conhecidas(group).iter().any(|a| a.room == "outra") {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("o PC não soube da chamada do telemóvel");
+    let mut p = pc.entrar_voz(group, "outra").await.unwrap();
+    assert!(!p.e_anfitriao(), "o PC não pode ficar numa chamada à parte");
+    sala_com(&t, 2).await;
+    let mut pp = p.pacotes().unwrap();
+    let mut tp = t.pacotes().unwrap();
+    t.enviar(b"ola pc");
+    let r = timeout(Duration::from_secs(5), pp.recv()).await.expect("o PC não ouviu o telemóvel").unwrap();
+    assert_eq!(r.from, *conta.public().as_bytes());
+    p.enviar(b"ola tel");
+    timeout(Duration::from_secs(5), tp.recv()).await.expect("o telemóvel não ouviu o PC").unwrap();
+}
+
+#[tokio::test]
+async fn passar_do_pc_para_o_telemovel() {
+    let (host, ze, _ana, group) = grupo_de_tres().await;
+    let tel = telemovel(ze.identity()).await;
+    let code = host.create_invite(group).await.unwrap().encode();
+    std::mem::forget(tel.join(&Invite::decode(&code).unwrap(), "Zé").await.unwrap());
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // O dono aloja; o Zé está no PC e passa para o telemóvel.
+    let h = host.entrar_voz(group, "sala").await.unwrap();
+    let z = ze.entrar_voz(group, "sala").await.unwrap();
+    sala_com(&h, 2).await;
+    let mut fora = z.noutro_dispositivo();
+    let t = tel.entrar_voz(group, "sala").await.unwrap();
+    timeout(Duration::from_secs(5), fora.wait_for(|f| *f)).await.expect("o PC não soube que saiu").unwrap();
+    let l = sala_com(&h, 2).await;
+    let zk = *ze.identity().public().as_bytes();
+    assert!(l.iter().any(|p| p.key == zk && p.endpoint == tel.endpoint_id()), "o Zé fica na chamada pelo telemóvel");
+    assert!(!*h.noutro_dispositivo().borrow());
+    drop((z, t, h));
+
+    // Agora quem aloja é o PC do Zé: ao passar para o telemóvel a chamada continua.
+    let z = ze.entrar_voz(group, "outra").await.unwrap();
+    assert!(z.e_anfitriao());
+    timeout(Duration::from_secs(5), async {
+        while !host.salas_conhecidas(group).iter().any(|a| a.room == "outra") {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let h = host.entrar_voz(group, "outra").await.unwrap();
+    sala_com(&z, 2).await;
+    let mut fora = z.noutro_dispositivo();
+    let t = tel.entrar_voz(group, "outra").await.unwrap();
+    timeout(Duration::from_secs(5), fora.wait_for(|f| *f)).await.expect("o PC não soube que saiu").unwrap();
+    // Quem fica segue para o novo anfitrião (o dono, que tem o número mais baixo).
+    let mut nh = h.novo_host();
+    let n = timeout(Duration::from_secs(5), nh.wait_for(|n| n.is_some())).await.unwrap().unwrap().clone().unwrap();
+    let mut nt = t.novo_host();
+    timeout(Duration::from_secs(5), nt.wait_for(|n| n.is_some())).await.unwrap().unwrap();
+    let h2 = host.entrar_voz_em(group, "outra", n.addr().unwrap(), Duration::from_secs(10)).await.unwrap();
+    let t2 = tel.entrar_voz_em(group, "outra", n.addr().unwrap(), Duration::from_secs(10)).await.unwrap();
+    drop((h, t, z));
+    let l = sala_com(&h2, 2).await;
+    assert!(l.iter().any(|p| p.key == zk && p.endpoint == tel.endpoint_id()));
+    drop(t2);
+}

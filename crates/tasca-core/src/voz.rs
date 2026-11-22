@@ -47,6 +47,9 @@ pub const VOZ_ALPN: &[u8] = b"tasca/voz/1";
 /// Um anúncio deixa de valer se não for renovado durante este tempo (ms).
 pub const ANUNCIO_VALIDADE_MS: u64 = 5 * 60 * 1000;
 
+/// Código com que o anfitrião fecha a ligação de quem entrou na chamada noutro dispositivo.
+const FECHO_OUTRO_DISPOSITIVO: u32 = 1;
+
 /// Tamanho máximo do nome de uma sala.
 const MAX_SALA: usize = 64;
 
@@ -290,6 +293,8 @@ struct Membro {
     key: [u8; 32],
     endpoint: [u8; 32],
     novo: watch::Sender<Option<NovoHost>>,
+    /// A mesma pessoa entrou na chamada noutro dispositivo (este fica de fora).
+    fora: watch::Sender<bool>,
     muted: bool,
     deaf: bool,
     camera: bool,
@@ -427,7 +432,7 @@ impl Hub {
         key: [u8; 32],
         endpoint: [u8; 32],
         saida: Saida,
-    ) -> (u16, watch::Receiver<Vec<Participante>>, watch::Receiver<Option<NovoHost>>) {
+    ) -> (u16, watch::Receiver<Vec<Participante>>, watch::Receiver<Option<NovoHost>>, watch::Receiver<bool>) {
         if let Some(m) = self.moderados.lock().unwrap().get_mut(&(group, key)) {
             m.fora = false; // voltou a entrar por vontade própria
         }
@@ -437,18 +442,29 @@ impl Hub {
             e.passadas.remove(&(group, room.to_string()));
         }
         let sala_chave = (group, room.to_string());
-        // A mesma pessoa só fica uma vez em cada grupo (por exemplo, se voltar a ligar).
+        // A mesma pessoa só fica uma vez em cada grupo (por exemplo, se voltar a ligar, ou
+        // se passar do PC para o telemóvel): o dispositivo antigo sai e fica a saber porquê.
         let mut antigas = Vec::new();
+        let mut alojava = Vec::new();
         for ((g, r), membros) in e.salas.iter_mut() {
             if *g == group {
                 membros.retain(|_, m| {
-                    let fica = m.key != key;
-                    if !fica {
-                        if let Saida::Rede(c) = &m.saida {
-                            c.close(1u32.into(), b"entrou noutra vez");
-                        }
+                    if m.key != key {
+                        return true;
                     }
-                    fica
+                    let outro = m.endpoint != endpoint;
+                    if outro {
+                        m.fora.send_replace(true);
+                    }
+                    match &m.saida {
+                        Saida::Rede(c) if outro => c.close(FECHO_OUTRO_DISPOSITIVO.into(), b"entrou noutro dispositivo"),
+                        Saida::Rede(c) => c.close(3u32.into(), b"voltou a ligar"),
+                        // Quem alojava foi para outro dispositivo: a chamada passa para
+                        // quem lá fica (como se tivesse saído).
+                        Saida::Local(..) if outro => alojava.push(r.clone()),
+                        Saida::Local(..) => {}
+                    }
+                    false
                 });
                 antigas.push(r.clone());
             }
@@ -466,12 +482,14 @@ impl Hub {
         };
         let (tx, rx) = watch::channel(Vec::new());
         let (novo_tx, novo_rx) = watch::channel(None);
+        let (fora_tx, fora_rx) = watch::channel(false);
         e.salas.entry(sala_chave).or_default().insert(
             id,
             Membro {
                 key,
                 endpoint,
                 novo: novo_tx,
+                fora: fora_tx,
                 muted: false,
                 deaf: false,
                 camera: false,
@@ -485,10 +503,26 @@ impl Hub {
             Self::anunciar(&mut e, group, &r);
         }
         Self::anunciar(&mut e, group, room);
+        for r in alojava {
+            let chave = (group, r);
+            let sucessor = e.salas.get(&chave).and_then(|membros| {
+                membros
+                    .iter()
+                    .filter_map(|(id, m)| match &m.saida {
+                        Saida::Rede(c) => Some((*id, NovoHost { endpoint: *c.remote_id().as_bytes(), conta: m.key, enderecos: enderecos_de(c) })),
+                        Saida::Local(..) => None,
+                    })
+                    .min_by_key(|(id, _)| *id)
+                    .map(|(_, n)| n)
+            });
+            if let Some(n) = sucessor {
+                Self::redirecionar(&mut e, chave, n);
+            }
+        }
         drop(e);
         self.presenca(group, key, Some(room.to_string()));
         self.mudou.send_modify(|v| *v += 1);
-        (id, rx, novo_rx)
+        (id, rx, novo_rx, fora_rx)
     }
 
     fn sair(&self, group: GroupId, room: &str, id: u16) {
@@ -766,7 +800,7 @@ impl HostVoz {
         }
 
         let endpoint = *conn.remote_id().as_bytes();
-        let (id, mut sala, mut novo) = self.hub.entrar(group, &room, key, endpoint, Saida::Rede(conn.clone()));
+        let (id, mut sala, mut novo, _fora) = self.hub.entrar(group, &room, key, endpoint, Saida::Rede(conn.clone()));
         let _sai = SaiAoAcabar { hub: self.hub.clone(), group, room: room.clone(), id };
         write_frame(&mut send, &VozAnfitriao::Aceite { id }).await?;
 
@@ -884,6 +918,8 @@ pub struct Chamada {
     modo: Modo,
     sala: watch::Receiver<Vec<Participante>>,
     novo: watch::Receiver<Option<NovoHost>>,
+    /// Entraste na chamada noutro dispositivo: esta ligação já não conta.
+    fora: watch::Receiver<bool>,
     /// Dispositivo que aloja a chamada.
     pub host: [u8; 32],
     pacotes: Option<mpsc::Receiver<Pacote>>,
@@ -905,7 +941,7 @@ impl Chamada {
         let (tx, rx) = mpsc::channel(256);
         let (vtx, vrx) = mpsc::channel(64);
         let eu = hub.eu;
-        let (id, sala, novo) = hub.entrar(group, room, key, eu, Saida::Local(tx, vtx));
+        let (id, sala, novo, fora) = hub.entrar(group, room, key, eu, Saida::Local(tx, vtx));
         let (alive_tx, alive) = watch::channel(true);
         Chamada {
             group,
@@ -918,6 +954,7 @@ impl Chamada {
             },
             sala,
             novo,
+            fora,
             host: eu,
             pacotes: Some(rx),
             imagens: Some(vrx),
@@ -946,7 +983,9 @@ impl Chamada {
         let alive_tx = Arc::new(alive_tx);
         let (tx, rx) = mpsc::channel(256);
 
+        let (fora_tx, fora) = watch::channel(false);
         let a = alive_tx.clone();
+        let c_conn = conn.clone();
         let controlo = tokio::spawn(async move {
             loop {
                 match read_frame::<VozAnfitriao>(&mut recv).await {
@@ -962,6 +1001,11 @@ impl Chamada {
                         warn!("voz: ligação ao anfitrião caiu: {e:#}");
                         break;
                     }
+                }
+            }
+            if let Some(iroh::endpoint::ConnectionError::ApplicationClosed(f)) = c_conn.close_reason() {
+                if u64::from(f.error_code) == FECHO_OUTRO_DISPOSITIVO as u64 {
+                    fora_tx.send_replace(true);
                 }
             }
             let _ = a.send(false);
@@ -1013,6 +1057,7 @@ impl Chamada {
             modo: Modo::Rede { conn, controlo: Arc::new(tokio::sync::Mutex::new(send)) },
             sala,
             novo,
+            fora,
             host,
             pacotes: Some(rx),
             imagens: Some(vrx),
@@ -1118,6 +1163,12 @@ impl Chamada {
     /// ligar a esse (ver [`crate::node::Node::entrar_voz_em`]).
     pub fn novo_host(&self) -> watch::Receiver<Option<NovoHost>> {
         self.novo.clone()
+    }
+
+    /// `true` quando a mesma pessoa entrou nesta chamada noutro dispositivo (por exemplo,
+    /// passou do PC para o telemóvel): aqui a chamada acabou e não se deve voltar a entrar.
+    pub fn noutro_dispositivo(&self) -> watch::Receiver<bool> {
+        self.fora.clone()
     }
 
     /// Este dispositivo aloja a chamada.
