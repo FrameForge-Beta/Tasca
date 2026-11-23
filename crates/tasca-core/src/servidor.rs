@@ -153,6 +153,10 @@ mod client {
             let porta = base.port_or_known_default().unwrap_or(443);
             let http = crate::http_builder()
                 .timeout(Duration::from_secs(20))
+                // ligações paradas há muito podem já não chegar ao servidor (router, NAT):
+                // não se reaproveitam, para um envio não ficar pendurado numa ligação morta
+                .pool_idle_timeout(Duration::from_secs(20))
+                .tcp_keepalive(Duration::from_secs(15))
                 .dns_resolver(std::sync::Arc::new(crate::dns::Resolvedor::new(porta)))
                 .build()?;
             Ok(Self { base, http })

@@ -255,6 +255,19 @@ pub async fn send_message(
         .await
         .map_err(|_| "O envio demorou demasiado.".to_string())?
         .map_err(txt)?;
+    if a.tem_servidor() {
+        // se a mensagem não voltar logo do grupo (leitura pendurada, rede a mudar), lê já
+        let a2 = a.clone();
+        tauri::async_runtime::spawn(async move {
+            for espera in [2u64, 4, 8] {
+                tokio::time::sleep(Duration::from_secs(espera)).await;
+                if a2.node.with_store(|s| s.event_by_id(g, &id)).ok().flatten().is_some() {
+                    return;
+                }
+                let _ = tokio::time::timeout(Duration::from_secs(15), a2.node.sync_group(g, 0)).await;
+            }
+        });
+    }
     let mut v = json!({
         "id": hex(&id),
         "ts": tasca_core::event::now_ms(),

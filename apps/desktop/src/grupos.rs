@@ -274,15 +274,22 @@ impl Ativa {
         if self.servidor {
             let a = self.clone();
             self.tarefa(async move {
+                let mut erros = 0u32;
                 loop {
                     let t = Instant::now();
-                    let pausa = match a.node.sync_group(g, 25).await {
+                    let r = a.node.sync_group(g, 25).await;
+                    if r.is_ok() {
+                        erros = 0;
+                    }
+                    let pausa = match r {
                         // espera longa: só volta logo se houve novidades (ou ainda sem chave)
                         Ok(_) if t.elapsed() < Duration::from_secs(1) => Duration::from_secs(3),
                         Ok(_) => Duration::from_millis(200),
                         Err(e) => {
                             eprintln!("caixa do grupo {g}: {e:#}");
-                            Duration::from_secs(20)
+                            // falhou: tenta depressa da primeira vez, depois mais devagar
+                            erros += 1;
+                            Duration::from_secs((2u64 << erros.min(4)).min(20))
                         }
                     };
                     tokio::time::sleep(pausa).await;
