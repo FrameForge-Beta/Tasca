@@ -49,6 +49,20 @@ fn ids(n: &Node, g: GroupId) -> Vec<[u8; 32]> {
     n.with_store(|s| s.events_since(g, 0).unwrap()).into_iter().map(|(_, e)| e.id()).collect()
 }
 
+/// Escreve no #geral e espera que a mensagem chegue ao servidor e volte (o envio é em
+/// segundo plano).
+async fn escrever(n: &Node, g: GroupId, texto: &str) {
+    n.open_offline(g).unwrap().send_message("geral", texto).await.unwrap();
+    for _ in 0..100 {
+        n.sync_group(g, 0).await.unwrap();
+        if textos(n, g).iter().any(|t| t == texto) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("a mensagem «{texto}» não voltou do grupo");
+}
+
 fn membro(n: &Node, g: GroupId, quem: &Node) -> bool {
     n.with_store(|s| s.is_member(g, &quem.identity().public()).unwrap())
 }
@@ -58,7 +72,7 @@ async fn grupo_sem_dono(srv: &AccountServer) -> (Node, GroupId, Convite) {
     let dono = node(srv).await;
     let g = dono.create_group("Malta", "Tiago").unwrap();
     let h = dono.open_offline(g).unwrap();
-    h.send_message("geral", "primeira").await.unwrap();
+    escrever(&dono, g, "primeira").await;
     let convite = h.criar_convite(0, 0).await.unwrap();
     dono.sync_group(g, 0).await.unwrap();
     assert_eq!(textos(&dono, g), ["primeira"]);
@@ -81,8 +95,8 @@ async fn grupo_funciona_sem_o_dono() {
     assert_eq!(textos(&ana, g), ["primeira"]);
 
     // Conversam: as mensagens ficam logo a valer (não ficam "à espera do anfitrião").
-    ana.open_offline(g).unwrap().send_message("geral", "olá Bruno").await.unwrap();
-    bruno.open_offline(g).unwrap().send_message("geral", "olá Ana").await.unwrap();
+    escrever(&ana, g, "olá Bruno").await;
+    escrever(&bruno, g, "olá Ana").await;
     ana.sync_group(g, 0).await.unwrap();
     bruno.sync_group(g, 0).await.unwrap();
     ana.sync_group(g, 0).await.unwrap();
@@ -151,7 +165,7 @@ async fn banir_troca_a_chave_sem_o_dono() {
     assert!(!membro(&bruno, g, &bruno));
     assert_eq!(bruno.with_store(|s| s.group_key(g).unwrap()).unwrap().0, 0, "o Bruno não recebe a chave nova");
 
-    ana.open_offline(g).unwrap().send_message("geral", "já sem o Bruno").await.unwrap();
+    escrever(&ana, g, "já sem o Bruno").await;
     ana.sync_group(g, 0).await.unwrap();
     assert!(textos(&ana, g).contains(&"já sem o Bruno".to_string()));
     bruno.sync_group(g, 0).await.unwrap();
@@ -211,7 +225,7 @@ async fn depois_de_expulsar_o_convite_antigo_continua_a_servir() {
     dono.sync_group(g, 0).await.unwrap();
     dono.sync_group(g, 0).await.unwrap();
     assert_eq!(dono.with_store(|s| s.group_key(g).unwrap()).unwrap().0, 1);
-    dono.open_offline(g).unwrap().send_message("geral", "segunda").await.unwrap();
+    escrever(&dono, g, "segunda").await;
     dono.sync_group(g, 0).await.unwrap();
     dono.shutdown().await.unwrap();
 

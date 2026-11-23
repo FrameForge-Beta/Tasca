@@ -1324,11 +1324,34 @@ impl GroupHandle {
         if self.inner.has_server() {
             // O grupo vive na caixa: o evento vale quando voltar de lá (todos aplicam as
             // mesmas regras pela mesma ordem). Até lá fica à vista como "a enviar".
+            // Mensagens (e reações, edições...) aparecem logo e vão em segundo plano, com
+            // novas tentativas se a rede falhar; o resto espera pelo envio.
+            let aparece = matches!(self.inner.store().add_pending(self.group, &ev), Ok(true));
+            if aparece {
+                self.inner.evento_novo(self.group, 0, ev.clone());
+                let (inner, g) = (self.inner.clone(), self.group);
+                tokio::spawn(async move {
+                    for espera in [0u64, 2, 5, 10, 20] {
+                        tokio::time::sleep(std::time::Duration::from_secs(espera)).await;
+                        let r = async {
+                            inner.migrar(g).await?;
+                            inner.enviar_item(g, crate::caixa::ItemGrupo::Pedido { event: ev.clone() }, Some(id)).await
+                        }
+                        .await;
+                        match r {
+                            Ok(()) => return,
+                            Err(e) => warn!("mensagem não enviada (vou tentar outra vez): {e:#}"),
+                        }
+                        // já voltou do grupo (ou foi recusada): não há nada a reenviar
+                        if !inner.store().pending(g).unwrap_or_default().iter().any(|p| p.id() == id) {
+                            return;
+                        }
+                    }
+                });
+                return Ok(id);
+            }
             self.inner.migrar(self.group).await?;
             self.inner.enviar_item(self.group, crate::caixa::ItemGrupo::Pedido { event: ev.clone() }, Some(id)).await?;
-            if let Ok(true) = self.inner.store().add_pending(self.group, &ev) {
-                self.inner.evento_novo(self.group, 0, ev);
-            }
             return Ok(id);
         }
         if let Some(send) = &self.remote {
@@ -1689,6 +1712,9 @@ impl Inner {
     /// - em todos, volta a ler a caixa desde o início para aplicar o que ficou à espera.
     async fn migrar(&self, group: GroupId) -> Result<()> {
         use crate::caixa::ItemGrupo;
+        if self.store().migracao_feita_em(group)? {
+            return Ok(());
+        }
         let _vez = self.migracao.lock().await;
         if !self.store().migrar_para_caixa(group)? {
             return Ok(());
@@ -2087,8 +2113,15 @@ impl Node {
         let pendentes = self.inner.store().meus_pendentes(group, &me).unwrap_or_default();
         for ev in pendentes {
             let id = ev.id();
-            let antiga = self.inner.enviados.lock().unwrap().get(&id).is_some_and(|(g, e)| *g == group && *e < epoch);
-            if antiga {
+            let (antiga, nunca) = {
+                let m = self.inner.enviados.lock().unwrap();
+                (
+                    m.get(&id).is_some_and(|(g, e)| *g == group && *e < epoch),
+                    !m.contains_key(&id) && crate::event::now_ms().saturating_sub(ev.body.timestamp_ms) > 45_000,
+                )
+            };
+            // numa caixa que fechou, ou nunca chegou ao servidor (por exemplo, sem rede)
+            if antiga || nunca {
                 let _ = self.inner.enviar_item(group, crate::caixa::ItemGrupo::Pedido { event: ev }, Some(id)).await;
             }
         }

@@ -1549,6 +1549,11 @@ impl Store {
         Ok(true)
     }
 
+    /// O grupo já passou para a caixa.
+    pub fn migracao_feita_em(&self, group: GroupId) -> Result<bool> {
+        Ok(self.estado::<bool>(group, "na_caixa")?.is_some())
+    }
+
     pub fn migracao_feita(&self, group: GroupId) -> Result<()> {
         self.set_estado(group, "na_caixa", &true)
     }
