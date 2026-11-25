@@ -2574,6 +2574,8 @@
       seen.add(String(m.id));
       // a confirmação pode ter chegado antes da resposta do envio: não volta a ficar "a enviar"
       if (confirmadas.has(String(m.id))) m.pending = false;
+      // privadas: o servidor respondeu, está entregue (não há eco das escritas aqui)
+      if (String(channelId).startsWith("dm-")) m.pending = false;
       // se o eco já tinha chegado com o número verdadeiro, fica só esta
       const outra = S.messages.find((x) => x !== m && String(x.id) === String(m.id));
       if (outra) { if (!outra.pending) m.pending = false; S.messages = S.messages.filter((x) => x !== outra); }

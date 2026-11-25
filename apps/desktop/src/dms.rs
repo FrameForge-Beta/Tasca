@@ -156,7 +156,11 @@ impl Conversas {
         // o número desta mensagem não conta como lido: a vigia ainda tem de ler as anteriores
         let _ = seq;
         self.guardar();
-        Ok(Self::msg_json(&m))
+        // o servidor já a guardou: está enviada (a interface não fica à espera de eco, que
+        // nas conversas privadas não vem para as mensagens escritas aqui)
+        let mut v = Self::msg_json(&m);
+        v["pending"] = json!(false);
+        Ok(v)
     }
 
     /// Garante uma vigia (leitura contínua da caixa) para cada amigo, e só para amigos.
