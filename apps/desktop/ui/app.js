@@ -2931,7 +2931,7 @@
     if (!window.TASCA_MOBILE || window.api.isMock) return;
     try {
       if (!appVersion) appVersion = (await window.__TAURI__.core.invoke("app_info")).version;
-      const r = await fetch("https://api.github.com/repos/RubenFernandes2004/Tasca/releases/latest", { headers: { Accept: "application/vnd.github+json" } });
+      const r = await fetch("https://api.github.com/repos/FrameForge-Beta/Tasca/releases/latest", { headers: { Accept: "application/vnd.github+json" } });
       if (!r.ok) throw new Error("HTTP " + r.status);
       const rel = await r.json();
       const latest = String(rel.tag_name || "").replace(/^v/, "");

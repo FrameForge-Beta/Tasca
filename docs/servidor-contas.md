@@ -20,7 +20,7 @@ Chamadas e ficheiros não passam por ele.
 É preciso Docker com o plugin `compose`.
 
 ```sh
-git clone https://github.com/RubenFernandes2004/tasca
+git clone https://github.com/FrameForge-Beta/Tasca
 cd tasca/deploy/servidor
 nano Caddyfile        # troca contas.exemplo.pt pelo teu domínio
 docker compose up -d --build

@@ -65,7 +65,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUxMzgxMEEzQjQzQkE4NEUKUldST3FEdTBveEE0NFJxUW9xbG1uaEJOSWMzb1ZQZ3l6cVYvM3RrdkM3SldmYmtCMkR0UVFsSEIK",
       "endpoints": [
-        "https://github.com/RubenFernandes2004/Tasca/releases/latest/download/latest.json"
+        "https://github.com/FrameForge-Beta/Tasca/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "quiet"

@@ -18,7 +18,7 @@ use tauri::{AppHandle, Manager, State};
 
 type Res<T> = Result<T, String>;
 
-const BASE: &str = "https://raw.githubusercontent.com/RubenFernandes2004/Tasca/main/plugins/";
+const BASE: &str = "https://raw.githubusercontent.com/FrameForge-Beta/Tasca/main/plugins/";
 /// Chave pública da equipa que assina o catálogo.
 const CHAVE_LOJA: &str = "2b5b939fdbad3ee65bec303160c15170773775644e739c387d3031154248a73b";
 const MAX_PLUGIN: usize = 2 * 1024 * 1024;

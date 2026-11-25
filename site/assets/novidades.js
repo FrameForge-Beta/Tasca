@@ -1,7 +1,7 @@
 // Novidades: as alterações aprovadas (pull requests) no GitHub, agrupadas por dia,
 // com as versões publicadas nesse dia.
 (function () {
-  const REPO = "RubenFernandes2004/Tasca";
+  const REPO = "FrameForge-Beta/Tasca";
   const caixa = document.getElementById("linha-tempo");
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const dia = (iso) => iso.slice(0, 10);

@@ -51,7 +51,7 @@ fn app_info(app: AppHandle) -> AppInfo {
 fn abrir_atualizacao(app: AppHandle) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
     app.opener()
-        .open_url("https://github.com/RubenFernandes2004/Tasca/releases/latest/download/Tasca.apk", None::<&str>)
+        .open_url("https://github.com/FrameForge-Beta/Tasca/releases/latest/download/Tasca.apk", None::<&str>)
         .map_err(|e| format!("Não consegui abrir o link da atualização: {e}"))
 }
 
