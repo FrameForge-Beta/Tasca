@@ -8,7 +8,7 @@ A interface (`apps/desktop/ui`) deteta o telemóvel e usa o modo de ecrã estrei
 
 O GitHub Actions cria o APK a cada push para o `main` e junta-o à versão:
 
-    https://github.com/RubenFernandes2004/Tasca/releases/latest/download/Tasca.apk
+    https://github.com/FrameForge-Beta/Tasca/releases/latest/download/Tasca.apk
 
 No telemóvel, ao abrir o APK, o Android pede para permitir instalar apps desta fonte.
 Para atualizar, instala o APK novo por cima (não há atualização silenciosa no Android).

@@ -1,6 +1,6 @@
 // Tasca — código comum do site: topo, rodapé, tema, links de download, galeria e manual.
 (function () {
-  const REPO = "RubenFernandes2004/Tasca";
+  const REPO = "FrameForge-Beta/Tasca";
   const GH = "https://github.com/" + REPO;
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));

@@ -35,7 +35,7 @@ import java.net.URL
  * "a_transferir", "pronto", "permissao", "a_instalar" ou "erro".
  */
 class Atualizador(private val activity: Activity, private val webView: WebView) {
-  private val url = "https://github.com/RubenFernandes2004/Tasca/releases/latest/download/Tasca.apk"
+  private val url = "https://github.com/FrameForge-Beta/Tasca/releases/latest/download/Tasca.apk"
   @Volatile private var aCorrer = false
   @Volatile private var pronto: File? = null
   @Volatile private var aoSair = false
