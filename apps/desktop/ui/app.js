@@ -2572,6 +2572,8 @@
       const r = await api.send_message({ channelId, text: m.text, replyTo: m.replyTo ? m.replyTo.id : undefined, files: m.files });
       Object.assign(m, r, { failed: false });
       seen.add(String(m.id));
+      // a confirmação pode ter chegado antes da resposta do envio: não volta a ficar "a enviar"
+      if (confirmadas.has(String(m.id))) m.pending = false;
       // se o eco já tinha chegado com o número verdadeiro, fica só esta
       const outra = S.messages.find((x) => x !== m && String(x.id) === String(m.id));
       if (outra) { if (!outra.pending) m.pending = false; S.messages = S.messages.filter((x) => x !== outra); }
@@ -2586,6 +2588,9 @@
     }, 25000);
     return localId;
   }
+  // mensagens minhas já confirmadas (para quando a confirmação chega antes da resposta do envio)
+  const confirmadas = new Set();
+  const confirmar = (id) => { if (confirmadas.size > 500) confirmadas.clear(); confirmadas.add(String(id)); };
   api.on("message_failed", ({ channelId, id }) => {
     const m = S.messages.find((x) => x.id === id);
     if (m && channelId === S.channelId) { m.pending = false; m.failed = true; if (S.view === "chat") rerenderKeepInput(); }
@@ -2701,7 +2706,11 @@
       // eco da mensagem que acabaste de escrever aqui, antes de o envio responder:
       // é a que já está na lista (ainda com número provisório), não uma nova
       if (message.from === "me") {
-        const minha = S.messages.find((x) => String(x.id).startsWith("tmp-") && x.from === "me" && (x.text || "") === (message.text || ""));
+        // só se houver uma com este texto: com várias iguais ("oi", "oi") não se sabe qual é,
+        // e fica a do eco até a resposta do envio dizer qual é qual (aí junta-as)
+        const iguais = S.messages.filter((x) => String(x.id).startsWith("tmp-") && x.from === "me" && (x.text || "") === (message.text || ""));
+        const minha = iguais.length === 1 ? iguais[0] : null;
+        if (!message.pending) confirmar(message.id);
         if (minha) { minha.id = message.id; minha.pending = !!message.pending; minha.failed = false; seen.add(String(message.id)); rerenderKeepInput(); return; }
       }
       S.messages.push(message); markRead(channelId); render(); return;
@@ -2769,6 +2778,7 @@
     try { S.people = await api.list_people(); rerenderKeepInput(); } catch (x) { console.warn(x); }
   }, 50));
   api.on("message_ack", ({ channelId, id }) => {
+    confirmar(id);
     const m = S.messages.find((x) => String(x.id) === String(id));
     if (m && channelId === S.channelId) {
       m.pending = false;
