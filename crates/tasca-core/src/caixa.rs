@@ -346,8 +346,9 @@ mod cliente {
 
         /// Guarda um bloco já cifrado.
         pub async fn caixa_enviar_bloco(&self, chave: &ChaveCaixa, bloco: Vec<u8>) -> Result<u64> {
+            // repetir é seguro: o mesmo bloco duas vezes dá o mesmo evento, e quem lê ignora-o
             let r: Escrita = self
-                .send(
+                .send_repetivel(
                     self.http()
                         .post(self.url(&format!("v1/caixas/{}", chave.id_hex())))
                         .bearer_auth(hex::encode(chave.token().as_ref()))

@@ -153,6 +153,11 @@ mod client {
             let porta = base.port_or_known_default().unwrap_or(443);
             let http = crate::http_builder()
                 .timeout(Duration::from_secs(20))
+                // Uma ligação parada muito tempo pode já ter sido fechada pelo router ou pelo
+                // servidor sem aviso: a próxima mensagem ia por ela e perdia-se. Ligações
+                // paradas há mais de 20 s não se reaproveitam, e as abertas vão dando sinal.
+                .pool_idle_timeout(Duration::from_secs(20))
+                .tcp_keepalive(Duration::from_secs(15))
                 .dns_resolver(std::sync::Arc::new(crate::dns::Resolvedor::new(porta)))
                 .build()?;
             Ok(Self { base, http })
@@ -174,6 +179,29 @@ mod client {
         /// Envia o pedido e converte erros do servidor em texto.
         pub(crate) async fn send(&self, rb: reqwest::RequestBuilder) -> Result<reqwest::Response> {
             Self::check(rb.send().await.map_err(net)?).await
+        }
+
+        /// Como `send`, mas se o pedido nem chegar a ter resposta (ligação velha que já
+        /// estava fechada, rede a acordar…) tenta outra vez numa ligação nova. Só para
+        /// pedidos que podem repetir-se sem mal (o servidor/quem lê ignora repetidos).
+        pub(crate) async fn send_repetivel(&self, rb: reqwest::RequestBuilder) -> Result<reqwest::Response> {
+            // 1.ª tentativa curta: numa ligação boa a resposta chega em milissegundos
+            let tempos = [Duration::from_secs(6), Duration::from_secs(12)];
+            let mut erro = None;
+            for (i, t) in tempos.iter().enumerate() {
+                let Some(pedido) = rb.try_clone() else { break };
+                match pedido.timeout(*t).send().await {
+                    Ok(resp) => return Self::check(resp).await,
+                    Err(e) => {
+                        tracing::warn!("pedido ao servidor falhou (tentativa {}): {e:?}", i + 1);
+                        erro = Some(e);
+                    }
+                }
+            }
+            match erro {
+                Some(e) => Err(net(e)),
+                None => self.send(rb).await,
+            }
         }
 
         pub(crate) fn url(&self, path: &str) -> url::Url {
@@ -367,4 +395,34 @@ mod tests {
         assert_eq!(*a, *b);
         assert_ne!(*a, *c);
     }
+
+    /// A primeira ligação morre sem responder (como uma ligação velha que o router já
+    /// fechou): a mensagem tem de seguir à mesma, por uma ligação nova, sem erro.
+    #[cfg(feature = "servidor")]
+    #[tokio::test]
+    async fn envio_sobrevive_a_ligacao_morta() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let porta = l.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let mut n = 0;
+            loop {
+                let (mut s, _) = l.accept().await.unwrap();
+                n += 1;
+                let mut buf = vec![0u8; 64 * 1024];
+                let _ = s.read(&mut buf).await;
+                if n == 1 {
+                    drop(s); // fecha sem responder
+                    continue;
+                }
+                let corpo = r#"{"seq":7}"#;
+                let r = format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{corpo}", corpo.len());
+                let _ = s.write_all(r.as_bytes()).await;
+            }
+        });
+        let srv = AccountServer::new(&format!("http://127.0.0.1:{porta}")).unwrap();
+        let chave = crate::caixa::ChaveCaixa::from_bytes([9; 32]);
+        assert_eq!(srv.caixa_enviar_bloco(&chave, vec![1, 2, 3]).await.unwrap(), 7);
+    }
+
 }
