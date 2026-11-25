@@ -2566,6 +2566,8 @@
   async function trySend(channelId, m) {
     m.pending = true; m.failed = false;
     const localId = m.id;
+    // cada tentativa tem o seu prazo: o de uma tentativa antiga não marca a nova como falhada
+    const vez = (m.tentativa = (m.tentativa || 0) + 1);
     try {
       const r = await api.send_message({ channelId, text: m.text, replyTo: m.replyTo ? m.replyTo.id : undefined, files: m.files });
       Object.assign(m, r, { failed: false });
@@ -2580,8 +2582,8 @@
     }
     if (S.view === "chat") rerenderKeepInput();
     setTimeout(() => {
-      if (m.pending && !m.failed) { m.pending = false; m.failed = true; if (S.view === "chat") rerenderKeepInput(); }
-    }, 20000);
+      if (m.tentativa === vez && m.pending && !m.failed) { m.pending = false; m.failed = true; if (S.view === "chat") rerenderKeepInput(); }
+    }, 25000);
     return localId;
   }
   api.on("message_failed", ({ channelId, id }) => {
